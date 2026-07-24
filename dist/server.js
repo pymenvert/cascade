@@ -399,6 +399,7 @@ function openOscInSocket() {
 const CARABINER_PORT = 17000;
 const link = { active: false, connected: false, bpm: 0, peers: 0, error: null };
 let linkSock = null, linkChild = null, linkRetry = null, linkBuf = '';
+let linkFailStreak = 0; // reconnexions successives après une connexion réussie
 
 function carabinerPath() {
   const bin = process.platform === 'win32' ? 'carabiner.exe' : 'carabiner';
@@ -439,7 +440,7 @@ function linkConnect(attempt) {
   sock.setNoDelay(true);
   linkBuf = '';
   sock.on('connect', () => {
-    link.connected = true; link.error = null; sock._ok = true;
+    link.connected = true; link.error = null; sock._ok = true; sock._since = Date.now();
     sock.write('status\n'); // ensuite Carabiner pousse les mises à jour tout seul
   });
   sock.on('data', (d) => {
@@ -462,7 +463,18 @@ function linkConnect(attempt) {
     const canRetry = spawnCarabiner();
     const n = sock._ok ? 1 : (attempt || 0) + 1; // connexion perdue : on repart de zéro
     if (canRetry && n <= 20) {
-      linkRetry = setTimeout(() => linkConnect(n), 700);
+      // Si Carabiner s'était connecté puis a lâché, on retente indéfiniment
+      // (coupure réseau passagère) — mais avec un délai qui s'allonge, sinon
+      // un Carabiner qui plante en boucle ferait tourner le CPU pendant le show.
+      // Seule une liaison qui a TENU (10 s) remet le compteur à zéro : sans ça,
+      // un cycle connexion/chute immédiate garderait un délai de 700 ms à vie.
+      let delai = 700;
+      if (sock._ok) {
+        const stable = Date.now() - (sock._since || 0) > 10000;
+        linkFailStreak = stable ? 0 : linkFailStreak + 1;
+        delai = Math.min(5000, 700 * Math.pow(1.6, Math.min(6, linkFailStreak)));
+      }
+      linkRetry = setTimeout(() => linkConnect(n), delai);
     } else if (canRetry) {
       link.error = 'Carabiner injoignable (port ' + CARABINER_PORT + ').';
       setLinkActive(false, true);

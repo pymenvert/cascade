@@ -562,7 +562,10 @@ function render() {
     S.layers.forEach(l => {
       const c = document.createElement('div');
       c.className = 'chip' + (l.id === selId ? ' sel' : '') + (l.enabled ? '' : ' off');
-      c.innerHTML = `<input type="checkbox" ${l.enabled ? 'checked' : ''}><span>${l.name}</span>`;
+      // Idem : le nom de couche est saisi par l'utilisateur ou lu dans un
+      // fichier projet — il est posé en texte, jamais interprété comme du HTML.
+      c.innerHTML = `<input type="checkbox" ${l.enabled ? 'checked' : ''}><span></span>`;
+      c.querySelector('span').textContent = l.name;
       c.querySelector('input').onchange = ev => post('/api/layer', { id: l.id, set: { enabled: ev.target.checked } }).then(poll);
       c.querySelector('span').onclick = () => { selId = l.id; chips.dataset.sig = ''; render(); };
       onDblTap(c.querySelector('span'), ev => {
@@ -706,7 +709,9 @@ function setSlider(selr, val, fmt) {
   const el = $(selr);
   if (document.activeElement !== el) el.value = val;
   const out = el.parentElement.querySelector('output');
-  if (out) out.textContent = fmt(el.value);
+  // el.value est une CHAÎNE : on la repasse en nombre, sinon les formateurs
+  // qui comparent (v === 1, v > 0…) tombent systématiquement à faux.
+  if (out) out.textContent = fmt(+el.value);
 }
 
 function renderFixtures() {
@@ -718,11 +723,16 @@ function renderFixtures() {
   S.fixtures.forEach((f, i) => {
     const li = document.createElement('li');
     li.className = f.enabled === false ? 'disabled' : '';
+    // Le gabarit ne contient AUCUNE donnée : nom et adresse viennent d'un
+    // fichier projet ou de MadMapper, donc jamais par innerHTML (injection HTML).
     li.innerHTML = `
       <input type="checkbox" ${f.enabled !== false ? 'checked' : ''} title="Actif">
-      <span class="name" title="${f.address}">${f.name}</span>
+      <span class="name"></span>
       <button title="Monter">▲</button><button title="Descendre">▼</button>
       <button title="Flash test">⚡</button><button title="Supprimer">✕</button>`;
+    const nom = li.querySelector('.name');
+    nom.textContent = f.name;
+    nom.title = f.address;
     const [chk] = li.getElementsByTagName('input');
     const [up, down, test, del] = li.getElementsByTagName('button');
     chk.onchange = () => { f.enabled = chk.checked; pushFixtures(); };

@@ -4,7 +4,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-1.3.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-55-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-1.3.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-68-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -118,11 +118,11 @@ Le préfixe historique `/chaser/…` reste accepté.
 ## Développement
 
 ```bash
-npm test        # 55 tests d'intégration, sans aucune dépendance
+npm test        # 68 tests, sans aucune dépendance
 node build.js   # exécutables des 4 plateformes → build/
 ```
 
-Les tests lancent de **vrais** serveurs Cascade et vérifient l'OSC **réellement émis** vers un faux MadMapper. Ils couvrent le moteur, l'API HTTP, l'OSC entrant, la persistance et la résistance aux données hostiles.
+Les tests lancent de **vrais** serveurs Cascade et vérifient l'OSC **réellement émis** vers un faux MadMapper. Ils couvrent le moteur, l'API HTTP, l'OSC entrant, la persistance, la résistance aux données hostiles, la charge (8 couches × 128 barres) et des garde-fous de source contre le retour des défauts corrigés.
 
 - [`docs/ETAT-DU-PROJET.md`](docs/ETAT-DU-PROJET.md) — architecture, sémantique des paramètres, API MadMapper et Carabiner déjà établies, pièges connus.
 - [`docs/AUDIT.md`](docs/AUDIT.md) — audit technique complet (fiabilité, sécurité, performance, maintenabilité).

@@ -28,8 +28,10 @@ lumière, fiabilité renforcée, exécutables autonomes.
   Générateur maison en pur JavaScript/SVG (zéro dépendance).
 - **Exécutables portables** pour Windows, macOS (Intel et Apple Silicon) et
   Linux — `node build.js`. Plus besoin d'installer Node.
-- **Suite de tests automatisés** (`npm test`, 52 tests) — sans aucune
+- **Suite de tests automatisés** (`npm test`, 68 tests) — sans aucune
   dépendance : lance de vrais serveurs et vérifie l'OSC réellement émis.
+  Inclut charge et endurance (8 couches × 128 barres) et des garde-fous de
+  source contre le retour des défauts corrigés.
 - Nouvelles adresses OSC entrantes : `layer/N/floor|phase|swing|blocks|sparkle|oneshot`
   et `layer/N/go` (alias de `resync`).
 - Variables d'environnement `CASCADE_PORT`, `CASCADE_CONFIG`, `CASCADE_OSCIN`,
@@ -38,6 +40,11 @@ lumière, fiabilité renforcée, exécutables autonomes.
 
 ### Corrigé
 
+- **Injection HTML par les noms** (sécurité) — un nom de fixture, une adresse
+  OSC ou un nom de couche contenant du HTML était inséré tel quel dans la page.
+  Le vecteur réaliste est le **fichier projet** que l'on s'échange entre
+  régisseurs. Tout passe désormais par du texte ; un test relit le source et
+  échoue si l'injection réapparaît.
 - **Changer le paramètre de sortie ne prenait pas effet** sur les fixtures dont
   le niveau n'avait pas bougé : le cache d'envoi n'était pas invalidé. Le cache
   est aussi vidé au START, qui réaffirme donc toujours l'état complet.
@@ -59,6 +66,13 @@ lumière, fiabilité renforcée, exécutables autonomes.
 - Le fichier exporté porte le nom du projet au lieu de `chaser-projet.json`.
 - Un fichier `chaser-config.json` traînant à côté de l'application ne peut plus
   écraser silencieusement une configuration explicitement demandée.
+- Les valeurs affichées à côté des curseurs recevaient une chaîne au lieu d'un
+  nombre : « 1 blocs » au lieu de « 1 (entier) », et les états neutres
+  (« droit », « noir », « — ») ne s'affichaient jamais.
+- La reconnexion à Ableton Link retentait toutes les 700 ms sans fin ; un
+  Carabiner en boucle de plantage aurait consommé du processeur pendant un show.
+  Le délai s'allonge maintenant jusqu'à 5 s, et seule une liaison stable
+  (10 s) remet le compteur à zéro.
 
 ### Modifié
 
