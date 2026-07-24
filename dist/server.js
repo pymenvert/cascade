@@ -781,6 +781,11 @@ function stepValues(L, list, now) {
   if (e.stepDur > 0 && Math.abs(e.stepDur - stepDur) > 0.001) {
     const oldFloat = (now - e.startTime) / e.stepDur;
     e.startTime = now - oldFloat * stepDur; // tempo changé : phase préservée
+    // Les enveloppes en cours sont datées sur l'ANCIENNE échelle : sans les
+    // remettre à l'échelle, accélérer le tempo rend une barre « trop vieille »
+    // que son enveloppe raccourcie, et elle s'éteint le temps d'un pas.
+    const ratio = stepDur / e.stepDur;
+    for (const [id, t] of e.triggers) e.triggers.set(id, now - (now - t) * ratio);
   }
   e.stepDur = stepDur;
 

@@ -99,7 +99,7 @@ vérifié en réintroduisant volontairement la faille.
 libellé venant du serveur) se pose par `textContent` ou `title`, jamais par
 `innerHTML`.
 
-### Tests — `npm test` (68 tests, zéro dépendance)
+### Tests — `npm test` (71 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**

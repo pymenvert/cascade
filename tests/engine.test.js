@@ -242,18 +242,54 @@ describe('Moteur', () => {
 
   test('changer le tempo en direct ne provoque ni rafale ni trou', async () => {
     await reset();
-    await setL({ stepMs: 200, mode: 'onoff', pattern: 'all' });
+    // Motif défilant : bar0 s'allume une fois par tour de 4 pas — c'est
+    // mesurable, contrairement à « tous » où la barre reste allumée en continu.
+    await setL({ stepMs: 200, mode: 'onoff', pattern: 'lr', width: 1 });
     await h.post('/api/start');
-    await sleep(300);
+    await sleep(500);
     h.clearOsc();
     await setL({ stepMs: 100 });        // tempo doublé en plein show
-    await sleep(400);
+    await sleep(1000);                  // 10 pas = 2,5 tours à 4 barres
     const msgs = h.osc();
     await h.post('/api/stop');
     const allumages = msgs.filter(m => /bar0\/luminosity$/.test(m.address) && m.args[0] > 0.5).length;
-    // ~4 pas en 400 ms : ni 0 (moteur figé) ni 40 (rafale)
-    assert.ok(allumages >= 2 && allumages <= 10, 'allumages attendus entre 2 et 10, vu ' + allumages);
+    // Attendu : 2 à 3 allumages (un tour = 400 ms). 0 = moteur figé, >6 = rafale.
+    assert.ok(allumages >= 2 && allumages <= 6,
+      'allumages de bar0 attendus entre 2 et 6, vu ' + allumages);
   });
+
+  // Régression : les enveloppes en cours étaient datées sur l'ANCIENNE échelle
+  // de temps. En accélérant, une barre devenait « trop vieille » pour son
+  // enveloppe raccourcie et s'éteignait le temps d'un pas — un clignotement
+  // visible à chaque TAP, ÷2, ×2 ou dérive de BPM Link.
+  for (const [nom, base] of [
+    ['ON/OFF', { mode: 'onoff', width: 1 }],
+    ['ON/OFF tenue 2', { mode: 'onoff', width: 2 }],
+    ['fondu', { mode: 'fade', width: 1, fadeInPct: 10, fadeOutPct: 50 }],
+  ]) {
+    test(`malmener le tempo n’éteint aucune barre (${nom})`, async () => {
+      await reset();
+      // « tous » : toutes les barres restent allumées en continu, donc tout
+      // zéro émis est forcément un trou et pas le motif qui défile.
+      await setL({ pattern: 'all', stepMs: 300, ...base });
+      await h.post('/api/blackout');
+      await sleep(80);
+      await h.post('/api/start');
+      await sleep(500);
+      h.clearOsc();
+      let creux = [];
+      for (const ms of [150, 90, 260, 120, 200, 70, 310, 100, 180, 60]) {
+        await setL({ stepMs: ms });
+        await sleep(160);
+        creux = creux.concat(h.osc().filter(m => /luminosity$/.test(m.address) && m.args[0] === 0));
+        h.clearOsc();
+      }
+      await h.post('/api/stop');
+      assert.equal(creux.length, 0,
+        creux.length + ' extinction(s) pendant les changements de tempo : '
+        + JSON.stringify(creux.slice(0, 3)));
+    });
+  }
 
   test('le paramètre de sortie est respecté (dimmer au lieu de luminosity)', async () => {
     await reset();
@@ -306,7 +342,11 @@ describe('Moteur', () => {
       }
     }
     await h.post('/api/stop');
-    const bad = h.osc().filter(m => !Number.isFinite(m.args[0]) || m.args[0] < 0 || m.args[0] > 1);
+    // On ne regarde que les valeurs envoyées aux fixtures : les interrogations
+    // périodiques de MadMapper (/getControl…) n'ont pas d'argument.
+    const bad = h.osc()
+      .filter(m => /^\/fixtures\//.test(m.address))
+      .filter(m => !Number.isFinite(m.args[0]) || m.args[0] < 0 || m.args[0] > 1);
     assert.equal(bad.length, 0, 'valeurs hors [0,1] : ' + JSON.stringify(bad.slice(0, 3)));
     await setL({ mirrorH: false, mirrorV: false });
   });

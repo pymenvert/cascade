@@ -28,7 +28,7 @@ lumière, fiabilité renforcée, exécutables autonomes.
   Générateur maison en pur JavaScript/SVG (zéro dépendance).
 - **Exécutables portables** pour Windows, macOS (Intel et Apple Silicon) et
   Linux — `node build.js`. Plus besoin d'installer Node.
-- **Suite de tests automatisés** (`npm test`, 68 tests) — sans aucune
+- **Suite de tests automatisés** (`npm test`, 71 tests) — sans aucune
   dépendance : lance de vrais serveurs et vérifie l'OSC réellement émis.
   Inclut charge et endurance (8 couches × 128 barres) et des garde-fous de
   source contre le retour des défauts corrigés.
@@ -56,6 +56,12 @@ lumière, fiabilité renforcée, exécutables autonomes.
 - **La configuration lue au démarrage n'était pas validée** : un fichier
   corrompu pouvait injecter des couches invalides dans le moteur. Tout ce qui
   vient du disque passe maintenant par les mêmes contrôles que l'API.
+- **Les barres clignotaient à chaque changement de tempo.** Les fondus en cours
+  restaient datés sur l'ancienne échelle de temps : en accélérant, une barre
+  devenait « trop vieille » pour son enveloppe raccourcie et s'éteignait le
+  temps d'un pas. Visible à chaque TAP, ÷2, ×2 et à chaque dérive de BPM
+  Ableton Link. Mesuré : 32 extinctions sur 30 changements de tempo avant
+  correction, aucune après.
 - **Une mise en veille de l'ordinateur** faisait rejouer des dizaines de
   milliers de pas d'un coup au réveil (interface figée). Le moteur repart
   désormais du pas courant.
