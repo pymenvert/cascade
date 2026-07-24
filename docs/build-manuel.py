@@ -1,0 +1,461 @@
+# -*- coding: utf-8 -*-
+"""
+Génère « Cascade - Manuel.pdf » (manuel utilisateur).
+Usage :  python3 build-manuel.py [dossier_sortie]
+Dépendances : reportlab + polices DejaVu (paquet fonts-dejavu).
+ATTENTION aux caractères : les polices utilisées n'ont ni les exposants/indices
+Unicode, ni les symboles ⏻ (U+23FB), ⧉ (U+29C9), ⚠ (U+26A0), ✔ (U+2714) — ils
+sortiraient en carrés vides. Écrire les mots (« bouton Quitter », « Attention : »).
+Sont sûrs : → ← ↑ ↓ • — – × ÷ ° − « » “ ” …
+"""
+import sys, os
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.lib.colors import HexColor
+from reportlab.lib.enums import TA_CENTER
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
+                                Spacer, Table, TableStyle, HRFlowable, PageBreak,
+                                Preformatted, KeepTogether)
+from reportlab.lib.styles import ParagraphStyle
+
+VERSION = "1.3"
+ORANGE = HexColor("#E8890B")
+DARK = HexColor("#33333B")
+GREY = HexColor("#6A6A74")
+LIGHT = HexColor("#F2F3F7")
+BORD = HexColor("#D8DAE2")
+
+# Polices : DejaVu si présentes (Linux, macOS via Homebrew), sinon les polices
+# système Windows, sinon celles fournies avec reportlab. Le manuel se génère
+# ainsi sur n'importe quelle machine sans rien installer de plus.
+import os, glob
+
+
+def _families():
+    """Jeux de 4 fichiers (normal, gras, italique, chasse fixe), par ordre de préférence."""
+    dejavu_dirs = [
+        "/usr/share/fonts/truetype/dejavu/",
+        "/usr/local/share/fonts/dejavu/",
+        "/opt/homebrew/share/fonts/",
+        "/Library/Fonts/",
+    ]
+    for d in dejavu_dirs:
+        f = [d + n for n in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf",
+                             "DejaVuSans-Oblique.ttf", "DejaVuSansMono.ttf")]
+        if all(os.path.exists(x) for x in f):
+            yield f
+    win = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    for quatuor in (("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "consola.ttf"),
+                    ("arial.ttf", "arialbd.ttf", "ariali.ttf", "cour.ttf")):
+        f = [os.path.join(win, n) for n in quatuor]
+        if all(os.path.exists(x) for x in f):
+            yield f
+    import reportlab
+    rl = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+    f = [os.path.join(rl, n) for n in ("Vera.ttf", "VeraBd.ttf", "VeraIt.ttf", "VeraMono.ttf")]
+    if all(os.path.exists(x) for x in f):
+        yield f
+
+
+for _f in _families():
+    try:
+        pdfmetrics.registerFont(TTFont("DV", _f[0]))
+        pdfmetrics.registerFont(TTFont("DV-B", _f[1]))
+        pdfmetrics.registerFont(TTFont("DV-O", _f[2]))
+        pdfmetrics.registerFont(TTFont("DV-M", _f[3]))
+        print("Polices :", os.path.basename(_f[0]))
+        break
+    except Exception as e:
+        continue
+else:
+    raise SystemExit("Aucune police utilisable trouvée (DejaVu, polices Windows, ou reportlab).")
+
+S = {
+    "h1": ParagraphStyle("h1", fontName="DV-B", fontSize=17, textColor=DARK,
+                         spaceBefore=16, spaceAfter=8, leading=21),
+    "h2": ParagraphStyle("h2", fontName="DV-B", fontSize=12.5, textColor=ORANGE,
+                         spaceBefore=11, spaceAfter=5, leading=16),
+    "p": ParagraphStyle("p", fontName="DV", fontSize=10, textColor=DARK,
+                        leading=14.5, spaceAfter=6),
+    "li": ParagraphStyle("li", fontName="DV", fontSize=10, textColor=DARK,
+                         leading=14.5, spaceAfter=3, leftIndent=14, bulletIndent=4),
+    "note": ParagraphStyle("note", fontName="DV-O", fontSize=9, textColor=GREY,
+                           leading=13, spaceAfter=6),
+    "code": ParagraphStyle("code", fontName="DV-M", fontSize=8.5, textColor=DARK,
+                           leading=13, backColor=LIGHT, borderColor=BORD,
+                           borderWidth=0.7, borderPadding=7, spaceAfter=8),
+    "tc": ParagraphStyle("tc", fontName="DV", fontSize=9.3, textColor=DARK, leading=13),
+    "tch": ParagraphStyle("tch", fontName="DV-B", fontSize=9.3, textColor=DARK, leading=13),
+    "title": ParagraphStyle("title", fontName="DV-B", fontSize=30, textColor=DARK,
+                            alignment=TA_CENTER, leading=36),
+    "subtitle": ParagraphStyle("subtitle", fontName="DV-B", fontSize=16, textColor=ORANGE,
+                               alignment=TA_CENTER, leading=22),
+    "center": ParagraphStyle("center", fontName="DV", fontSize=11.5, textColor=DARK,
+                             alignment=TA_CENTER, leading=16),
+    "sig": ParagraphStyle("sig", fontName="DV-B", fontSize=11.5, textColor=ORANGE,
+                          alignment=TA_CENTER, leading=16),
+}
+
+def h1(t): return Paragraph(t, S["h1"])
+def h2(t): return Paragraph(t, S["h2"])
+def p(t): return Paragraph(t, S["p"])
+def note(t): return Paragraph(t, S["note"])
+def li(t): return Paragraph(t, S["li"], bulletText="•")
+def code(t): return Preformatted(t, S["code"])
+def rule(w=90):
+    return HRFlowable(width=w * mm, thickness=1.6, color=ORANGE, spaceBefore=4,
+                      spaceAfter=4, hAlign="CENTER")
+
+def footer(canvas, doc):
+    canvas.saveState()
+    canvas.setFont("DV", 7.5)
+    canvas.setFillColor(GREY)
+    canvas.drawString(20 * mm, 12 * mm,
+                      "Cascade v%s — Pierre-Yves Mansour · Collectif WSK" % VERSION)
+    canvas.drawRightString(190 * mm, 12 * mm, str(canvas.getPageNumber()))
+    canvas.restoreState()
+
+out_dir = sys.argv[1] if len(sys.argv) > 1 else "."
+out = os.path.join(out_dir, "Cascade - Manuel.pdf")
+doc = BaseDocTemplate(out, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
+                      topMargin=18 * mm, bottomMargin=20 * mm,
+                      title="Cascade — manuel", author="Pierre-Yves Mansour — Collectif WSK")
+doc.addPageTemplates([PageTemplate(id="page", frames=[
+    Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")],
+    onPage=footer)])
+
+E = []
+
+# ── Page de titre ────────────────────────────────────────────────────────────
+E += [Spacer(1, 62 * mm),
+      Paragraph("CASCADE", S["title"]),
+      Spacer(1, 3 * mm),
+      Paragraph("séquenceur LED pour MadMapper", S["subtitle"]),
+      Spacer(1, 12 * mm),
+      Paragraph("Séquenceur LED multi-couches — chases, vagues, couleur,<br/>"
+                "presets, Ableton Link, contrôle MIDI et OSC", S["center"]),
+      Spacer(1, 28 * mm),
+      rule(),
+      Spacer(1, 4 * mm),
+      Paragraph("Version %s" % VERSION, S["center"]),
+      Spacer(1, 2 * mm),
+      Paragraph("Pierre-Yves Mansour — Collectif WSK", S["sig"]),
+      PageBreak()]
+
+# ── 1. Présentation ──────────────────────────────────────────────────────────
+E += [h1("1. Présentation"),
+      p("Cascade pilote l'intensité et la couleur de vos fixtures DMX (barres LED, projecteurs) "
+        "directement dans MadMapper, via OSC. Vous créez des chases configurables — direction, "
+        "miroirs, courbes, tempo — depuis une page web utilisable sur l'ordinateur, une tablette "
+        "ou un iPad du même réseau."),
+      p("L'application est adaptative : à chaque nouveau setup, un scan récupère les fixtures du "
+        "projet MadMapper, et l'import de géométrie les place automatiquement (position, rotation) "
+        "dans la vue spatiale. Jusqu'à 8 séquenceurs (« couches ») tournent en parallèle, mixés "
+        "entre eux. Le tempo peut suivre la musique en direct via Ableton Link (Pulse, Ableton Live…)."),
+
+# ── 2. Installation ──────────────────────────────────────────────────────────
+      h1("2. Installation"),
+      h2("2.0 — L'exécutable autonome (le plus simple)"),
+      p("Cascade existe aussi en un seul fichier, sans rien à installer : Cascade-windows-x64.exe, "
+        "Cascade-macos-apple-silicon, Cascade-macos-intel ou Cascade-linux-x64. Posez-le où vous "
+        "voulez et double-cliquez : le moteur est déjà dedans. La configuration s'écrit dans un "
+        "fichier cascade-config.json À CÔTÉ de l'exécutable — mettez le tout sur une clé USB et "
+        "votre régie vous suit de salle en salle."),
+      li("Sur Mac et Linux, la première fois, dans un Terminal ouvert sur le dossier : "
+         "xattr -cr <nom du fichier> puis chmod +x <nom du fichier>. Les binaires ne sont pas "
+         "signés ; sans cela, macOS annonce à tort un « fichier endommagé »."),
+      li("Seule différence avec les lanceurs : Ableton Link demande le module Carabiner dans un "
+         "sous-dossier runtime/ à côté de l'exécutable. Sans lui, tout le reste fonctionne "
+         "normalement ; seul le bouton Link reste inactif."),
+      note("Les lanceurs .bat et .command décrits ci-dessous restent parfaitement valables — ils "
+           "installent Carabiner automatiquement. Choisissez l'un OU l'autre."),
+      h2("2.1 — Windows (PC)"),
+      li("Double-cliquer sur « Cascade - PC.bat »."),
+      li("Au tout premier lancement, une fenêtre d'installation s'affiche : le moteur "
+         "(Node.js portable, ~30 Mo) et le module Ableton Link (~2 Mo) se téléchargent "
+         "dans le dossier runtime/. C'est la seule fois où une fenêtre noire apparaît."),
+      li("Ensuite, Cascade se lance comme un vrai logiciel : aucune fenêtre de serveur, "
+         "l'interface s'ouvre dans sa propre fenêtre (sans barre d'adresse)."),
+      li("Si Windows demande une autorisation pare-feu : cocher réseaux privés (nécessaire "
+         "pour l'iPad et pour l'OSC)."),
+      h2("2.2 — Mac"),
+      li("Double-cliquer sur « Cascade - Mac.command »."),
+      li("Premier lancement : clic droit sur le fichier → Ouvrir (Gatekeeper), une seule fois."),
+      li("Si le fichier refuse de s'exécuter après un transfert : dans le Terminal, "
+         "chmod +x \"Cascade - Mac.command\" (voir aussi le LISEZ-MOI)."),
+      li("Le moteur portable se télécharge de la même façon au premier lancement (Intel et "
+         "Apple Silicon). La fenêtre Terminal se referme ensuite toute seule."),
+      h2("2.3 — Quitter Cascade"),
+      li("Bouton Quitter (symbole d'alimentation, en haut à droite) : un dialogue confirme, rappelle l'état "
+         "de sauvegarde et propose d'exporter le projet."),
+      li("Ou fermer simplement la fenêtre : le serveur s'arrête tout seul quelques secondes après."),
+      li("Exception volontaire : si les chasers TOURNENT, fermer la fenêtre ne coupe pas le "
+         "show — Cascade continue en arrière-plan, et relancer le lanceur rouvre la fenêtre."),
+      h2("2.4 — Réglages MadMapper (une seule fois)"),
+      li("Dans MadMapper : Préférences → OSC → activer l'entrée OSC (port 8000) et le feedback "
+         "(port 9000)."),
+      li("Si MadMapper tourne sur une autre machine : mettre son adresse IP dans l'app (bouton "
+         "réglages en haut à droite)."),
+      li("Le paramètre d'intensité par défaut est luminosity (fixtures DMX). Pour des surfaces "
+         "vidéo, mettre opacity dans les réglages. En cas de doute : bouton Diagnostic."),
+      h2("2.5 — iPad / tablette / téléphone"),
+      li("Le plus rapide : cliquer le bouton QR en haut de l'interface et scanner le code avec "
+         "l'appareil photo de l'iPad. C'est tout."),
+      li("Sinon : ouvrir Safari (ou Chrome) et taper http://IP-de-l'ordinateur:3333 (l'IP "
+         "s'affiche en haut de l'interface, ex. 192.168.1.20)."),
+      li("Astuce : Partager → Sur l'écran d'accueil transforme la page en app plein écran."),
+      li("Tout est tactile : glisser les barres, double-taper pour pivoter ou réinitialiser un réglage."),
+      li("L'iPad et l'ordinateur doivent être sur le même réseau Wi-Fi. Le MIDI, lui, se branche "
+         "sur l'ordinateur (Chrome/Edge), pas sur l'iPad. Tant qu'un iPad est connecté, fermer "
+         "la fenêtre de l'ordinateur n'arrête pas Cascade."),
+
+# ── 3. Premiers pas ──────────────────────────────────────────────────────────
+      h1("3. Premiers pas"),
+      li("Scanner (panneau Fixtures) : récupère automatiquement les fixtures du projet "
+         "MadMapper ouvert."),
+      li("Importer depuis MadMapper (vue spatiale) : lit la position et la rotation réelles de "
+         "chaque barre et reproduit la scéno dans la vue."),
+      li("Ordre = position G→D : cale l'ordre du chase sur le placement physique."),
+      li("Le bouton éclair à côté d'une fixture la flashe sur scène pour l'identifier."),
+      li("START — et c'est parti. STOP relâche le contrôle (MadMapper garde le dernier état) ; "
+         "BLACKOUT éteint. La préview et la vue spatiale montrent le rendu en temps réel."),
+      note("Si rien ne bouge sur scène : bouton Diagnostic (panneau Fixtures). Il interroge "
+           "MadMapper, liste les contrôles réels de la fixture et corrige automatiquement le "
+           "nom du paramètre d'intensité."),
+      h2("3.1 — Le voyant MadMapper"),
+      p("En haut de l'interface, à côté du titre, une pastille indique en permanence si "
+        "MadMapper répond. Verte : la liaison est établie, tout va bien. Rouge « MadMapper ? » : "
+        "Cascade envoie ses messages mais personne ne répond — survolez la pastille, l'infobulle "
+        "liste quoi vérifier (application lancée, ports OSC des préférences, adresse IP). "
+        "Prenez le réflexe de la regarder avant chaque service : c'est trente secondes gagnées "
+        "sur la cause la plus fréquente de « rien ne s'allume »."),
+      note("Les messages OSC partent « à l'aveugle » (UDP, sans accusé de réception) : sans ce "
+           "voyant, une adresse ou un port erroné ne produit aucune erreur visible."),
+      h2("3.2 — Connecter un iPad en dix secondes"),
+      p("Cliquez le bouton QR en haut de l'interface : un QR code apparaît. Scannez-le avec "
+        "l'appareil photo de l'iPad ou du téléphone, connecté au MÊME Wi-Fi que l'ordinateur — "
+        "l'interface s'ouvre dans son navigateur. Si l'ordinateur a plusieurs cartes réseau, "
+        "de petits boutons permettent de choisir l'adresse."),
+      note("Il n'y a pas de mot de passe : toute personne sur le même réseau peut piloter le "
+           "show. En festival ou en salle partagée, utilisez un point d'accès Wi-Fi dédié."),
+
+# ── 4. Les couches ───────────────────────────────────────────────────────────
+      h1("4. Les couches (multi-chasers)"),
+      p("Les pastilles en haut du panneau central listent les couches : la case active/désactive, "
+        "cliquer le nom édite la couche, double-cliquer la renomme, + en ajoute (max 8), − supprime "
+        "la couche sélectionnée. Chaque couche est un séquenceur complet et indépendant ; les "
+        "couches d'intensité sont mixées « la plus lumineuse gagne » (HTP)."),
+      h2("4.1 — Moteur"),
+      li("Pas à pas : chase classique — les barres se déclenchent pas après pas."),
+      li("Vague : onde continue (sinus, triangle ou carré) qui glisse sur les positions réelles "
+         "des barres. « Pas par cycle » règle la durée d'un cycle, « Largeur de vague » "
+         "l'étalement de l'onde."),
+      h2("4.2 — Cible"),
+      li("Intensité : la couche pilote la luminosité des barres."),
+      li("Couleur : un dégradé entre deux couleurs (A → B) voyage sur les barres via les canaux "
+         "RGB. S'il n'y a que des couches couleur, l'intensité est maintenue au master pour "
+         "rester visible."),
+      h2("4.3 — Patterns"),
+      li("Pas à pas : G›D, D›G, ping-pong, aléatoire, pair/impair, tous (tous = pulse global "
+         "avec un fade)."),
+      li("Vague : G›D, D›G, H›B, B›H, pulse (respiration commune) et radial (onde circulaire "
+         "depuis le point des axes)."),
+      h2("4.4 — Miroirs et axes"),
+      p("Les miroirs se superposent à n'importe quel pattern. Miroir G/D reflète autour d'un axe "
+        "vertical, Miroir H/B autour d'un axe horizontal ; les deux ensemble donnent une symétrie "
+        "centrale. Chaque axe se déplace au curseur et s'affiche en pointillés dans la vue "
+        "spatiale. Les reflets sont calculés sur les positions réelles et strictement simultanés ; "
+        "une barre posée sur l'axe est réintégrée dans le cycle."),
+      h2("4.5 — Réglages fins"),
+      li("Barres par pas : taille des blocs qui s'allument ensemble (ex. 2 = paires synchrones)."),
+      li("Tenue (traîne) : nombre de pas pendant lesquels une barre reste allumée — avec un "
+         "fade out long (jusqu'à 400 %), effet comète."),
+      li("ON/OFF ou Opacité + courbe : sec, ou fondu avec courbe (linéaire, ease, expo) et "
+         "fade in/out."),
+      li("Niveau couche : dose le mix. Inverser : ombre qui balaye au lieu de lumière."),
+      li("Niveau bas : au lieu de tomber au noir, les barres « éteintes » restent à ce niveau. "
+         "Le chase court alors AU-DESSUS d'un fond allumé — un classique en spectacle : la scène "
+         "reste habitée entre deux pas."),
+      li("Barres (cible) : limite la couche à certaines barres — activer puis cliquer les barres "
+         "dans la vue spatiale (les exclues passent en pointillés)."),
+
+      h2("4.6 — Groove et découpe"),
+      p("Ces quatre réglages viennent des consoles lumière : ils transforment un chase correct "
+        "en chase qui a du caractère. Tous sont neutres par défaut — vous ne les subissez pas."),
+      li("Décalage (phase), 0 à 360° : décale le départ de la couche dans son cycle. Deux couches "
+         "réglées à l'identique mais déphasées de 180° se répondent au lieu de se superposer. "
+         "C'est LE réglage pour faire dialoguer deux rangées de barres."),
+      li("Swing, −75 à +75 % : retarde un pas sur deux, comme le shuffle d'une boîte à rythmes. "
+         "Un peu de swing positif donne un balancement ; du négatif, une urgence nerveuse."),
+      li("Blocs, 1 à 8 : découpe les barres en tronçons qui jouent le motif EN MÊME TEMPS. "
+         "Avec 2 blocs, le chase part des deux moitiés de scène simultanément ; avec 4, la scène "
+         "se met à pulser par quartiers. À ne pas confondre avec « Barres par pas » qui, lui, "
+         "épaissit chaque pas."),
+      li("Scintillement, 0 à 100 % : chaque allumage tire son intensité au hasard. Un réglage bas "
+         "(15-25 %) fait respirer un chase trop mécanique ; au maximum, on obtient une guirlande."),
+      li("Une fois (one-shot) : le motif joue UN cycle complet puis se tait, jusqu'au prochain GO. "
+         "Pour les accents ponctuels : un balayage sur un coup de caisse claire, puis plus rien. "
+         "Le bouton GO à côté relance le cycle immédiatement (aussi en OSC et en MIDI)."),
+
+# ── 5. Tempo et vitesse ──────────────────────────────────────────────────────
+      h1("5. Tempo et vitesse"),
+      li("Temps / pas : durée d'un pas (30 ms à 2 s) de la couche sélectionnée."),
+      li("TAP (ou barre espace) : taper en rythme cale le tempo. ÷2 / ×2 : croches, rondes…"),
+      li("RESYNC (ou touche R) : relance tous les chasers ensemble — à cliquer sur le temps fort."),
+      li("Vitesse couche : multiplicateur ×0.1 à ×4 sans perdre le tempo de base."),
+      li("Vitesse globale : multiplie toutes les couches — accélère tout le show d'un geste."),
+      li("Master : dimmer général de sortie."),
+      li("Courbe dimmer : les LED DMX ne répondent pas linéairement à la consigne. « Carrée » "
+         "affine considérablement le bas des fondus (les niveaux faibles deviennent exploitables) ; "
+         "« Racine » fait l'inverse et remonte les niveaux bas. À régler une fois par installation, "
+         "en observant vos vraies barres."),
+      li("Double-clic / double-tap sur la ligne d'un réglage : retour à la valeur par défaut."),
+      li("Les changements de tempo en cours de lecture ne cassent jamais le rythme (phase "
+         "préservée)."),
+      h2("5.1 — Ableton Link : suivre Pulse, Ableton Live…"),
+      p("Le bouton « ABLETON LINK » (sous le TAP) fait rejoindre à Cascade la session Ableton "
+        "Link du réseau : le BPM de la session pilote alors le temps/pas de TOUTES les couches, "
+        "en direct (1 beat = 1 pas). C'est la solution pour rester calé sur la musique avec "
+        "Pulse (Hybrid Constructs), Ableton Live, Traktor et toute application compatible Link."),
+      li("Chaque couche garde sa « Vitesse » (×0.5 = blanches, ×2 = croches…) : les divisions "
+         "rythmiques se règlent par couche."),
+      li("Pendant que Link est actif, TAP, ÷2, ×2 et le curseur Temps/pas sont neutralisés ; "
+         "le statut affiche le BPM et le nombre d'appareils de la session."),
+      li("Re-cliquer sur le bouton = retour au tempo manuel. L'état Link est mémorisé au "
+         "redémarrage, et pilotable en OSC : /cascade/link 0-1."),
+      li("RESYNC reste utile pour recaler le départ des chasers sur le temps fort."),
+      note("Techniquement, Link passe par Carabiner, un petit module officiel téléchargé par le "
+           "lanceur au premier démarrage. S'il manque (message dans le panneau), relancer "
+           "simplement le lanceur Cascade avec une connexion internet."),
+
+# ── 6. Vue spatiale ──────────────────────────────────────────────────────────
+      h1("6. Vue spatiale"),
+      li("Glisser une barre pour la placer comme sur scène ; double-clic/tap : pivoter de 90°."),
+      li("Importer depuis MadMapper : positions, rotations et tailles réelles, automatiquement."),
+      li("Ligne / Colonne : alignements rapides. Miroir H / V : retourne toute la disposition."),
+      li("Ordre = G→D / H→B : réordonne le chase selon le placement."),
+      li("Le numéro sur chaque barre = sa position dans l'ordre du chase ; les barres s'allument "
+         "en temps réel (couleur comprise)."),
+
+# ── 7. Presets et projets ────────────────────────────────────────────────────
+      h1("7. Presets, projets et sauvegarde"),
+      li("Presets (1-16), barre du haut : photographient toutes les couches. Sauver puis clic "
+         "sur un slot = mémorise ; clic simple = rappel instantané en live."),
+      li("Tout est sauvegardé en continu et automatiquement (avec copie de secours) : en cas de "
+         "coupure ou en quittant, on retrouve son état exact au relancement. La dernière "
+         "modification est garantie écrite avant chaque fermeture."),
+      li("Projet (bouton dossier) : Sauvegarder exporte tout (fixtures, couches, presets, "
+         "réglages) dans un fichier .json nommé ; Charger le restaure ; Nouveau réinitialise en "
+         "proposant de garder la scéno. Faites-vous une bibliothèque par salle ou par spectacle."),
+      li("Le nom du projet est mémorisé et embarqué dans le fichier : il est proposé par défaut "
+         "au prochain export."),
+      li("En quittant (bouton Quitter), si des réglages ont changé depuis le dernier export, Cascade "
+         "le signale et propose « Exporter puis quitter » avec le nom de votre choix. Rien "
+         "n'est perdu dans tous les cas : c'est une commodité pour tenir sa bibliothèque à jour."),
+
+# ── 8. MIDI / OSC ────────────────────────────────────────────────────────────
+      h1("8. Contrôle MIDI et OSC"),
+      h2("8.1 — MIDI (bouton clavier, en haut)"),
+      p("Sur Chrome ou Edge, avec le contrôleur branché sur l'ordinateur : cliquer Learn sur une "
+        "cible puis bouger un potard ou appuyer une touche. Le mapping est enregistré "
+        "définitivement. Cibles : master, vitesses, start/stop/blackout, tap, temps/pas, niveau, "
+        "pattern, miroirs, couche on/off et les 16 presets. Les cibles « couche sél. » suivent "
+        "la couche en cours d'édition."),
+      h2("8.2 — OSC entrant (TouchOSC, console, QLab…)"),
+      p("Envoyer sur le port 7000 (réglable) de la machine où tourne l'app. Valeurs normalisées "
+        "0-1 ; pour les vitesses, 0.5 = ×1. Les nouveaux réglages de chase sont pilotables de "
+        "la même façon : floor (niveau bas), phase, swing (0.5 = pas de swing), blocks, "
+        "sparkle, oneshot, et go pour relancer un cycle."),
+      code("/cascade/start /cascade/stop /cascade/blackout /cascade/tap /cascade/resync\n"
+           "/cascade/master 0-1  /cascade/speed 0-1 (0.5 = x1)\n"
+           "/cascade/link 0-1 (Ableton Link off/on)\n"
+           "/cascade/preset/1 ... /cascade/preset/16\n"
+           "/cascade/layer/1/level | stepms | speed | pattern | enable\n"
+           "/cascade/layer/1/mirrorh | mirrorv | invert | width | group | tap"),
+      PageBreak()]
+
+# ── 9. Dépannage ─────────────────────────────────────────────────────────────
+E.append(h1("9. Dépannage"))
+rows = [
+    ["Problème", "Solution"],
+    ["Rien ne bouge dans MadMapper",
+     "Bouton Diagnostic : il liste les contrôles réels et propose le bon paramètre "
+     "(luminosity pour les fixtures DMX, opacity pour les surfaces). Vérifier aussi l'IP et "
+     "le port OSC dans les réglages, et que l'entrée OSC est activée dans MadMapper."],
+    ["Le scan ne trouve rien",
+     "Préférences MadMapper → OSC : entrée 8000 et feedback 9000 activés. Sinon, clic droit "
+     "sur l'opacité d'une fixture dans MadMapper → copier l'adresse OSC → bouton « + Manuel »."],
+    ["L'iPad ne se connecte pas",
+     "Même réseau Wi-Fi, IP correcte, et pare-feu Windows : autoriser Node.js sur les "
+     "réseaux privés."],
+    ["« Port occupé » au lancement",
+     "L'app bascule automatiquement sur le port suivant (3334, 3335…) — l'adresse exacte "
+     "s'affiche en haut de l'interface. Souvent : deux lancements simultanés."],
+    ["LINK reste sur « connexion… » ou affiche « module absent »",
+     "Le module Link (Carabiner) n'est pas installé : relancer le lanceur Cascade avec une "
+     "connexion internet (téléchargement ~2 Mo, une seule fois). Vérifier aussi que Pulse ou "
+     "Live a bien Link activé, sur le même réseau."],
+    ["LINK affiche un BPM mais « en attente »",
+     "Cascade est seul dans la session Link : lancer Pulse/Live sur le même réseau (et même "
+     "Wi-Fi), Link activé. Le nombre d'appareils s'affiche à côté du BPM."],
+    ["La fenêtre s'est fermée mais Cascade tourne encore",
+     "C'est voulu : les chasers tournaient (le show n'est jamais coupé). Relancer le lanceur "
+     "rouvre la fenêtre ; STOP puis Quitter (ou fermer) arrête tout."],
+    ["Config corrompue / coupure de courant",
+     "Une copie de secours (.bak) est restaurée automatiquement au démarrage."],
+    ["Le MIDI ne répond pas",
+     "Utiliser Chrome ou Edge sur l'ordinateur où le contrôleur est branché (Safari et "
+     "l'iPad ne gèrent pas le Web MIDI). Vérifier le mapping dans le dialogue MIDI."],
+    ["Mac : « fichier non ouvrable »",
+     "Clic droit → Ouvrir la première fois. Si besoin : chmod +x sur le .command. "
+     "Pour l'exécutable autonome : xattr -cr <fichier> puis chmod +x <fichier>."],
+    ["La pastille MadMapper reste rouge",
+     "MadMapper est-il lancé, avec un projet ouvert ? Préférences → OSC : entrée 8000 ET "
+     "feedback 9000 activés, et les mêmes valeurs dans les réglages de Cascade. Si Cascade "
+     "et MadMapper sont sur deux machines, vérifier l'adresse IP et le pare-feu. "
+     "Note : si vos barres s'allument correctement, tout va bien — seul le retour manque."],
+    ["Un réglage de chase semble sans effet",
+     "Vérifier que la couche sélectionnée (pastille surlignée) est bien celle qui pilote ces "
+     "barres, et qu'elle est active. Swing, Blocs, Scintillement et Une fois ne concernent "
+     "que le moteur Pas à pas : ils disparaissent en mode Vague."],
+    ["Le chase ne repart pas en mode « Une fois »",
+     "C'est le principe : un seul cycle, puis silence. Appuyer sur GO (ou envoyer "
+     "/cascade/layer/N/go) pour relancer."],
+]
+tdata = [[Paragraph(r[0], S["tch" if i == 0 else "tc"]),
+          Paragraph(r[1], S["tch" if i == 0 else "tc"])] for i, r in enumerate(rows)]
+t = Table(tdata, colWidths=[47 * mm, 123 * mm])
+t.setStyle(TableStyle([
+    ("GRID", (0, 0), (-1, -1), 0.6, BORD),
+    ("BACKGROUND", (0, 0), (-1, 0), LIGHT),
+    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+]))
+E.append(t)
+
+# ── 10. Notes techniques ─────────────────────────────────────────────────────
+E += [h1("10. Notes techniques"),
+      li("Aucune installation système : le moteur Node.js portable et le module Link vivent "
+         "dans le dossier de l'app."),
+      li("Le dossier est autonome : copier le dossier = installer l'app ailleurs."),
+      li("Sortie OSC ~40 images/s vers MadMapper, uniquement quand les valeurs changent."),
+      li("Fonctionne hors ligne (après le premier lancement) ; Ableton Link fonctionne en "
+         "réseau local, sans internet. Aucun compte, aucune donnée envoyée."),
+      li("Une erreur interne n'arrête jamais le serveur : le show continue."),
+      li("Fermer la dernière fenêtre arrête le serveur au bout de quelques secondes — sauf "
+         "show en cours ou contrôle OSC actif. La configuration est toujours écrite sur le "
+         "disque avant l'arrêt."),
+      li("Une seule instance tourne à la fois : relancer Cascade rouvre la fenêtre existante."),
+      li("Licence MIT — code ouvert, réutilisable et modifiable."),
+      Spacer(1, 16 * mm),
+      rule(),
+      Spacer(1, 3 * mm),
+      Paragraph("Cascade — version %s" % VERSION, S["center"]),
+      Spacer(1, 2 * mm),
+      Paragraph("Pierre-Yves Mansour — Collectif WSK", S["sig"])]
+
+doc.build(E)
+print("OK :", out)

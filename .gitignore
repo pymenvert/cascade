@@ -1,0 +1,43 @@
+# Moteur Node portable + module Ableton Link (Carabiner), téléchargés au premier lancement
+runtime/
+
+# Fichiers temporaires des lanceurs
+node_tmp.zip
+node_tmp.tar.gz
+_nodetmp/
+cbn_tmp.zip
+cbn_tmp.dmg
+_cbntmp/
+
+# Configuration et sauvegardes locales (propres à chaque machine)
+cascade-config.json
+cascade-config.json.bak
+cascade-config.json.tmp
+chaser-config.json
+chaser-config.json.bak
+
+# Projets exportés par l'utilisateur
+*.cascade.json
+
+# Exécutables produits par `node build.js` (publiés via les Releases GitHub,
+# jamais versionnés : ~60 Mo pièce)
+build/
+
+# Fichiers personnels de travail (pas pour le dépôt)
+scenoled.madproject
+Chaser 4.2.2 Setup.exe
+Chaser.zip
+serverA.js
+
+# Dépendances (le projet n'en a aucune, par sécurité)
+node_modules/
+
+# Système
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp

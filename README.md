@@ -1,0 +1,144 @@
+# Cascade
+
+**Séquenceur LED multi-couches pour MadMapper.** Chases, vagues, couleur, presets, contrôle MIDI et OSC — piloté depuis une page web sur l'ordinateur, une tablette ou un iPad.
+
+*Pierre-Yves Mansour — Collectif WSK*
+
+![version](https://img.shields.io/badge/version-1.3.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-55-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+
+---
+
+## Ce que fait Cascade
+
+Cascade pilote l'intensité et la couleur de vos fixtures DMX (barres LED, projecteurs) directement dans MadMapper, via OSC. À chaque nouveau setup, un scan récupère les fixtures du projet et un import de géométrie les place automatiquement dans une vue spatiale — l'outil s'adapte à la scénographie au lieu de l'inverse.
+
+Jusqu'à **8 séquenceurs indépendants** tournent en parallèle et se mixent : une couche pour les barres au sol en balayage gauche-droite, une autre pour les contres en aléatoire rapide, une troisième qui fait voyager un dégradé de couleur. Chaque couche a son moteur (pas-à-pas ou vague continue), ses miroirs à axes réglables, son tempo et ses courbes.
+
+## Installation
+
+### Le plus simple : l'exécutable
+
+Téléchargez le fichier de votre système dans la [dernière release](../../releases/latest), placez-le où vous voulez, double-cliquez. **Rien à installer.**
+
+| Système | Fichier |
+|---|---|
+| Windows | `Cascade-1.3.0-windows-x64.exe` |
+| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.3.0-macos-apple-silicon` |
+| macOS (Intel) | `Cascade-1.3.0-macos-intel` |
+| Linux | `Cascade-1.3.0-linux-x64` |
+
+> **macOS et Linux**, la première fois, dans un Terminal ouvert sur le dossier :
+> ```bash
+> xattr -cr Cascade-1.3.0-macos-apple-silicon && chmod +x Cascade-1.3.0-macos-apple-silicon
+> ```
+> (les binaires ne sont pas signés — sans cela macOS annonce un « fichier endommagé »)
+
+La configuration est enregistrée dans un `cascade-config.json` **à côté de l'exécutable** : posez le tout sur une clé USB et votre régie vous suit.
+
+### Depuis les sources
+
+Aucune dépendance, aucune installation système. Node.js ≥ 18 suffit.
+
+```bash
+git clone https://github.com/pymenvert/cascade.git
+cd cascade
+node server.js
+```
+
+Puis ouvrez **http://localhost:3333**.
+
+### Lanceurs « mode application »
+
+`Cascade - PC.bat` (Windows) ou `Cascade - Mac.command` (macOS — la première fois : clic droit → Ouvrir). Ils téléchargent au besoin un moteur Node portable **et** Carabiner (pour Ableton Link), puis lancent Cascade sans terminal, dans sa propre fenêtre.
+
+Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre — le serveur s'arrête tout seul. **Sauf si les chasers tournent : un show n'est jamais coupé**, Cascade reste alors en arrière-plan et relancer le lanceur rouvre la fenêtre. Le travail est sauvegardé automatiquement en continu.
+
+## Fonctionnalités
+
+### Moteurs
+
+- **Pas à pas** : chase classique — défilement, ping-pong, aléatoire, pair/impair, tous.
+- **Vague** : onde continue (sinus, triangle, carré) calculée sur les positions **réelles** des barres — directionnelle, pulse, radiale.
+
+### Mise en forme du chase
+
+| Réglage | Effet |
+|---|---|
+| **Barres par pas** | Nombre de barres qui s'allument ensemble à chaque pas. |
+| **Tenue (traîne)** | Combien de pas une barre reste allumée — traîne de comète. |
+| **Blocs** | Découpe les barres en N tronçons qui jouent le motif **en même temps**. |
+| **Décalage (phase)** | Décale le départ dans le cycle : deux couches identiques se répondent. |
+| **Swing** | Groove — retarde un pas sur deux, comme un shuffle. |
+| **Niveau bas** | Les barres « éteintes » restent à ce niveau : le chase court au-dessus d'un fond allumé. |
+| **Scintillement** | Chaque allumage tire une intensité au hasard — effet guirlande. |
+| **Une fois (one-shot)** | Un seul cycle puis silence, jusqu'au prochain **GO**. Pour les accents. |
+| **Miroirs ↔ ↕** | Symétries combinables, axes déplaçables, reflets strictement simultanés. |
+| **Courbe dimmer** | Linéaire, carrée (fondus fins) ou racine — les LED DMX ne répondent pas linéairement. |
+
+### Le reste
+
+- **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, mixé en HTP avec les couches d'intensité.
+- **Vue spatiale** : barres positionnables au doigt ou importées depuis MadMapper (position, rotation, taille), allumage en temps réel.
+- **16 presets** qui mémorisent les couches *et* la disposition complète — rappel instantané en live.
+- **Tempo** : tap tempo, ÷2 ×2, resync sur le temps fort, vitesse par couche et vitesse globale.
+- **Ableton Link** : Cascade rejoint la session Link du réseau (Pulse, Ableton Live, Traktor…) et suit son BPM en direct.
+- **Contrôle externe** : MIDI (Web MIDI, apprentissage par cible) et OSC entrant (TouchOSC, QLab, console).
+- **QR code** : bouton `QR` près de l'adresse réseau — scannez avec un iPad, l'interface s'ouvre.
+- **Voyant MadMapper** : une pastille verte confirme que MadMapper répond. Rouge = quelque chose ne va pas, et l'infobulle dit quoi vérifier.
+
+## Configuration de MadMapper
+
+Préférences → OSC : activer l'entrée OSC (port **8000**) et le feedback (port **9000**).
+
+Le paramètre d'intensité par défaut est `luminosity` (fixtures DMX). Pour des surfaces vidéo, utilisez `opacity` — le bouton **Diagnostic** détecte et corrige automatiquement.
+
+## Tablette / iPad
+
+L'adresse réseau s'affiche en haut de l'interface, ou scannez le **QR code**. Même Wi-Fi, c'est tout.
+
+> ⚠ **Il n'y a pas de mot de passe.** N'importe qui sur le même réseau peut piloter le show. En festival, préférez un point d'accès dédié.
+
+## Contrôle OSC
+
+Cascade écoute sur le port **7000** (réglable). Valeurs normalisées 0–1 ; pour les vitesses, `0.5` = ×1.
+
+```
+/cascade/start   /cascade/stop   /cascade/blackout   /cascade/tap   /cascade/resync
+/cascade/master 0-1              /cascade/speed 0-1
+/cascade/link 0-1                (Ableton Link off/on)
+/cascade/preset/1 … /cascade/preset/16
+
+/cascade/layer/1/level | stepms | speed | pattern | enable | invert
+/cascade/layer/1/mirrorh | mirrorv | width | group | tap | resync | go
+/cascade/layer/1/floor | phase | swing | blocks | sparkle | oneshot
+```
+
+Le préfixe historique `/chaser/…` reste accepté.
+
+## Développement
+
+```bash
+npm test        # 55 tests d'intégration, sans aucune dépendance
+node build.js   # exécutables des 4 plateformes → build/
+```
+
+Les tests lancent de **vrais** serveurs Cascade et vérifient l'OSC **réellement émis** vers un faux MadMapper. Ils couvrent le moteur, l'API HTTP, l'OSC entrant, la persistance et la résistance aux données hostiles.
+
+- [`docs/ETAT-DU-PROJET.md`](docs/ETAT-DU-PROJET.md) — architecture, sémantique des paramètres, API MadMapper et Carabiner déjà établies, pièges connus.
+- [`docs/AUDIT.md`](docs/AUDIT.md) — audit technique complet (fiabilité, sécurité, performance, maintenabilité).
+- [`docs/madmapper-osc-api.md`](docs/madmapper-osc-api.md) — référence OSC de MadMapper.
+- [`CHANGELOG.md`](CHANGELOG.md) — journal des versions.
+
+## À savoir
+
+**STOP arrête les chasers et relâche le contrôle** : plus aucun message OSC n'est envoyé, MadMapper conserve son dernier état. Ce n'est **pas** un noir. Pour éteindre : **BLACKOUT**.
+
+Une seule instance tourne à la fois — un second lancement rouvre la fenêtre existante.
+
+## Licence
+
+[MIT](LICENSE) — © 2026 Pierre-Yves Mansour, Collectif WSK.
+
+Aucune dépendance npm : rien d'autre à créditer côté bibliothèques. Les exécutables embarquent un runtime Node.js (MIT). Ableton Link passe par [Carabiner](https://github.com/Deep-Symmetry/carabiner) (Deep Symmetry), téléchargé par l'utilisateur et non redistribué ici.
+
+MadMapper est une marque de GarageCUBE / 1024 architecture. Cascade est un outil tiers indépendant, sans affiliation, qui dialogue avec MadMapper via son interface OSC publique.

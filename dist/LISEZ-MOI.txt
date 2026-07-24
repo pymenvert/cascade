@@ -1,0 +1,69 @@
+╔══════════════════════════════════════════════════════════════╗
+║   CASCADE — séquenceur LED pour MadMapper — v1.2              ║
+║   Pierre-Yves Mansour — Collectif WSK                         ║
+╚══════════════════════════════════════════════════════════════╝
+
+INSTALLATION EN 2 CLICS
+───────────────────────
+• Mac  : double-clic sur « Cascade - Mac.command »
+         (la 1re fois : clic droit → Ouvrir, pour passer Gatekeeper)
+• PC   : double-clic sur « Cascade - PC.bat »
+
+Au tout premier lancement, un petit moteur (Node.js portable, ~30-45 Mo)
+et le module Ableton Link (~2 Mo) se téléchargent automatiquement dans un
+dossier « runtime ». Ensuite, le lancement est instantané : Cascade s'ouvre
+dans sa propre fenêtre, comme un vrai logiciel — aucune fenêtre noire,
+rien d'autre à installer.
+
+Pour QUITTER Cascade : bouton ⏻ en haut à droite, ou simplement fermer
+la fenêtre (le serveur s'arrête tout seul quelques secondes après).
+Exception volontaire : si les chasers TOURNENT, fermer la fenêtre ne
+coupe pas le show — Cascade continue en arrière-plan (relancer le
+lanceur rouvre la fenêtre). Tout est enregistré automatiquement en
+continu ; le bouton ⏻ propose en plus d'exporter le projet en .json.
+
+MAC : « fichier endommagé » ou « impossible d'ouvrir Terminal » ?
+────────────────────────────────────────────────────────────────
+C'est la sécurité macOS (Gatekeeper) sur un fichier reçu par WhatsApp,
+mail ou navigateur. Ce N'EST PAS un vrai dommage. À faire UNE fois :
+
+  1. Ouvrir « Terminal » (Spotlight ⌘+Espace → taper Terminal → Entrée)
+  2. Taper ceci, AVEC un espace à la fin :   xattr -cr␣
+     puis GLISSER le dossier « dist » dans la fenêtre → Entrée
+  3. Taper, espace à la fin :   chmod +x␣
+     puis GLISSER « Cascade - Mac.command » → Entrée
+  4. Double-clic (ou clic droit → Ouvrir) sur le .command : ça marche.
+
+Pour éviter le souci : transférer par AirDrop, Dropbox ou clé USB
+plutôt que par WhatsApp/messagerie (qui « met en quarantaine » le fichier).
+
+CÔTÉ MADMAPPER (une seule fois)
+───────────────────────────────
+Préférences → OSC : activer l'entrée OSC (port 8000) et le feedback (port 9000).
+
+TEMPO SUR LA MUSIQUE — ABLETON LINK (Pulse, Ableton Live…)
+──────────────────────────────────────────────────────────
+Bouton « ⧉ ABLETON LINK » dans le panneau Vitesse : Cascade rejoint la
+session Link du réseau et suit son BPM en direct (Pulse, Ableton Live,
+Traktor…). 1 beat = 1 pas, pour toutes les couches ; la « Vitesse couche »
+(×0.5, ×2…) permet de caler croches et rondes. Re-cliquer = revenir au
+tempo manuel (TAP). Nécessite le module Link (téléchargé par le lanceur).
+
+TABLETTE / iPAD / TÉLÉPHONE
+───────────────────────────
+Ouvrir le navigateur et taper l'adresse affichée en haut de l'app
+(ex. http://192.168.1.20:3333). Même réseau Wi-Fi que l'ordinateur.
+
+BON À SAVOIR
+────────────
+• STOP relâche le contrôle : MadMapper garde le dernier état (pas de noir).
+  Pour éteindre, utiliser BLACKOUT.
+• RESYNC (ou la touche R) relance tous les chasers ensemble sur le temps fort.
+• Les 16 presets mémorisent aussi l'ordre des fixtures et la vue spatiale.
+• Un seul Cascade tourne à la fois : relancer rouvre la fenêtre existante.
+
+MANUEL COMPLET
+──────────────
+Voir « Cascade - Manuel.pdf » (installation, fonctions, MIDI/OSC, dépannage).
+
+Bon show !

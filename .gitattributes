@@ -1,0 +1,25 @@
+# Fins de ligne — ce fichier n'est PAS cosmétique.
+# Un « Cascade - Mac.command » enregistré en CRLF ne démarre pas sur macOS
+# (« bad interpreter: /bin/bash^M »). On force donc LF partout, sauf pour le
+# lanceur Windows qui, lui, veut du CRLF.
+
+* text=auto eol=lf
+
+*.command text eol=lf
+*.sh       text eol=lf
+*.js       text eol=lf
+*.json     text eol=lf
+*.html     text eol=lf
+*.md       text eol=lf
+*.py       text eol=lf
+*.txt      text eol=lf
+
+*.bat text eol=crlf
+
+# Binaires : jamais de conversion
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.zip  binary
+*.exe  binary

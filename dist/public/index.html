@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0c10">
+<title>Cascade · MadMapper</title>
+<style>
+  /* Charte graphique Cascade — reprise du manuel : orange signature sur
+     anthracite profond, titres orange espacés, filets fins, chrome discret. */
+  :root {
+    --bg: #0b0c10; --panel: #13151c; --panel2: #1a1d27; --border: #262b38;
+    --text: #eef0f4; --dim: #8b93a5; --accent: #f2900f; --accent2: #94a1ba;
+    --on: #3ddc84; --off: #ff5252;
+    --glow: rgba(242, 144, 15, .25);
+  }
+  ::selection { background: var(--accent); color: #000; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    /* Halo chaud très discret en haut de scène — profondeur sans bruit */
+    background-image: radial-gradient(120% 60% at 50% -10%, rgba(242,144,15,.07) 0%, transparent 60%);
+    background-attachment: fixed; }
+  /* Accessibilité clavier : un anneau net, jamais le contour par défaut baveux */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  :focus:not(:focus-visible) { outline: none; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+  /* Tactile (iPad…) : pas de zoom double-tap, pas de flash de sélection */
+  button, input, select, .chip, .bar { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  @media (pointer: coarse) {
+    button { padding: 12px 16px; }
+    .mini button { padding: 10px 12px; }
+    #fixtures button { padding: 8px 12px; font-size: 14px; }
+    input[type=range] { height: 34px; }
+    dialog input, dialog select { font-size: 16px; } /* évite le zoom auto iOS au focus */
+  }
+  @media (min-width: 700px) and (max-width: 1180px) {
+    .grid { grid-template-columns: 1fr 1fr; } /* iPad : 2 colonnes */
+  }
+  h1 { font-size: 19px; font-weight: 800; letter-spacing: 4px; }
+  h1 span { color: var(--accent); font-weight: 400; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent);
+    margin-bottom: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+  /* Barre de transport : reste accessible même quand on descend dans la page —
+     en spectacle, STOP et BLACKOUT ne doivent JAMAIS être à faire défiler. */
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 40; padding: 8px 10px; margin-left: -10px; margin-right: -10px;
+    background: rgba(11,12,16,.86); backdrop-filter: blur(10px) saturate(140%);
+    border-bottom: 1px solid transparent; border-radius: 12px;
+    transition: border-color .2s, box-shadow .2s; }
+  .top.stuck { border-bottom-color: var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .top .spacer { flex: 1; }
+  /* Show en cours : un filet orange vivant sous la barre de transport */
+  .top::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+    border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0; transition: opacity .25s; }
+  body.running .top::after { opacity: 1; animation: runline 2.4s linear infinite; }
+  @keyframes runline { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  body.running .top::after { background-size: 200% 100%; }
+  .grid { display: grid; grid-template-columns: 300px 1fr 1fr; gap: 14px; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: linear-gradient(180deg, #15181f 0%, #12141b 100%);
+    border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03); }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 14px; font-size: 13px; cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s; }
+  button:hover { border-color: var(--accent); background: #20242f; }
+  button:active { transform: translateY(1px); }
+  button[disabled], input[disabled] { opacity: .35; pointer-events: none; }
+  button.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600;
+    box-shadow: 0 0 12px var(--glow); }
+  button.big { font-size: 15px; padding: 13px 22px; font-weight: 700; letter-spacing: .5px; }
+  button.start { background: var(--on); color: #000; border-color: var(--on); }
+  button.start:hover { background: #4ef096; border-color: #4ef096; }
+  /* START allumé pendant le show : il respire, on le voit du fond de la salle */
+  body.running button.start { box-shadow: 0 0 0 0 rgba(61,220,132,.55); animation: pulseOn 2s ease-out infinite; }
+  @keyframes pulseOn {
+    0% { box-shadow: 0 0 0 0 rgba(61,220,132,.5); }
+    70% { box-shadow: 0 0 0 12px rgba(61,220,132,0); }
+    100% { box-shadow: 0 0 0 0 rgba(61,220,132,0); }
+  }
+  button.blackout { background: #000; border-color: var(--off); color: var(--off); font-weight: 700; }
+  button.blackout:hover { background: #1a0000; border-color: #ff7676; color: #ff7676; }
+  button.tap { background: var(--accent); color: #000; border-color: var(--accent); width: 100%;
+    font-size: 20px; padding: 18px; font-weight: 800; letter-spacing: 4px; user-select: none;
+    box-shadow: 0 0 18px var(--glow); }
+  button.tap:active { transform: scale(.97); }
+  button.linkbtn { width: 100%; margin-top: 10px; font-weight: 700; letter-spacing: 2px; padding: 11px; }
+  #linkStatus { text-align: center; min-height: 15px; }
+  #linkStatus b { color: var(--accent); font-size: 13px; }
+  .patterns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .patterns button { font-size: 16px; padding: 12px 4px; }
+  .patterns small { display: block; font-size: 9px; opacity: .75; margin-top: 3px; }
+  label.row { display: flex; align-items: center; gap: 10px; margin: 11px 0; font-size: 13px; }
+  label.row { border-radius: 8px; transition: background .15s; }
+  label.row:hover { background: rgba(255,255,255,.025); }
+  label.row > span:first-child { width: 110px; color: var(--dim); flex-shrink: 0; }
+  label.row output { width: 72px; text-align: right; font-variant-numeric: tabular-nums; color: var(--accent);
+    font-weight: 600; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  input[type=color] { width: 44px; height: 30px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel2); padding: 2px; cursor: pointer; }
+  select, input[type=text], input[type=number] { background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-size: 13px; }
+  .seg { display: flex; gap: 6px; margin: 8px 0; }
+  .seg button { flex: 1; padding: 7px 4px; font-size: 12px; }
+  #preview { display: flex; gap: 5px; margin: 8px 0 12px; min-height: 30px; }
+  #preview .cell { flex: 1; border-radius: 5px; background: #222; border: 1px solid var(--border);
+    min-width: 10px; height: 30px; transition: background .04s linear, box-shadow .04s linear;
+    position: relative; overflow: hidden; }
+  /* Reflet vitré sur la préview : lecture instantanée du niveau, effet « bandeau » */
+  #preview .cell::after { content: ''; position: absolute; inset: 0 0 55% 0;
+    background: linear-gradient(180deg, rgba(255,255,255,.14), transparent); pointer-events: none; }
+  #fixtures { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  #fixtures li { display: flex; align-items: center; gap: 7px; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; font-size: 13px; }
+  #fixtures li.disabled { opacity: .4; }
+  #fixtures .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fixtures button { padding: 3px 8px; font-size: 12px; }
+  .mini { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .mini button { font-size: 12px; padding: 7px 10px; }
+  #bpm { font-size: 13px; color: var(--dim); text-align: center; margin-top: 8px; }
+  #bpm b { color: var(--text); font-size: 16px; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; max-width: 460px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+  dialog::backdrop { background: rgba(5,6,8,.7); backdrop-filter: blur(2px); }
+  dialog label { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--dim); }
+  dialog input { width: 100%; }
+  .hint { font-size: 11px; color: var(--dim); margin-top: 8px; line-height: 1.5; }
+  /* QR code (fond blanc obligatoire pour être scannable sur l'UI sombre) */
+  #qrBox { background: #fff; border-radius: 10px; padding: 8px; width: 232px; max-width: 100%; margin: 4px auto 10px; }
+  #qrBox svg { display: block; width: 100%; height: auto; }
+  #qrUrl { text-align: center; font-size: 14px; color: var(--accent); letter-spacing: .5px; word-break: break-all; }
+  #qrAlts { justify-content: center; }
+  #qrAlts button { font-size: 11px; padding: 5px 8px; }
+  #status { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex-shrink: 0;
+    transition: background .2s, box-shadow .2s; }
+  #status.ok { background: var(--on); box-shadow: 0 0 8px var(--on); }
+  /* Voyant de liaison MadMapper — l'OSC part « à l'aveugle » en UDP : sans ce
+     témoin, un mauvais port se traduit par « rien ne s'allume », sans explication. */
+  .lien { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+    padding: 4px 9px; border-radius: 20px; border: 1px solid var(--border);
+    color: var(--dim); white-space: nowrap; cursor: help; letter-spacing: .3px; }
+  .lien::before { content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--off); flex-shrink: 0; transition: background .25s, box-shadow .25s; }
+  .lien.ok { color: var(--dim); border-color: #234a33; }
+  .lien.ok::before { background: var(--on); box-shadow: 0 0 7px var(--on); }
+  .lien.ko { color: #ffb3b3; border-color: #4a2323; background: rgba(255,82,82,.07); }
+  .lien.ko::before { animation: blinkSave 1.2s steps(2, start) infinite; }
+  /* Écran de fin (bouton ⏻) */
+  #byebye { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; z-index: 99; text-align: center; padding: 20px; }
+  #byebye .rule { width: 180px; height: 2px; background: var(--accent); border-radius: 1px; }
+  /* Couches */
+  #layerChips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { display: flex; align-items: center; gap: 6px; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  .chip.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .chip.off { opacity: .45; }
+  .chip input { accent-color: var(--on); }
+  /* Presets */
+  #presets { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  #presets button.slot { min-width: 34px; padding: 8px 0; font-weight: 700; position: relative;
+    font-variant-numeric: tabular-nums; }
+  /* Un slot occupé porte une pastille orange : on lit la banque d'un coup d'œil */
+  #presets button.slot:not(.empty)::after { content: ''; position: absolute; top: 4px; right: 4px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  #presets button.empty { opacity: .4; font-weight: 400; }
+  #presets button.savemode { border-color: var(--off); color: var(--off);
+    animation: blinkSave 1s steps(2, start) infinite; }
+  @keyframes blinkSave { 50% { opacity: .55; } }
+  /* Vue spatiale */
+  #stage { position: relative; height: 320px;
+    background: radial-gradient(ellipse at 50% 120%, #141926 0%, #0a0c10 70%);
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background-image: linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px; background-position: center; touch-action: none; }
+  .bar { position: absolute; width: 84px; height: 14px; border-radius: 7px;
+    background: #2a2f3a; border: 1px solid #3a4254; cursor: grab;
+    transform: translate(-50%, -50%); transition: box-shadow .05s linear; }
+  .bar.dragging { cursor: grabbing; z-index: 10; border-color: var(--accent2); }
+  .bar.off { opacity: .35; }
+  .bar.excl { border-style: dashed; opacity: .45; }
+  .bar .lbl { position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    margin-top: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; pointer-events: none; }
+  .bar .num { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 9px; font-weight: 700; color: var(--dim); pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div id="status" title="Connexion serveur"></div>
+  <h1>CASCADE <span>›</span> MADMAPPER</h1>
+  <span id="mmLink" class="lien" title="Liaison avec MadMapper"></span>
+  <span id="netInfo" style="font-size:12px; color:var(--dim); cursor:pointer; border:1px dashed var(--border); border-radius:6px; padding:5px 10px;"
+        title="Adresse pour tablette / téléphone sur le même Wi-Fi — cliquer pour copier"></span>
+  <button id="btnQR" style="padding:5px 10px; font-size:12px" title="Afficher le QR code — connexion iPad / téléphone (même Wi-Fi)">QR</button>
+  <div class="spacer"></div>
+  <button id="btnStart" class="big start" title="Lance tous les chasers actifs">▶ START</button>
+  <button id="btnStop" class="big" title="Arrête les chasers et relâche le contrôle : MadMapper garde le dernier état (ce n'est PAS un noir)">■ STOP</button>
+  <button id="btnBlackout" class="big blackout" title="Coupe tout immédiatement (noir)">BLACKOUT</button>
+  <button id="btnMidi" title="Contrôle MIDI / OSC">🎹</button>
+  <button id="btnProject" title="Projet : nouveau / sauvegarder / charger">📁</button>
+  <button id="btnSettings" title="Réglages OSC">⚙</button>
+  <button id="btnQuit" title="Quitter Cascade — arrête le serveur (MadMapper garde son dernier état)">⏻</button>
+</div>
+
+<dialog id="dlgProject">
+  <h2>Projet</h2>
+  <div class="mini" style="flex-direction:column; align-items:stretch">
+    <button id="projSave">⬇ Sauvegarder dans un fichier…</button>
+    <button id="projLoad">⬆ Charger un fichier…</button>
+    <button id="projNew">🗎 Nouveau projet</button>
+    <button id="projClose">Fermer</button>
+  </div>
+  <p class="hint">Un fichier projet contient tout : fixtures et leurs positions, couches, presets, réglages.</p>
+  <input type="file" id="fileLoad" accept="application/json,.json" style="display:none">
+</dialog>
+
+<dialog id="dlgQuit">
+  <h2>Quitter Cascade ?</h2>
+  <p class="hint" style="font-size:12px">✔ La séance est enregistrée automatiquement en continu —
+  au prochain lancement, tout sera exactement pareil. MadMapper garde son dernier état (pas de noir).</p>
+  <div id="quitDirty" style="display:none">
+    <p class="hint" id="quitDirtyMsg" style="color:var(--accent)"></p>
+    <label>Nom du projet (fichier .json)</label>
+    <input type="text" id="quitName" maxlength="40">
+  </div>
+  <div class="mini" style="justify-content:flex-end; margin-top:16px">
+    <button id="quitCancel">Annuler</button>
+    <button id="quitExport" style="display:none">⬇ Exporter puis quitter</button>
+    <button id="quitNow" class="active">Quitter</button>
+  </div>
+</dialog>
+
+<dialog id="dlgQR">
+  <h2>Connexion iPad / téléphone</h2>
+  <div id="qrBox"></div>
+  <div id="qrUrl"></div>
+  <div class="mini" id="qrAlts" style="display:none"></div>
+  <p class="hint">Scanne ce code avec l'appareil photo d'un iPad ou d'un téléphone
+  connecté au <b>même Wi-Fi</b> que cet ordinateur : Cascade s'ouvre dans son navigateur.</p>
+  <div class="mini" style="justify-content:flex-end; margin-top:12px">
+    <button id="qrClose">Fermer</button>
+  </div>
+</dialog>
+
+<div id="presets"></div>
+<div id="preview"></div>
+
+<div class="grid">
+
+  <!-- ══════════ FIXTURES ══════════ -->
+  <div class="panel">
+    <h2>Fixtures (ordre = position)</h2>
+    <ul id="fixtures"></ul>
+    <div class="mini">
+      <button id="btnScan">⟳ Scanner</button>
+      <button id="btnReverse">⇅ Inverser</button>
+      <button id="btnAdd">+ Manuel</button>
+      <button id="btnDiag">🔍 Diagnostic</button>
+    </div>
+    <p class="hint">« Scanner » interroge MadMapper. Sinon : clic droit sur l'opacité dans
+    MadMapper → copier l'adresse OSC → « + Manuel » (sans le /luminosity final).</p>
+  </div>
+
+  <!-- ══════════ COUCHE SÉLECTIONNÉE ══════════ -->
+  <div class="panel">
+    <h2>Chasers (couches — cocher = actif, cliquer = éditer)</h2>
+    <div id="layerChips"></div>
+    <div class="seg">
+      <button data-eng="steps">⧉ Pas à pas</button>
+      <button data-eng="wave">∿ Vague</button>
+    </div>
+    <div class="seg">
+      <button data-tgt="intensity">💡 Intensité</button>
+      <button data-tgt="color">🎨 Couleur</button>
+    </div>
+    <label class="row" id="rowColors" style="display:none"><span>Couleurs A → B</span>
+      <input type="color" id="colorA"><input type="color" id="colorB"></label>
+
+    <h2 style="margin-top:14px">Pattern</h2>
+    <div class="patterns" id="patterns"></div>
+    <label class="row" title="Symétrie gauche/droite : le pattern se reflète autour de l'axe vertical (pointillés dans la vue). Le curseur déplace l'axe."><span>Miroir ↔ (G/D)</span>
+      <input type="checkbox" id="mirrorH">
+      <input type="range" id="axisX" min="0" max="100" step="1" title="Position de l'axe de symétrie ↔"><output></output></label>
+    <label class="row" title="Symétrie haut/bas autour de l'axe horizontal. Les deux miroirs ensemble = symétrie centrale (4 zones)."><span>Miroir ↕ (H/B)</span>
+      <input type="checkbox" id="mirrorV">
+      <input type="range" id="axisY" min="0" max="100" step="1" title="Position de l'axe de symétrie ↕"><output></output></label>
+    <label class="row" title="Pas à pas : nombre de barres qui s'allument ensemble à chaque pas (blocs synchrones). Vague : nombre de pas pour un cycle complet."><span id="lblGroup">Barres par pas</span>
+      <input type="range" id="group" min="1" max="8" step="1"><output></output></label>
+    <label class="row" title="Pas à pas : nombre de pas pendant lesquels une barre reste allumée (traîne de comète avec un fade out long). Vague : largeur de l'onde sur la scène."><span id="lblWidth">Tenue (traîne)</span>
+      <input type="range" id="width" min="1" max="8" step="1"><output></output></label>
+
+    <div id="stepCtrls">
+      <div class="seg">
+        <button data-m="onoff">ON / OFF</button>
+        <button data-m="fade">Opacité + courbe</button>
+      </div>
+      <div id="fadeCtrls">
+        <label class="row" title="Forme de la montée et de la descente : linéaire = régulière, ease = adoucie, expo = accent sec"><span>Courbe</span>
+          <select id="curve">
+            <option value="linear">Linéaire</option>
+            <option value="easeIn">Ease In</option>
+            <option value="easeOut">Ease Out</option>
+            <option value="easeInOut">Ease In-Out</option>
+            <option value="expo">Exponentielle</option>
+          </select>
+        </label>
+        <label class="row" title="Temps de montée, en % du temps de pas"><span>Fade in</span>
+          <input type="range" id="fadeInPct" min="0" max="100" step="5"><output></output></label>
+        <label class="row" title="Temps d'extinction, en % du temps de pas — au-delà de 100 % : longue traîne"><span>Fade out</span>
+          <input type="range" id="fadeOutPct" min="0" max="400" step="5"><output></output></label>
+      </div>
+    </div>
+    <div id="waveCtrls" style="display:none">
+      <label class="row"><span>Forme d'onde</span>
+        <select id="waveform">
+          <option value="sine">Sinus</option>
+          <option value="triangle">Triangle</option>
+          <option value="square">Carré</option>
+        </select>
+      </label>
+    </div>
+    <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
+      <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
+    <label class="row" title="Les barres « éteintes » restent à ce niveau : le chase court AU-DESSUS d'un fond allumé au lieu de partir du noir."><span>Niveau bas</span>
+      <input type="range" id="floor" min="0" max="100" step="1"><output></output></label>
+    <label class="row" title="Inverse la couche : tout est allumé sauf ce que le chase éclaire (ombre qui balaye)"><span>Inverser (négatif)</span>
+      <input type="checkbox" id="invert"></label>
+
+    <h2 style="margin-top:14px">Groove &amp; découpe</h2>
+    <label class="row" title="Décale le départ de cette couche dans son cycle. Deux couches identiques avec des phases différentes se répondent."><span>Décalage (phase)</span>
+      <input type="range" id="phase" min="0" max="360" step="5"><output></output></label>
+    <label class="row" id="rowSwing" title="Groove : retarde un pas sur deux, comme un shuffle. 0 = régulier."><span>Swing</span>
+      <input type="range" id="swing" min="-75" max="75" step="5"><output></output></label>
+    <label class="row" id="rowBlocks" title="Découpe les barres en N tronçons qui jouent le motif EN MÊME TEMPS. 2 blocs = le chase part des deux côtés à la fois."><span>Blocs</span>
+      <input type="range" id="blocks" min="1" max="8" step="1"><output></output></label>
+    <label class="row" id="rowSparkle" title="Scintillement : chaque allumage tire une intensité au hasard. Donne un effet vivant, façon guirlande."><span>Scintillement</span>
+      <input type="range" id="sparkle" min="0" max="100" step="1"><output></output></label>
+    <label class="row" id="rowOneShot" title="Le motif joue UN seul cycle puis se tait, jusqu'au prochain GO. Pour les accents ponctuels."><span>Une fois (one-shot)</span>
+      <input type="checkbox" id="oneShot">
+      <button id="btnGo" style="padding:5px 14px; font-weight:700; letter-spacing:1px" title="Relance le cycle de cette couche maintenant">GO</button></label>
+    <div class="mini">
+      <button id="btnAssign" title="Limite cette couche à certaines barres : active le mode puis clique les barres dans la vue spatiale. Re-cliquer = revenir à toutes.">🎯 Barres : toutes</button>
+    </div>
+    <p class="hint">Chaque couche est un séquenceur indépendant, mixé avec les autres (la plus lumineuse gagne).
+    Moteur « Pas à pas » = chase classique ; « ∿ Vague » = onde fluide sur les positions réelles.
+    Cible « Couleur » = un dégradé A→B voyage sur les barres au lieu de l'intensité.</p>
+  </div>
+
+  <!-- ══════════ TEMPO ══════════ -->
+  <div class="panel">
+    <h2>Vitesse (couche sélectionnée)</h2>
+    <label class="row" title="Durée d'un pas du chaser (30 ms à 2 s)"><span>Temps / pas</span>
+      <input type="range" id="stepMs" min="0" max="100" step="1"><output></output></label>
+    <label class="row" title="Multiplicateur de vitesse de cette couche (×0.1 à ×4) — le temps/pas de base est conservé"><span>Vitesse couche</span>
+      <input type="range" id="speed" min="-100" max="100" step="1"><output></output></label>
+    <button class="tap" id="btnTap" title="Tape en rythme (ou barre espace) pour caler le tempo de la couche sélectionnée">TAP</button>
+    <div class="mini" style="justify-content:center">
+      <button id="btnHalf" title="Tempo deux fois plus lent (temps/pas ×2)">÷2</button>
+      <button id="btnDouble" title="Tempo deux fois plus rapide (temps/pas ÷2)">×2</button>
+      <button id="btnResync" title="Recale le départ de TOUS les chasers sur maintenant — à cliquer sur le temps fort (touche R)">⟲ RESYNC</button>
+    </div>
+    <div id="bpm">— <b>0</b> BPM (pas)</div>
+    <button class="linkbtn" id="btnLink" title="Suit le tempo Ableton Link (Pulse, Ableton Live…) : le BPM de la session pilote le temps/pas de toutes les couches (1 beat = 1 pas). Chaque couche garde sa « Vitesse » pour les croches/rondes.">⧉ ABLETON LINK</button>
+    <div id="linkStatus" class="hint"></div>
+    <h2 style="margin-top:16px">Global</h2>
+    <label class="row" title="Multiplie la vitesse de TOUTES les couches — accélère/ralentit tout le show d'un geste"><span>Vitesse globale</span>
+      <input type="range" id="gspeed" min="-100" max="100" step="1"><output></output></label>
+    <label class="row" title="Intensité générale de sortie — dimmer maître de toute l'app"><span>Master</span>
+      <input type="range" id="master" min="0" max="100" step="1"><output></output></label>
+    <label class="row" title="Réponse du gradateur. Les LED DMX sont souvent trop brutales en linéaire : « carrée » affine les bas de fondu, « racine » remonte les niveaux faibles."><span>Courbe dimmer</span>
+      <select id="dimmer">
+        <option value="linear">Linéaire</option>
+        <option value="square">Carrée (fondus fins)</option>
+        <option value="sqrt">Racine (bas relevés)</option>
+      </select>
+    </label>
+    <p class="hint">Tap (ou barre espace) règle le tempo de la couche sélectionnée ; ÷2 ×2 pour
+    caler des croches/rondes ; <b>RESYNC</b> (ou touche R) relance tous les chasers ensemble sur le temps fort.
+    La vitesse globale multiplie toutes les couches.
+    Double-clic sur la ligne d'un paramètre = valeur par défaut.</p>
+  </div>
+</div>
+
+<!-- ══════════ VUE SPATIALE ══════════ -->
+<div class="panel" style="margin-top:14px">
+  <h2>Vue spatiale — glisser = placer · double-clic = pivoter · <span id="assignHint" style="color:var(--accent2)"></span></h2>
+  <div id="stage"></div>
+  <div class="mini">
+    <button id="btnImport" class="active">⤓ Importer depuis MadMapper</button>
+    <button id="btnAlignH">─ Ligne</button>
+    <button id="btnAlignV">│ Colonne</button>
+    <button id="btnSortX">Ordre = G→D</button>
+    <button id="btnSortY">Ordre = H→B</button>
+    <button id="btnMirH">↔ Miroir H</button>
+    <button id="btnMirV">↕ Miroir V</button>
+  </div>
+</div>
+
+<!-- ══════════ RÉGLAGES ══════════ -->
+<dialog id="dlgSettings">
+  <h2>Connexion OSC MadMapper</h2>
+  <label>Adresse IP (127.0.0.1 si même machine)</label>
+  <input type="text" id="setHost">
+  <label>Port d'entrée OSC de MadMapper (Préférences → OSC)</label>
+  <input type="number" id="setPort">
+  <label>Port de feedback OSC (pour le scan)</label>
+  <input type="number" id="setFb">
+  <label>Paramètre d'intensité (luminosity = fixtures DMX, opacity = surfaces)</label>
+  <input type="text" id="setParam">
+  <label>Port OSC entrant (contrôleur externe → cette app)</label>
+  <input type="number" id="setOscIn">
+  <div class="mini" style="justify-content:flex-end; margin-top:16px">
+    <button id="setCancel">Annuler</button>
+    <button id="setSave" class="active">Enregistrer</button>
+  </div>
+</dialog>
+
+<!-- ══════════ MIDI / OSC ══════════ -->
+<dialog id="dlgMidi" style="max-width:560px">
+  <h2>Contrôle MIDI <span id="midiStatus" style="font-weight:400"></span></h2>
+  <p class="hint" style="margin-bottom:10px">Clique « Learn » puis bouge un potard / appuie une touche
+  de ton contrôleur. Les cibles « couche sél. » agissent sur la couche en cours d'édition.
+  (Web MIDI : Chrome ou Edge, sur la machine où la page est ouverte.)</p>
+  <div id="midiTargets" style="display:grid; grid-template-columns:1fr auto auto; gap:6px 8px; align-items:center; max-height:45vh; overflow:auto"></div>
+  <h2 style="margin-top:14px">OSC entrant (port <span id="oscInPortLbl"></span>)</h2>
+  <pre style="user-select:text; font-size:11px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; line-height:1.6">/cascade/start /stop /blackout /tap /resync
+/cascade/master 0-1     /cascade/speed 0-1 (0.5 = ×1)
+/cascade/link 0-1 (Ableton Link off/on)
+/cascade/preset/1 … /16
+/cascade/layer/1/level|stepms|speed|pattern|enable
+/cascade/layer/1/mirrorh|mirrorv|invert|width|group|tap|resync
+
+(le préfixe /chaser reste accepté)</pre>
+  <div class="mini" style="justify-content:flex-end">
+    <button id="midiClose">Fermer</button>
+  </div>
+</dialog>
+
+<!-- ══════════ DIAGNOSTIC ══════════ -->
+<dialog id="dlgDiag">
+  <h2>Diagnostic OSC</h2>
+  <pre id="diagText" style="user-select:text; white-space:pre-wrap; font-size:12px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px; max-height:50vh; overflow:auto;"></pre>
+  <div class="mini" style="justify-content:flex-end; margin-top:12px">
+    <button id="diagCopy">Copier</button>
+    <button id="diagApply" class="active" style="display:none"></button>
+    <button id="diagClose">Fermer</button>
+  </div>
+</dialog>
+
+<div style="text-align:center; color:var(--dim); font-size:11px; margin-top:26px; letter-spacing:.5px; line-height:2">
+  <div style="width:200px; height:2px; background:var(--accent); border-radius:1px; margin:0 auto 8px; opacity:.9"></div>
+  CASCADE v1.3 — séquenceur LED pour MadMapper<br>
+  <b style="color:var(--accent); letter-spacing:1px">Pierre-Yves Mansour — Collectif WSK</b>
+</div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let S = null;          // état serveur
+let selId = null;      // couche sélectionnée
+let assignMode = false;
+let saveMode = false;  // presets : prochain clic = sauvegarde
+
+const post = (url, body = {}) => fetch(url, { method: 'POST',
+  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+function sel() { return S ? (S.layers.find(l => l.id === selId) || S.layers[0]) : null; }
+const setL = set => post('/api/layer', { id: sel().id, set });
+
+// Sliders non linéaires
+// Double-clic OU double-tap (iPad) — avec anti-rebond pour ne jamais déclencher deux fois
+function onDblTap(el, fn) {
+  let lastFire = 0, lastTap = 0;
+  const call = e => { const n = Date.now(); if (n - lastFire < 500) return; lastFire = n; fn(e); };
+  el.addEventListener('dblclick', e => { e.preventDefault(); call(e); });
+  el.addEventListener('touchend', e => {
+    const n = Date.now();
+    if (n - lastTap < 350) { e.preventDefault(); call(e); }
+    lastTap = n;
+  }, { passive: false });
+}
+
+const stepFromSlider = v => Math.round(30 * Math.pow(2000 / 30, v / 100));
+const sliderFromStep = ms => Math.round(100 * Math.log(Math.max(30, ms) / 30) / Math.log(2000 / 30));
+const speedFromSlider = v => v >= 0 ? Math.pow(4, v / 100) : Math.pow(10, v / 100);
+const sliderFromSpeed = s => s >= 1 ? Math.round(100 * Math.log(s) / Math.log(4)) : Math.round(100 * Math.log10(s));
+
+const PATTERNS = {
+  steps: [['lr','→','G › D','Défile de la première à la dernière barre (ordre de la liste)'],
+          ['rl','←','D › G','Défile en sens inverse'],
+          ['pingpong','⇄','ping-pong','Aller-retour continu'],
+          ['random','⚡','aléatoire','Barre au hasard à chaque pas (jamais deux fois la même)'],
+          ['evenodd','▚','pair/impair','Alterne barres paires et impaires'],
+          ['all','▦','tous','Toutes les barres à chaque pas — pulse global avec un fade']],
+  wave:  [['lr','→','G › D','La vague traverse de gauche à droite'],
+          ['rl','←','D › G','De droite à gauche'],
+          ['tb','↓','H › B','Du haut vers le bas'],
+          ['bt','↑','B › H','Du bas vers le haut'],
+          ['pulse','◉','pulse','Toutes les barres respirent ensemble'],
+          ['radial','◎','radial','Onde circulaire depuis le point des axes de symétrie']],
+};
+
+// ── Rendu ────────────────────────────────────────────────────────────
+function render() {
+  if (!S) return;
+  const L = sel(); if (!L) return;
+  selId = L.id;
+  $('#btnStart').classList.toggle('active', S.global.running);
+  // Show en cours : l'app entière le signale (filet animé, START qui respire)
+  document.body.classList.toggle('running', !!S.global.running);
+
+  // Adresse réseau pour tablette / téléphone
+  const ni = $('#netInfo');
+  if (S.net && S.net.length) {
+    if (ni.dataset.url !== S.net[0]) {
+      ni.dataset.url = S.net[0];
+      ni.textContent = '📱 ' + S.net[0];
+      ni.title = 'Adresse pour tablette / téléphone (même Wi-Fi) — cliquer pour copier'
+        + (S.net.length > 1 ? '\nAutres : ' + S.net.slice(1).join('  ') : '');
+    }
+  } else { ni.textContent = ''; }
+  $('#btnQR').disabled = !(S.net && S.net.length);
+
+  // Liaison MadMapper : vert = il répond, rouge = personne au bout du fil
+  const mm = S.mm || {};
+  const el = $('#mmLink');
+  const etat = mm.alive ? 'ok' : 'ko';
+  if (el.dataset.etat !== etat + (mm.error || '')) {
+    el.dataset.etat = etat + (mm.error || '');
+    el.className = 'lien ' + etat;
+    el.textContent = mm.alive ? 'MadMapper' : 'MadMapper ?';
+    el.title = mm.alive
+      ? 'MadMapper répond (' + mm.host + ':' + mm.port + ').'
+      : (mm.error
+          ? '⚠ ' + mm.error + '\nCascade ne peut pas écouter les réponses de MadMapper.'
+          : '⚠ Aucune réponse de MadMapper (' + mm.host + ':' + mm.port + ').'
+            + '\n\n→ MadMapper est-il lancé ?'
+            + '\n→ Préférences MadMapper → OSC : entrée ' + mm.port + ', feedback '
+            + (S.settings ? S.settings.feedbackPort : '9000') + '.'
+            + '\n→ Vérifie l’adresse IP dans ⚙ Réglages.'
+            + '\n\nLes chasers continuent d’émettre : si tes barres s’allument, tout va bien.');
+  }
+
+  // chips couches
+  const chips = $('#layerChips');
+  const sig = S.layers.map(l => l.id + l.name + (l.enabled ? 1 : 0) + (l.id === selId ? 's' : '')).join(',');
+  if (chips.dataset.sig !== sig) {
+    chips.dataset.sig = sig;
+    chips.innerHTML = '';
+    S.layers.forEach(l => {
+      const c = document.createElement('div');
+      c.className = 'chip' + (l.id === selId ? ' sel' : '') + (l.enabled ? '' : ' off');
+      c.innerHTML = `<input type="checkbox" ${l.enabled ? 'checked' : ''}><span>${l.name}</span>`;
+      c.querySelector('input').onchange = ev => post('/api/layer', { id: l.id, set: { enabled: ev.target.checked } }).then(poll);
+      c.querySelector('span').onclick = () => { selId = l.id; chips.dataset.sig = ''; render(); };
+      onDblTap(c.querySelector('span'), ev => {
+        ev.stopPropagation();
+        const n = prompt('Nom du chaser :', l.name);
+        if (n && n.trim()) post('/api/layer', { id: l.id, set: { name: n.trim().slice(0, 24) } }).then(poll);
+      });
+      c.querySelector('span').title = 'Clic = éditer · Double-clic = renommer';
+      chips.appendChild(c);
+    });
+    const add = document.createElement('button'); add.textContent = '+';
+    add.onclick = () => post('/api/layers', { action: 'add' }).then(r => { selId = r.layers[r.layers.length - 1].id; poll(); });
+    chips.appendChild(add);
+    if (S.layers.length > 1) {
+      const del = document.createElement('button'); del.textContent = '−'; del.title = 'Supprimer la couche sélectionnée';
+      del.onclick = () => { const id = selId; selId = null; post('/api/layers', { action: 'remove', id }).then(poll); };
+      chips.appendChild(del);
+    }
+  }
+
+  // presets
+  const pr = $('#presets');
+  const psig = S.presets.map(p => p ? 1 : 0).join('') + (saveMode ? 'S' : '');
+  if (pr.dataset.sig !== psig) {
+    pr.dataset.sig = psig;
+    pr.innerHTML = '<span style="font-size:11px;color:var(--dim);letter-spacing:1px">PRESETS</span>';
+    S.presets.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.className = 'slot' + (p ? '' : ' empty');
+      b.textContent = i + 1;
+      b.title = saveMode ? 'Enregistrer ici' : (p
+        ? 'Rappeler le preset ' + (i + 1) + ' : couches + ordre des fixtures + vue spatiale'
+        : 'Slot vide');
+      b.onclick = () => {
+        if (saveMode) { post('/api/preset', { action: 'save', slot: i }).then(() => { saveMode = false; poll(); }); }
+        else if (p) post('/api/preset', { action: 'recall', slot: i }).then(poll);
+      };
+      pr.appendChild(b);
+    });
+    const sv = document.createElement('button');
+    sv.textContent = saveMode ? '… cliquer un slot' : '💾 Sauver';
+    sv.title = 'Mémorise TOUT : les couches, l\'ordre des fixtures et leur disposition dans la vue spatiale';
+    sv.className = saveMode ? 'savemode' : '';
+    sv.onclick = () => { saveMode = !saveMode; pr.dataset.sig = ''; render(); };
+    pr.appendChild(sv);
+  }
+
+  // moteur / cible
+  $$('.seg button[data-eng]').forEach(b => b.classList.toggle('active', b.dataset.eng === L.engine));
+  $$('.seg button[data-tgt]').forEach(b => b.classList.toggle('active', b.dataset.tgt === L.target));
+  $('#rowColors').style.display = L.target === 'color' ? '' : 'none';
+  if (document.activeElement !== $('#colorA')) $('#colorA').value = L.colorA || '#ff2000';
+  if (document.activeElement !== $('#colorB')) $('#colorB').value = L.colorB || '#0040ff';
+
+  // patterns selon moteur
+  const pats = PATTERNS[L.engine] || PATTERNS.steps;
+  const pgrid = $('#patterns');
+  const pgsig = L.engine + ':' + L.pattern;
+  if (pgrid.dataset.sig !== pgsig) {
+    pgrid.dataset.sig = pgsig;
+    pgrid.innerHTML = '';
+    pats.forEach(([p, ico, lbl, tip]) => {
+      const b = document.createElement('button');
+      b.innerHTML = ico + '<small>' + lbl + '</small>';
+      b.title = tip || '';
+      b.classList.toggle('active', L.pattern === p);
+      b.onclick = () => setL({ pattern: p }).then(poll);
+      pgrid.appendChild(b);
+    });
+  }
+
+  $('#mirrorH').checked = !!L.mirrorH;
+  $('#mirrorV').checked = !!L.mirrorV;
+  setSlider('#axisX', Math.round((L.axisX ?? 0.5) * 100), v => v + ' %');
+  setSlider('#axisY', Math.round((L.axisY ?? 0.5) * 100), v => v + ' %');
+  ['#axisX', '#axisY'].forEach((sid, i) => {
+    const on = i === 0 ? L.mirrorH : L.mirrorV;
+    $(sid).style.visibility = on ? '' : 'hidden';
+    $(sid).parentElement.querySelector('output').style.visibility = on ? '' : 'hidden';
+  });
+
+  const wave = L.engine === 'wave';
+  $('#lblGroup').textContent = wave ? 'Pas par cycle' : 'Barres par pas';
+  $('#lblWidth').textContent = wave ? 'Largeur de vague' : 'Tenue (traîne)';
+  setSlider('#group', L.group || 1, v => wave ? v + ' pas' : v + (v > 1 ? ' barres' : ' barre'));
+  setSlider('#width', L.width, v => wave ? Math.round(v / 8 * 100) + ' %' : v + ' pas');
+  $('#stepCtrls').style.display = wave ? 'none' : '';
+  $('#waveCtrls').style.display = wave ? '' : 'none';
+  $$('.seg button[data-m]').forEach(b => b.classList.toggle('active', b.dataset.m === L.mode));
+  $('#fadeCtrls').style.display = L.mode === 'fade' ? '' : 'none';
+  $('#curve').value = L.curve;
+  $('#waveform').value = L.waveform || 'sine';
+  setSlider('#fadeInPct', L.fadeInPct, v => v + ' %');
+  setSlider('#fadeOutPct', L.fadeOutPct, v => v + ' %');
+  setSlider('#level', Math.round((L.level ?? 1) * 100), v => v + ' %');
+  setSlider('#floor', Math.round((L.floor || 0) * 100), v => v ? v + ' %' : 'noir');
+  $('#invert').checked = !!L.invert;
+  // Groove & découpe
+  setSlider('#phase', L.phase || 0, v => v ? v + '°' : '—');
+  setSlider('#swing', L.swing || 0, v => v ? (v > 0 ? '+' : '') + v + ' %' : 'droit');
+  setSlider('#blocks', L.blocks || 1, v => v === 1 ? '1 (entier)' : v + ' blocs');
+  setSlider('#sparkle', Math.round((L.sparkle || 0) * 100), v => v ? v + ' %' : '—');
+  $('#oneShot').checked = !!L.oneShot;
+  $('#btnGo').classList.toggle('active', !!L.oneShot);
+  // Le swing et le scintillement n'ont de sens qu'en pas-à-pas
+  const isStep = L.engine !== 'wave';
+  $('#rowSwing').style.display = isStep ? '' : 'none';
+  $('#rowBlocks').style.display = isStep ? '' : 'none';
+  $('#rowSparkle').style.display = isStep ? '' : 'none';
+  $('#rowOneShot').style.display = isStep ? '' : 'none';
+  $('#btnAssign').textContent = '🎯 Barres : ' + (Array.isArray(L.bars) ? L.bars.length + ' sélectionnées' : 'toutes');
+  $('#btnAssign').classList.toggle('active', assignMode);
+  $('#assignHint').textContent = assignMode ? 'MODE ASSIGNATION : clique les barres pour la couche « ' + L.name + ' »' : '';
+
+  setSlider('#stepMs', sliderFromStep(L.stepMs), () => L.stepMs + ' ms');
+  setSlider('#speed', sliderFromSpeed(L.speed), () => '×' + L.speed.toFixed(2));
+  setSlider('#gspeed', sliderFromSpeed(S.global.speed), () => '×' + S.global.speed.toFixed(2));
+  setSlider('#master', Math.round(S.global.master * 100), v => v + ' %');
+  if (document.activeElement !== $('#dimmer')) $('#dimmer').value = S.global.dimmer || 'linear';
+  $('#bpm').innerHTML = '— <b>' + Math.round(60000 / L.stepMs) + '</b> BPM (pas)';
+
+  // Ableton Link : quand il pilote, le tempo manuel est neutralisé
+  const lk = S.link || {};
+  $('#btnLink').classList.toggle('active', !!lk.active);
+  const st = $('#linkStatus');
+  if (lk.active && lk.connected) {
+    st.innerHTML = '● <b>' + (lk.bpm ? lk.bpm.toFixed(1) : '—') + '</b> BPM (session Link' +
+      (lk.peers ? ' · ' + lk.peers + ' appareil' + (lk.peers > 1 ? 's' : '') : ' · en attente de Pulse/Ableton…') + ')';
+  } else if (lk.active) {
+    st.textContent = lk.error || 'Connexion à la session Link…';
+  } else {
+    st.textContent = lk.error || '';
+  }
+  ['#stepMs', '#btnTap', '#btnHalf', '#btnDouble'].forEach(s => { $(s).disabled = !!lk.active; });
+
+  renderFixtures();
+  renderPreviewCells();
+  renderSpatial();
+}
+function setSlider(selr, val, fmt) {
+  const el = $(selr);
+  if (document.activeElement !== el) el.value = val;
+  const out = el.parentElement.querySelector('output');
+  if (out) out.textContent = fmt(el.value);
+}
+
+function renderFixtures() {
+  const ul = $('#fixtures');
+  const sig = JSON.stringify(S.fixtures);
+  if (ul.dataset.sig === sig) return;
+  ul.dataset.sig = sig;
+  ul.innerHTML = '';
+  S.fixtures.forEach((f, i) => {
+    const li = document.createElement('li');
+    li.className = f.enabled === false ? 'disabled' : '';
+    li.innerHTML = `
+      <input type="checkbox" ${f.enabled !== false ? 'checked' : ''} title="Actif">
+      <span class="name" title="${f.address}">${f.name}</span>
+      <button title="Monter">▲</button><button title="Descendre">▼</button>
+      <button title="Flash test">⚡</button><button title="Supprimer">✕</button>`;
+    const [chk] = li.getElementsByTagName('input');
+    const [up, down, test, del] = li.getElementsByTagName('button');
+    chk.onchange = () => { f.enabled = chk.checked; pushFixtures(); };
+    up.onclick = () => { if (i > 0) { S.fixtures.splice(i - 1, 0, S.fixtures.splice(i, 1)[0]); pushFixtures(); } };
+    down.onclick = () => { if (i < S.fixtures.length - 1) { S.fixtures.splice(i + 1, 0, S.fixtures.splice(i, 1)[0]); pushFixtures(); } };
+    test.onclick = () => post('/api/test', { index: i });
+    del.onclick = () => { S.fixtures.splice(i, 1); pushFixtures(); };
+    ul.appendChild(li);
+  });
+}
+function pushFixtures() { post('/api/fixtures', { fixtures: S.fixtures }).then(poll); }
+
+function cellColor(i) {
+  const v = S.levels[i] || 0;
+  const c = S.colors && S.colors[i];
+  if (c) return `rgba(${c[0]},${c[1]},${c[2]},${(0.10 + 0.90 * Math.max(v, 0.25)).toFixed(3)})`;
+  return `rgba(255,176,32,${(0.06 + v * 0.94).toFixed(3)})`;
+}
+function renderPreviewCells() {
+  const pv = $('#preview');
+  if (pv.children.length !== S.fixtures.length) {
+    pv.innerHTML = S.fixtures.map(() => '<div class="cell"></div>').join('');
+  }
+  S.fixtures.forEach((_, i) => {
+    const c = pv.children[i];
+    if (!c) return;
+    c.style.background = cellColor(i);
+    // Le halo suit le niveau : on « voit » la lumière plutôt qu'un aplat.
+    const v = S.levels[i] || 0;
+    c.style.boxShadow = v > 0.04
+      ? `0 0 ${Math.round(4 + v * 16)}px ${cellColor(i)}` : 'none';
+  });
+}
+
+// ── Vue spatiale ─────────────────────────────────────────────────────
+let dragging = null;
+let dragMoved = false;
+function renderSpatial() {
+  const stage = $('#stage');
+  if (stage.dataset.sig !== S.fixtures.map(f => f.id).join(',')) {
+    stage.dataset.sig = S.fixtures.map(f => f.id).join(',');
+    stage.innerHTML = '';
+    S.fixtures.forEach(f => {
+      const el = document.createElement('div');
+      el.className = 'bar';
+      el.dataset.id = f.id;
+      el.innerHTML = '<span class="num"></span><span class="lbl"></span>';
+      el.addEventListener('pointerdown', e => {
+        dragging = { f: S.fixtures.find(x => x.id === f.id), el };
+        dragMoved = false;
+        el.classList.add('dragging');
+        el.setPointerCapture(e.pointerId);
+      });
+      el.addEventListener('pointermove', e => {
+        if (!dragging || dragging.el !== el) return;
+        const r = stage.getBoundingClientRect();
+        const nx = Math.max(0.03, Math.min(0.97, (e.clientX - r.left) / r.width));
+        const ny = Math.max(0.06, Math.min(0.94, (e.clientY - r.top) / r.height));
+        if (Math.abs(nx - dragging.f.x) > 0.004 || Math.abs(ny - dragging.f.y) > 0.008) dragMoved = true;
+        if (dragMoved && !assignMode) { dragging.f.x = nx; dragging.f.y = ny; positionBar(el, dragging.f); }
+      });
+      el.addEventListener('pointerup', () => {
+        if (!dragging || dragging.el !== el) return;
+        el.classList.remove('dragging');
+        const fid = dragging.f.id;
+        dragging = null;
+        if (assignMode && !dragMoved) toggleAssign(fid);
+        else if (dragMoved) pushFixtures();
+      });
+      onDblTap(el, () => {
+        if (assignMode || dragMoved) return;
+        const fx = S.fixtures.find(x => x.id === f.id);
+        fx.rot = ((fx.rot ?? (fx.vert ? 90 : 0)) + 90) % 180;
+        fx.vert = false; pushFixtures();
+      });
+      stage.appendChild(el);
+    });
+  }
+  let dirty = false;
+  S.fixtures.forEach((f, i) => {
+    if (typeof f.x !== 'number' || typeof f.y !== 'number') {
+      f.x = S.fixtures.length > 1 ? 0.08 + 0.84 * i / (S.fixtures.length - 1) : 0.5;
+      f.y = 0.5; dirty = true;
+    }
+  });
+  if (dirty) pushFixtures();
+  const L = sel();
+  const maxLen = Math.max(...S.fixtures.map(f => f.len || 0), 0);
+  S.fixtures.forEach((f, i) => {
+    const el = stage.querySelector(`[data-id="${f.id}"]`);
+    if (!el) return;
+    if (!dragging || dragging.el !== el) positionBar(el, f);
+    const rot = f.rot ?? (f.vert ? 90 : 0);
+    el.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    el.style.width = (maxLen > 0 && f.len ? Math.round(30 + 100 * f.len / maxLen) : 84) + 'px';
+    el.style.height = '14px';
+    el.classList.toggle('off', f.enabled === false);
+    el.classList.toggle('excl', !!(L && Array.isArray(L.bars) && !L.bars.includes(f.id)));
+    el.querySelector('.num').textContent = i + 1;
+    el.querySelector('.lbl').textContent = f.name;
+    el.querySelector('.lbl').style.transform = `translateX(-50%) rotate(${-rot}deg)`;
+    el.querySelector('.num').style.transform = `rotate(${-rot}deg)`;
+    const v = S.levels[i] || 0;
+    const c = S.colors && S.colors[i];
+    if (c) {
+      el.style.background = `rgba(${c[0]},${c[1]},${c[2]},${(0.12 + 0.88 * Math.max(v, 0.2)).toFixed(3)})`;
+      el.style.boxShadow = v > 0.02 ? `0 0 ${Math.round(30 * v)}px ${Math.round(10 * v)}px rgba(${c[0]},${c[1]},${c[2]},${(0.5 * v).toFixed(3)})` : 'none';
+    } else {
+      el.style.background = `rgba(255,${Math.round(140 + 60 * v)},${Math.round(30 + 40 * v)},${(0.12 + 0.88 * v).toFixed(3)})`;
+      el.style.boxShadow = v > 0.02 ? `0 0 ${Math.round(30 * v)}px ${Math.round(10 * v)}px rgba(255,176,32,${(0.55 * v).toFixed(3)})` : 'none';
+    }
+  });
+  renderAxes();
+}
+function positionBar(el, f) {
+  el.style.left = (f.x * 100) + '%';
+  el.style.top = (f.y * 100) + '%';
+}
+function renderAxes() {
+  const stage = $('#stage');
+  const L = sel(); if (!L) return;
+  let ax = stage.querySelector('.axX'), ay = stage.querySelector('.axY');
+  if (!ax) {
+    ax = document.createElement('div'); ax.className = 'axX';
+    ax.style.cssText = 'position:absolute;top:0;bottom:0;width:0;border-left:1px dashed var(--accent2);pointer-events:none;opacity:.7';
+    stage.appendChild(ax);
+    ay = document.createElement('div'); ay.className = 'axY';
+    ay.style.cssText = 'position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--accent2);pointer-events:none;opacity:.7';
+    stage.appendChild(ay);
+  }
+  ax.style.left = ((L.axisX ?? 0.5) * 100) + '%';
+  ax.style.display = L.mirrorH ? '' : 'none';
+  ay.style.top = ((L.axisY ?? 0.5) * 100) + '%';
+  ay.style.display = L.mirrorV ? '' : 'none';
+}
+function toggleAssign(fid) {
+  const L = sel();
+  let bars = Array.isArray(L.bars) ? [...L.bars] : S.fixtures.map(f => f.id);
+  if (bars.includes(fid)) bars = bars.filter(x => x !== fid);
+  else bars.push(fid);
+  setL({ bars }).then(poll);
+}
+
+// ── Événements ───────────────────────────────────────────────────────
+$('#netInfo').onclick = () => {
+  const u = $('#netInfo').dataset.url;
+  if (!u) return;
+  navigator.clipboard.writeText(u).then(() => {
+    const ni = $('#netInfo');
+    const old = ni.textContent;
+    ni.textContent = '✓ copié !';
+    setTimeout(() => { ni.textContent = old; }, 1200);
+  }).catch(() => {});
+};
+
+// ── QR code (généré côté client, zéro dépendance) ────────────────────
+// Byte mode, correction M, versions 1–10 (213 caractères max) — largement
+// assez pour une URL LAN. ISO/IEC 18004 : Reed-Solomon GF(256), zigzag,
+// 8 masques + pénalités, format info (+ version info dès la version 7).
+function qrMatrix(text) {
+  const data = new TextEncoder().encode(text);
+  // Niveau M : version → [octets ECC par bloc, tailles des blocs de données]
+  const RS = [null,
+    [10, [16]], [16, [28]], [26, [44]], [18, [32, 32]], [24, [43, 43]],
+    [16, [27, 27, 27, 27]], [18, [31, 31, 31, 31]], [22, [38, 38, 39, 39]],
+    [22, [36, 36, 36, 37, 37]], [26, [43, 43, 43, 43, 44]]];
+  let ver = 0, cap = 0;
+  for (let v = 1; v <= 10; v++) {
+    cap = RS[v][1].reduce((a, b) => a + b, 0);
+    if (data.length <= cap - (v < 10 ? 2 : 3)) { ver = v; break; }
+  }
+  if (!ver) return null; // trop long
+
+  // Flux de bits : mode 0100, longueur, données, terminator, bourrage EC/11
+  const bits = [];
+  const push = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+  push(4, 4);
+  push(data.length, ver < 10 ? 8 : 16);
+  for (const b of data) push(b, 8);
+  push(0, Math.min(4, cap * 8 - bits.length));
+  while (bits.length % 8) bits.push(0);
+  const cw = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+    cw.push(b);
+  }
+  for (let p = 0xEC; cw.length < cap; p ^= 0xEC ^ 0x11) cw.push(p);
+
+  // GF(256) (polynôme 0x11D) + Reed-Solomon
+  const EXP = new Uint8Array(510), LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = EXP[i + 255] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11D; }
+  const mul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  const [ecLen, blocks] = RS[ver];
+  let gen = [1]; // générateur = produit des (x − α^i)
+  for (let i = 0; i < ecLen; i++) {
+    const ng = new Array(gen.length + 1).fill(0);
+    for (let j = 0; j < gen.length; j++) { ng[j] ^= gen[j]; ng[j + 1] ^= mul(EXP[i], gen[j]); }
+    gen = ng;
+  }
+  const rsEnc = msg => {
+    const res = new Uint8Array(ecLen);
+    for (const m of msg) {
+      const f = m ^ res[0];
+      res.copyWithin(0, 1); res[ecLen - 1] = 0;
+      if (f) for (let j = 0; j < ecLen; j++) res[j] ^= mul(f, gen[j + 1]);
+    }
+    return res;
+  };
+  // Blocs + entrelacement (données puis ECC, colonne par colonne)
+  const dB = [], eB = [], seq = [];
+  let off = 0;
+  for (const len of blocks) { const b = cw.slice(off, off + len); off += len; dB.push(b); eB.push(rsEnc(b)); }
+  for (let i = 0; i < Math.max(...blocks); i++) for (const b of dB) if (i < b.length) seq.push(b[i]);
+  for (let i = 0; i < ecLen; i++) for (const e of eB) seq.push(e[i]);
+
+  // Matrice : -1 = libre (données), 0/1 = module fonctionnel posé
+  const size = 17 + ver * 4;
+  const M = Array.from({ length: size }, () => new Int8Array(size).fill(-1));
+  const finder = (r, c) => {
+    for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+      const rr = r + dr, cc = c + dc;
+      if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+      M[rr][cc] = (dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6 &&
+        (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4))) ? 1 : 0;
+    }
+  };
+  finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+  const AP = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
+    [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]][ver];
+  const lastAP = AP.length ? AP[AP.length - 1] : 0;
+  for (const r of AP) for (const c of AP) {
+    if ((r === 6 && c === 6) || (r === 6 && c === lastAP) || (r === lastAP && c === 6)) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
+      M[r + dr][c + dc] = Math.max(Math.abs(dr), Math.abs(dc)) !== 1 ? 1 : 0;
+  }
+  for (let i = 8; i < size - 8; i++) {
+    const v = i % 2 ? 0 : 1;
+    if (M[6][i] < 0) M[6][i] = v;
+    if (M[i][6] < 0) M[i][6] = v;
+  }
+  M[size - 8][8] = 1; // module sombre
+  // Zones réservées au format (remplies après le choix du masque)
+  for (let i = 0; i < 8; i++) {
+    if (M[8][i] < 0) M[8][i] = 0;
+    if (M[i][8] < 0) M[i][8] = 0;
+    M[8][size - 1 - i] = 0;
+    if (M[size - 1 - i][8] < 0) M[size - 1 - i][8] = 0;
+  }
+  M[8][8] = 0;
+  // Version info (18 bits BCH) à partir de la version 7
+  if (ver >= 7) {
+    let vi = ver << 12;
+    for (let i = 5; i >= 0; i--) if ((vi >> (12 + i)) & 1) vi ^= 0x1F25 << i;
+    vi |= ver << 12;
+    for (let i = 0; i < 18; i++) {
+      const b = (vi >> i) & 1;
+      M[Math.floor(i / 3)][size - 11 + i % 3] = b;
+      M[size - 11 + i % 3][Math.floor(i / 3)] = b;
+    }
+  }
+  // Carte des modules fonctionnels (le masque ne s'applique qu'aux données)
+  const F = M.map(row => row.map(v => v >= 0));
+
+  // Placement des données en zigzag depuis le coin bas-droit
+  let bi = 0;
+  const total = seq.length * 8;
+  for (let col = size - 1, dir = -1; col > 0; col -= 2, dir = -dir) {
+    if (col === 6) col--;
+    for (let i = 0; i < size; i++) {
+      const r = dir < 0 ? size - 1 - i : i;
+      for (const c of [col, col - 1]) {
+        if (M[r][c] >= 0) continue;
+        M[r][c] = bi < total ? (seq[bi >> 3] >> (7 - (bi & 7))) & 1 : 0;
+        bi++;
+      }
+    }
+  }
+
+  // Essai des 8 masques, score de pénalité, on garde le meilleur
+  const MASKS = [
+    (r, c) => (r + c) % 2 === 0,
+    (r, c) => r % 2 === 0,
+    (r, c) => c % 3 === 0,
+    (r, c) => (r + c) % 3 === 0,
+    (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+    (r, c) => (r * c) % 2 + (r * c) % 3 === 0,
+    (r, c) => ((r * c) % 2 + (r * c) % 3) % 2 === 0,
+    (r, c) => ((r + c) % 2 + (r * c) % 3) % 2 === 0,
+  ];
+  const setFormat = (m, mask) => { // niveau M = bits 00, BCH(15,5), masque 0x5412
+    let f = mask << 10;
+    for (let i = 4; i >= 0; i--) if ((f >> (10 + i)) & 1) f ^= 0x537 << i;
+    f = ((mask << 10) | f) ^ 0x5412;
+    for (let i = 0; i < 15; i++) {
+      const b = (f >> i) & 1;
+      if (i < 6) m[i][8] = b; else if (i < 8) m[i + 1][8] = b; else m[size - 15 + i][8] = b;
+      if (i < 8) m[8][size - 1 - i] = b; else if (i < 9) m[8][7] = b; else m[8][14 - i] = b;
+    }
+  };
+  const penalty = m => {
+    let p = 0;
+    for (let pass = 0; pass < 2; pass++) { // lignes puis colonnes
+      for (let r = 0; r < size; r++) {
+        let run = 1;
+        for (let c = 1; c <= size; c++) {
+          const cur = c < size ? (pass ? m[c][r] : m[r][c]) : -1;
+          const prev = pass ? m[c - 1][r] : m[r][c - 1];
+          if (cur === prev) run++;
+          else { if (run >= 5) p += run - 2; run = 1; }
+        }
+        for (let c = 0; c + 10 < size; c++) { // faux repère 1:1:3:1:1 + 4 clairs
+          let s = '';
+          for (let k = 0; k <= 10; k++) s += pass ? m[c + k][r] : m[r][c + k];
+          if (s === '10111010000' || s === '00001011101') p += 40;
+        }
+      }
+    }
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+      dark += m[r][c];
+      if (r && c && m[r][c] === m[r - 1][c] && m[r][c] === m[r][c - 1] && m[r][c] === m[r - 1][c - 1]) p += 3;
+    }
+    return p + Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+  };
+  let best = null, bestScore = Infinity;
+  for (let k = 0; k < 8; k++) {
+    const m = M.map((row, r) => row.map((v, c) => F[r][c] ? v : v ^ (MASKS[k](r, c) ? 1 : 0)));
+    setFormat(m, k);
+    const s = penalty(m);
+    if (s < bestScore) { bestScore = s; best = m; }
+  }
+  return best;
+}
+
+// SVG noir sur blanc avec zone de silence de 4 modules (norme)
+function qrSvg(text) {
+  const m = qrMatrix(text);
+  if (!m) return null;
+  const n = m.length, q = 4, s = n + 2 * q;
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m[r][c]) d += `M${c + q} ${r + q}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" shape-rendering="crispEdges">` +
+    `<rect width="${s}" height="${s}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+
+function showQR(u) {
+  $('#qrBox').innerHTML = qrSvg(u) || '<p class="hint" style="color:#000">Adresse trop longue pour un QR code.</p>';
+  $('#qrUrl').textContent = u;
+  $$('#qrAlts button').forEach(b => b.classList.toggle('active', b.dataset.url === u));
+}
+$('#btnQR').onclick = () => {
+  const urls = (S && S.net) || [];
+  if (!urls.length) return;
+  const alts = $('#qrAlts');
+  alts.innerHTML = '';
+  alts.style.display = urls.length > 1 ? '' : 'none';
+  urls.forEach(u => { // plusieurs cartes réseau → petits boutons pour choisir
+    const b = document.createElement('button');
+    b.textContent = u.replace(/^https?:\/\//, '');
+    b.dataset.url = u;
+    b.onclick = () => showQR(u);
+    alts.appendChild(b);
+  });
+  showQR(urls[0]);
+  $('#dlgQR').showModal();
+};
+$('#qrClose').onclick = () => $('#dlgQR').close();
+$('#btnStart').onclick = () => post('/api/start').then(poll);
+$('#btnStop').onclick = () => post('/api/stop').then(poll);
+$('#btnBlackout').onclick = () => post('/api/blackout').then(poll);
+$('#btnTap').onclick = () => post('/api/tap', { id: sel().id }).then(poll);
+$('#btnHalf').onclick = () => setL({ stepMs: Math.max(30, Math.round(sel().stepMs * 2)) }).then(poll);
+$('#btnDouble').onclick = () => setL({ stepMs: Math.max(30, Math.round(sel().stepMs / 2)) }).then(poll);
+$('#btnResync').onclick = () => post('/api/resync').then(poll);
+$('#btnLink').onclick = () => post('/api/link', { enabled: !(S && S.link && S.link.active) }).then(poll);
+// ── Quitter (mode app : plus de terminal à fermer) ───────────────────
+// La config est TOUJOURS sauvegardée automatiquement ; « non sauvegardé »
+// signifie : des modifs depuis le dernier export en fichier projet .json.
+async function exportProject(name) {
+  await post('/api/project', { name });
+  const blob = await fetch('/api/export').then(r => r.blob());
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name.replace(/\.json$/i, '') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function showBye() {
+  clearInterval(pollTimer);
+  const d = document.createElement('div');
+  d.id = 'byebye';
+  d.innerHTML = '<h1>CASCADE</h1><div class="rule"></div>' +
+    '<div style="color:var(--dim); font-size:14px">Cascade est arrêté.<br>Tu peux fermer cette fenêtre.</div>';
+  document.body.appendChild(d);
+}
+async function quitCascade() {
+  try { await post('/api/quit'); } catch (e) {}
+  try { $('#dlgQuit').close(); } catch (e) {}
+  showBye();
+}
+$('#btnQuit').onclick = () => {
+  const p = (S && S.project) || {};
+  const dirty = !!p.dirty;
+  $('#quitDirty').style.display = dirty ? '' : 'none';
+  $('#quitExport').style.display = dirty ? '' : 'none';
+  if (dirty) {
+    $('#quitDirtyMsg').textContent = p.lastExportAt
+      ? '⚠ Des réglages ont changé depuis le dernier export (' + new Date(p.lastExportAt).toLocaleString('fr-FR') + ').'
+      : '⚠ Ce projet n’a encore jamais été exporté en fichier projet.';
+    $('#quitName').value = (p.name && p.name !== 'Sans titre') ? p.name : 'projet-' + new Date().toISOString().slice(0, 10);
+  }
+  $('#dlgQuit').showModal();
+};
+$('#quitCancel').onclick = () => $('#dlgQuit').close();
+$('#quitNow').onclick = quitCascade;
+$('#quitExport').onclick = async () => {
+  const name = $('#quitName').value.trim() || 'projet';
+  try { await exportProject(name); } catch (e) { alert('Export impossible : ' + e.message); return; }
+  setTimeout(quitCascade, 400); // laisse partir le téléchargement
+};
+$$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
+$$('.seg button[data-tgt]').forEach(b => b.onclick = () => setL({ target: b.dataset.tgt }).then(poll));
+$$('.seg button[data-m]').forEach(b => b.onclick = () => setL({ mode: b.dataset.m }).then(poll));
+$('#colorA').oninput = e => setL({ colorA: e.target.value });
+$('#colorB').oninput = e => setL({ colorB: e.target.value });
+$('#curve').onchange = e => setL({ curve: e.target.value });
+$('#waveform').onchange = e => setL({ waveform: e.target.value });
+$('#fadeInPct').oninput = e => setL({ fadeInPct: +e.target.value });
+$('#fadeOutPct').oninput = e => setL({ fadeOutPct: +e.target.value });
+$('#width').oninput = e => setL({ width: +e.target.value });
+$('#group').oninput = e => setL({ group: +e.target.value });
+$('#level').oninput = e => setL({ level: +e.target.value / 100 });
+$('#floor').oninput = e => setL({ floor: +e.target.value / 100 });
+$('#phase').oninput = e => setL({ phase: +e.target.value });
+$('#swing').oninput = e => setL({ swing: +e.target.value });
+$('#blocks').oninput = e => setL({ blocks: +e.target.value });
+$('#sparkle').oninput = e => setL({ sparkle: +e.target.value / 100 });
+$('#oneShot').onchange = e => setL({ oneShot: e.target.checked }).then(poll);
+$('#btnGo').onclick = () => post('/api/resync', { id: sel().id });
+$('#dimmer').onchange = e => post('/api/global', { dimmer: e.target.value }).then(poll);
+$('#mirrorH').onchange = e => setL({ mirrorH: e.target.checked }).then(poll);
+$('#mirrorV').onchange = e => setL({ mirrorV: e.target.checked }).then(poll);
+$('#axisX').oninput = e => setL({ axisX: +e.target.value / 100 });
+$('#axisY').oninput = e => setL({ axisY: +e.target.value / 100 });
+$('#invert').onchange = e => setL({ invert: e.target.checked });
+$('#stepMs').oninput = e => setL({ stepMs: stepFromSlider(+e.target.value) });
+$('#speed').oninput = e => setL({ speed: +speedFromSlider(+e.target.value).toFixed(2) });
+$('#gspeed').oninput = e => post('/api/global', { speed: +speedFromSlider(+e.target.value).toFixed(2) });
+$('#master').oninput = e => post('/api/global', { master: +e.target.value / 100 });
+$('#btnAssign').onclick = () => {
+  const L = sel();
+  if (!assignMode && Array.isArray(L.bars)) { setL({ bars: null }).then(poll); return; } // reset → toutes
+  assignMode = !assignMode;
+  render();
+};
+document.addEventListener('keydown', e => {
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if (e.code === 'Space') { e.preventDefault(); post('/api/tap', { id: sel().id }).then(poll); }
+  else if (e.code === 'KeyR') { e.preventDefault(); post('/api/resync').then(poll); }
+});
+
+// Double-clic ligne de paramètre = défaut (couche ou global)
+const DEFAULTS = { stepMs: 250, speed: 1, fadeInPct: 20, fadeOutPct: 80,
+  width: 1, group: 1, axisX: 0.5, axisY: 0.5, level: 1,
+  phase: 0, swing: 0, floor: 0, blocks: 1, sparkle: 0 };
+for (const key of Object.keys(DEFAULTS)) {
+  const el = $('#' + key);
+  if (!el) continue;
+  onDblTap(el.closest('label') || el, () => {
+    el.blur();
+    setL({ [key]: DEFAULTS[key] }).then(() => setTimeout(poll, 60));
+  });
+}
+onDblTap($('#gspeed').closest('label'), () => {
+  $('#gspeed').blur();
+  post('/api/global', { speed: 1 }).then(() => setTimeout(poll, 60));
+});
+onDblTap($('#master').closest('label'), () => {
+  $('#master').blur();
+  post('/api/global', { master: 1 }).then(() => setTimeout(poll, 60));
+});
+
+// Fixtures / scan / diagnostic / import
+$('#btnScan').onclick = async () => {
+  $('#btnScan').textContent = '… scan';
+  const r = await post('/api/discover');
+  $('#btnScan').textContent = '⟳ Scanner';
+  if (!r.found.length) { alert("Rien trouvé.\nVérifie dans MadMapper : Préférences → OSC (entrée 8000, feedback 9000) et l'IP (⚙)."); return; }
+  const existing = new Set(S.fixtures.map(f => f.address));
+  const news = r.found.filter(f => !existing.has(f.address));
+  if (!news.length) { alert('Aucune nouvelle fixture.'); return; }
+  if (confirm(news.length + ' fixture(s) trouvée(s) :\n' + news.map(f => '• ' + f.name).join('\n') + '\n\nLes ajouter ?')) {
+    news.forEach((f, i) => S.fixtures.push({ id: 'fx' + Date.now() + '_' + i, name: f.name, address: f.address, enabled: true }));
+    pushFixtures();
+  }
+};
+$('#btnReverse').onclick = () => { S.fixtures.reverse(); pushFixtures(); };
+$('#btnAdd').onclick = () => {
+  const addr = prompt("Adresse OSC de la fixture (sans /luminosity)\nex : /fixtures/Fixture-Line-12");
+  if (!addr) return;
+  S.fixtures.push({ id: 'fx' + Date.now(), name: addr.split('/').pop(), address: addr.trim().replace(/\/$/, ''), enabled: true });
+  pushFixtures();
+};
+$('#btnDiag').onclick = async () => {
+  const idx = S.fixtures.findIndex(f => f.enabled !== false);
+  if (idx < 0) { showDiag('Ajoute d\'abord une fixture.'); return; }
+  const f = S.fixtures[idx];
+  $('#btnDiag').textContent = '… interrogation';
+  const r = await post('/api/inspect', { index: idx });
+  $('#btnDiag').textContent = '🔍 Diagnostic';
+  if (!r.controls.length) {
+    showDiag('MadMapper n\'a renvoyé aucun contrôle pour « ' + f.name + ' » (' + f.address + ').\n\n' +
+      '→ Vérifie le port de feedback OSC (⚙).\n→ Ou copie l\'adresse OSC depuis MadMapper (clic droit) → « + Manuel ».');
+    return;
+  }
+  const list = 'Contrôles de « ' + f.name + ' » :\n\n' +
+    r.controls.map(c => '  ' + c.address.slice(f.address.length + 1) + (c.value !== null ? ' = ' + c.value : '')).join('\n');
+  const opac = r.controls.find(c => /opac|dimmer|intensity|luminosit/i.test(c.address));
+  if (opac) {
+    const suffix = opac.address.slice(f.address.length + 1);
+    if (suffix !== S.global.param) showDiag(list + '\n\nParamètre d\'intensité détecté : « ' + suffix + ' »\nActuellement : « ' + S.global.param + ' »', suffix);
+    else showDiag(list + '\n\nLe paramètre « ' + S.global.param + ' » existe bien.');
+  } else {
+    showDiag(list + '\n\nAucun contrôle d\'intensité évident — mets le bon nom dans ⚙.');
+  }
+};
+function showDiag(text, applySuffix) {
+  $('#diagText').textContent = text;
+  const btn = $('#diagApply');
+  btn.style.display = applySuffix ? '' : 'none';
+  if (applySuffix) {
+    btn.textContent = 'Utiliser « ' + applySuffix + ' »';
+    btn.onclick = async () => { await post('/api/global', { param: applySuffix }); $('#dlgDiag').close(); poll(); };
+  }
+  $('#dlgDiag').showModal();
+}
+$('#diagCopy').onclick = () => navigator.clipboard.writeText($('#diagText').textContent);
+$('#diagClose').onclick = () => $('#dlgDiag').close();
+
+$('#btnImport').onclick = async () => {
+  const btn = $('#btnImport');
+  btn.textContent = '… lecture (' + S.fixtures.length + ' fixtures)';
+  const r = await post('/api/layout');
+  btn.textContent = '⤓ Importer depuis MadMapper';
+  const pts = (r.layout || []).filter(Boolean);
+  if (!pts.length) {
+    showDiag('MadMapper n\'a renvoyé aucune géométrie.\nLance 🔍 Diagnostic pour voir les contrôles disponibles.');
+    return;
+  }
+  const pixel = pts.some(p => p.pixel);
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = (maxX - minX) || 1, spanY = (maxY - minY) || 1;
+  let applied = 0;
+  r.layout.forEach((g, i) => {
+    const f = S.fixtures[i];
+    if (!g || !f) return;
+    const ny = (g.y - minY) / spanY;
+    f.x = 0.08 + 0.84 * ((g.x - minX) / spanX);
+    f.y = 0.12 + 0.76 * (pixel ? ny : 1 - ny);
+    if (typeof g.rot === 'number') {
+      const deg = pixel ? Math.round(g.rot) : -Math.round(g.rot);
+      f.rot = ((deg % 360) + 360) % 360; f.vert = false;
+    }
+    if (typeof g.len === 'number' && g.len > 0) f.len = g.len;
+    applied++;
+  });
+  pushFixtures();
+  if (applied < S.fixtures.length) showDiag(applied + '/' + S.fixtures.length + ' fixtures placées — les autres restent en manuel.');
+};
+$('#btnAlignH').onclick = () => {
+  S.fixtures.forEach((f, i) => { f.x = S.fixtures.length > 1 ? 0.08 + 0.84 * i / (S.fixtures.length - 1) : 0.5; f.y = 0.5; });
+  pushFixtures();
+};
+$('#btnAlignV').onclick = () => {
+  S.fixtures.forEach((f, i) => { f.y = S.fixtures.length > 1 ? 0.12 + 0.76 * i / (S.fixtures.length - 1) : 0.5; f.x = 0.5; });
+  pushFixtures();
+};
+$('#btnSortX').onclick = () => { S.fixtures.sort((a, b) => (a.x ?? 0) - (b.x ?? 0)); pushFixtures(); };
+$('#btnSortY').onclick = () => { S.fixtures.sort((a, b) => (a.y ?? 0) - (b.y ?? 0)); pushFixtures(); };
+$('#btnMirH').onclick = () => {
+  S.fixtures.forEach(f => {
+    if (typeof f.x === 'number') f.x = 1 - f.x;
+    if (typeof f.rot === 'number') f.rot = ((180 - f.rot) % 360 + 360) % 360;
+  });
+  pushFixtures();
+};
+$('#btnMirV').onclick = () => {
+  S.fixtures.forEach(f => {
+    if (typeof f.y === 'number') f.y = 1 - f.y;
+    if (typeof f.rot === 'number') f.rot = ((-f.rot) % 360 + 360) % 360;
+  });
+  pushFixtures();
+};
+
+// ── MIDI (Web MIDI + learn) ──────────────────────────────────────────
+const MIDI_TARGETS = [
+  ['global.master', 'Master'],
+  ['global.speed', 'Vitesse globale'],
+  ['act.start', '▶ Start'], ['act.stop', '■ Stop'], ['act.blackout', 'Blackout'],
+  ['act.tap', 'TAP (couche sél.)'],
+  ['act.resync', '⟲ Resync (tous les chasers)'],
+  ['sel.stepMs', 'Temps/pas (couche sél.)'],
+  ['sel.speed', 'Vitesse couche'],
+  ['sel.level', 'Niveau couche'],
+  ['sel.pattern', 'Pattern (zones CC / note = suivant)'],
+  ['sel.enable', 'Couche on/off'],
+  ['sel.mirrorH', 'Miroir ↔'], ['sel.mirrorV', 'Miroir ↕'],
+];
+for (let i = 0; i < 16; i++) MIDI_TARGETS.push(['preset.' + i, 'Preset ' + (i + 1)]);
+let midiLearn = null;
+let midiInputs = 0;
+const midiThrottle = new Map(); // targetId -> {t, pending}
+
+function midiKeyLabel(key) {
+  if (!key) return '—';
+  const [t, ch, n] = key.split(':');
+  return (t === 'cc' ? 'CC' : 'Note') + ' ' + n + ' (ch ' + (+ch + 1) + ')';
+}
+function renderMidiDialog() {
+  const grid = $('#midiTargets');
+  grid.innerHTML = '';
+  const map = S.midiMap || {};
+  const inv = {}; // targetId -> key
+  for (const [k, t] of Object.entries(map)) inv[t] = k;
+  MIDI_TARGETS.forEach(([id, label]) => {
+    const name = document.createElement('span');
+    name.textContent = label;
+    name.style.fontSize = '13px';
+    const bind = document.createElement('button');
+    bind.textContent = midiLearn === id ? '… bouge un contrôle' : midiKeyLabel(inv[id]);
+    bind.style.minWidth = '130px';
+    if (midiLearn === id) bind.classList.add('active');
+    bind.onclick = () => { midiLearn = midiLearn === id ? null : id; renderMidiDialog(); };
+    const clr = document.createElement('button');
+    clr.textContent = '✕';
+    clr.onclick = () => {
+      const m = { ...(S.midiMap || {}) };
+      if (inv[id]) delete m[inv[id]];
+      post('/api/midimap', { map: m }).then(() => { S.midiMap = m; renderMidiDialog(); });
+    };
+    grid.append(name, bind, clr);
+  });
+  $('#midiStatus').textContent = midiInputs ? '— ' + midiInputs + ' entrée(s) détectée(s)' : '— aucun contrôleur détecté';
+  $('#oscInPortLbl').textContent = (S.settings && S.settings.oscInPort) || 7000;
+}
+$('#btnMidi').onclick = () => { renderMidiDialog(); $('#dlgMidi').showModal(); };
+$('#midiClose').onclick = () => { midiLearn = null; $('#dlgMidi').close(); };
+
+function midiApply(target, v01, isTrigger) {
+  const send = fn => { // throttle 60 ms par cible pour les flots de CC
+    const th = midiThrottle.get(target) || { t: 0, timer: null };
+    const now = Date.now();
+    if (now - th.t > 60) { th.t = now; fn(); }
+    else { clearTimeout(th.timer); th.timer = setTimeout(() => { th.t = Date.now(); fn(); }, 60); }
+    midiThrottle.set(target, th);
+  };
+  const curve = v => v >= 0.5 ? Math.pow(4, (v - 0.5) * 2) : Math.pow(10, (v - 0.5) * 2);
+  if (target === 'global.master') send(() => post('/api/global', { master: v01 }));
+  else if (target === 'global.speed') send(() => post('/api/global', { speed: +curve(v01).toFixed(2) }));
+  else if (target === 'sel.stepMs') send(() => setL({ stepMs: Math.round(30 * Math.pow(2000 / 30, v01)) }));
+  else if (target === 'sel.speed') send(() => setL({ speed: +curve(v01).toFixed(2) }));
+  else if (target === 'sel.level') send(() => setL({ level: +v01.toFixed(3) }));
+  else if (target === 'sel.pattern') {
+    const pats = PATTERNS[sel().engine] || PATTERNS.steps;
+    if (isTrigger) { // note : pattern suivant
+      const i = pats.findIndex(p => p[0] === sel().pattern);
+      setL({ pattern: pats[(i + 1) % pats.length][0] }).then(poll);
+    } else send(() => setL({ pattern: pats[Math.min(pats.length - 1, Math.floor(v01 * pats.length))][0] }));
+  }
+  else if (target === 'act.start' && v01 > 0) post('/api/start').then(poll);
+  else if (target === 'act.stop' && v01 > 0) post('/api/stop').then(poll);
+  else if (target === 'act.blackout' && v01 > 0) post('/api/blackout').then(poll);
+  else if (target === 'act.tap' && v01 > 0) post('/api/tap', { id: sel().id }).then(poll);
+  else if (target === 'act.resync' && v01 > 0) post('/api/resync').then(poll);
+  else if (target === 'sel.enable' && v01 > 0) setL({ enabled: !sel().enabled }).then(poll);
+  else if (target === 'sel.mirrorH' && v01 > 0) setL({ mirrorH: !sel().mirrorH }).then(poll);
+  else if (target === 'sel.mirrorV' && v01 > 0) setL({ mirrorV: !sel().mirrorV }).then(poll);
+  else if (target.startsWith('preset.') && v01 > 0) post('/api/preset', { action: 'recall', slot: +target.split('.')[1] }).then(poll);
+}
+
+function onMidiMessage(ev) {
+  const [st, d1, d2] = ev.data;
+  const type = st & 0xf0, ch = st & 0x0f;
+  let key = null, v01 = 0, isTrigger = false;
+  if (type === 0xb0) { key = 'cc:' + ch + ':' + d1; v01 = d2 / 127; }
+  else if (type === 0x90 && d2 > 0) { key = 'note:' + ch + ':' + d1; v01 = d2 / 127; isTrigger = true; }
+  else if (type === 0x80 || (type === 0x90 && d2 === 0)) return; // note off ignoré
+  else return;
+  if (midiLearn) {
+    const m = { ...(S.midiMap || {}) };
+    for (const k of Object.keys(m)) if (m[k] === midiLearn) delete m[k]; // une cible = un contrôle
+    m[key] = midiLearn;
+    midiLearn = null;
+    post('/api/midimap', { map: m }).then(() => { S.midiMap = m; renderMidiDialog(); });
+    return;
+  }
+  const target = (S.midiMap || {})[key];
+  if (target) midiApply(target, v01, isTrigger);
+}
+function initMidi() {
+  if (!navigator.requestMIDIAccess) return;
+  navigator.requestMIDIAccess({ sysex: false }).then(acc => {
+    const hook = () => {
+      midiInputs = 0;
+      acc.inputs.forEach(inp => { midiInputs++; inp.onmidimessage = onMidiMessage; });
+    };
+    acc.onstatechange = hook;
+    hook();
+  }).catch(() => {});
+}
+initMidi();
+
+// Projet : sauvegarde / chargement / nouveau
+$('#btnProject').onclick = () => $('#dlgProject').showModal();
+$('#projClose').onclick = () => $('#dlgProject').close();
+$('#projSave').onclick = async () => {
+  const d = new Date().toISOString().slice(0, 10);
+  const cur = S && S.project ? S.project.name : '';
+  const name = prompt('Nom du projet :', cur && cur !== 'Sans titre' ? cur : 'projet-' + d);
+  if (!name || !name.trim()) return;
+  await exportProject(name.trim());
+  $('#dlgProject').close();
+};
+$('#projLoad').onclick = () => $('#fileLoad').click();
+$('#fileLoad').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    const r = await post('/api/import', d);
+    if (!r.ok) throw 0;
+    selId = null;
+    $('#dlgProject').close();
+    poll();
+  } catch (_) { alert('Fichier projet invalide.'); }
+  e.target.value = '';
+};
+$('#projNew').onclick = async () => {
+  if (!confirm('Nouveau projet : couches et presets seront réinitialisés.\n(Pense à sauvegarder avant si besoin.)\n\nContinuer ?')) return;
+  const keep = confirm('Garder les fixtures actuelles (la scéno) ?\n\nOK = garder les fixtures\nAnnuler = repartir de zéro');
+  await post('/api/new', { keepFixtures: keep });
+  selId = null;
+  $('#dlgProject').close();
+  poll();
+};
+
+// Réglages
+$('#btnSettings').onclick = () => {
+  $('#setHost').value = S.settings.mmHost;
+  $('#setPort').value = S.settings.mmPort;
+  $('#setFb').value = S.settings.feedbackPort;
+  $('#setParam').value = S.global.param;
+  $('#setOscIn').value = S.settings.oscInPort || 7000;
+  $('#dlgSettings').showModal();
+};
+$('#setCancel').onclick = () => $('#dlgSettings').close();
+$('#setSave').onclick = async () => {
+  await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });
+  await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
+  $('#dlgSettings').close(); poll();
+};
+
+// ── Boucle d'état ────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const ns = await fetch('/api/state').then(r => r.json());
+    if (dragging && S) { S.levels = ns.levels; S.colors = ns.colors; S.global = ns.global; }
+    else S = ns;
+    $('#status').classList.add('ok');
+    try { render(); } catch (e) { console.error('render:', e); }
+  } catch (e) { $('#status').classList.remove('ok'); }
+}
+// La barre de transport se détache visuellement dès qu'elle se colle en haut.
+// Sentinelle + IntersectionObserver : pas d'écouteur de scroll à chaque pixel.
+{
+  const topBar = document.querySelector('.top');
+  const sentinel = document.createElement('div');
+  sentinel.style.cssText = 'position:absolute; top:0; height:1px; width:1px; pointer-events:none';
+  document.body.prepend(sentinel);
+  const setStuck = (v) => topBar.classList.toggle('stuck', v);
+  try {
+    new IntersectionObserver(([e]) => setStuck(!e.isIntersecting)).observe(sentinel);
+  } catch (e) { /* navigateur ancien : le repli ci-dessous suffit */ }
+  addEventListener('scroll', () => setStuck(scrollY > 4), { passive: true });
+}
+
+poll();
+const pollTimer = setInterval(poll, 120);
+</script>
+</body>
+</html>
