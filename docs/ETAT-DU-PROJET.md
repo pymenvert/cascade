@@ -78,14 +78,44 @@ Bouton **QR** → dialogue `dlgQR`. Générateur maison 100 % client
 — **validé par décodage jsQR sur toutes les versions et toutes les longueurs**.
 Fond blanc obligatoire (`#qrBox`). Plusieurs cartes réseau → boutons de choix.
 
-### Tests — `npm test` (55 tests, zéro dépendance)
+### ⚠ Injection HTML — la leçon la plus chère de cette version
+
+Les noms de fixtures, leur `address` et les noms de couches étaient interpolés
+dans des gabarits `innerHTML` (`renderFixtures`, chips de couches). Un nom
+contenant `<img src=x onerror=…>` déposait une vraie balise dans la page.
+**Le vecteur réaliste n'est pas le réseau mais le fichier projet `.json`** que
+l'on s'échange entre régisseurs — et les noms peuvent aussi venir de MadMapper.
+
+L'audit avait d'abord conclu « sûr » sur la seule lecture du code : **c'était
+faux**. Le défaut n'est apparu qu'en injectant réellement une charge dans un
+navigateur. À retenir pour les prochains audits.
+
+Corrigé : les gabarits ne contiennent plus aucune donnée, tout passe par
+`textContent`. `tests/interface.test.js` relit le source et échoue si une
+interpolation de donnée externe réapparaît dans un `innerHTML` — garde-fou
+vérifié en réintroduisant volontairement la faille.
+
+**Règle** : toute nouvelle donnée affichée (nom, adresse, message d'erreur,
+libellé venant du serveur) se pose par `textContent` ou `title`, jamais par
+`innerHTML`.
+
+### Tests — `npm test` (68 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**
 de celui du serveur. Fichiers : `api.test.js` (validation, presets, import/export),
 `engine.test.js` (STOP silencieux, blackout, patterns, blocs, one-shot, master,
 courbes, tempo à chaud), `control.test.js` (OSC entrant, tap, persistance,
-paquets hostiles), `madmapper.test.js` (voyant dans les deux sens).
+paquets hostiles), `madmapper.test.js` (voyant dans les deux sens),
+`charge.test.js` (8 couches × 128 barres, 50 requêtes simultanées, presets en
+rafale, scéno changée 12 fois, START/STOP martelés), `interface.test.js`
+(garde-fous de source : pas d'`innerHTML` avec donnée externe, version cohérente,
+sémantiques non négociables toujours présentes).
+
+**Endurance mesurée** (4 min, config maximale) : mémoire 64 → 67 Mo avec
+récupération visible à 60 Mo (donc pas de fuite), ~6 450 messages OSC/s,
+réponse API 10-22 ms, zéro erreur. Script : voir `charge.test.js` pour la
+version courte intégrée à la suite.
 
 ⚠ Deux réflexes appris en écrivant ces tests :
 - `reset()` doit **tout** remettre, y compris `mirrorH/mirrorV` — sinon un test
