@@ -1,7 +1,7 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-07-24 — version **1.4.0**.
+> Dernière mise à jour : 2026-07-24 — version **1.5.0**.
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
 > L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`.
 
@@ -23,6 +23,51 @@
    - **Dialogue Quitter** (`dlgQuit`) : rappelle que la séance est TOUJOURS enregistrée automatiquement ; si `dirty`, signale « modifs non exportées » (avec date du dernier export) + champ nom + bouton « ⬇ Exporter puis quitter » (`exportProject(name)` : POST /api/project → fetch blob /api/export → téléchargement → quit après 400 ms). Le bouton 📁 Sauvegarder réutilise `exportProject` (prompt prérempli avec le nom du projet).
 2. **Ableton Link** (Pulse, Live, Traktor…) via **Carabiner** (Deep Symmetry) — binaire officiel embarquant la lib Link, exposé en TCP local port 17000, téléchargé par les lanceurs dans `runtime/` (`carabiner.exe` / `carabiner`). Zéro dépendance npm conservée (client `net` maison, parse EDN par regex `:bpm`/`:peers`). Toggle **⧉ ABLETON LINK** dans le panneau Vitesse ; BPM session → `stepMs` de **toutes** les couches (1 beat = 1 pas, borné 30–2000 ms), chaque couche garde sa « Vitesse » ×0.1–×4. Quand Link actif : slider Temps/pas, TAP, ÷2, ×2 désactivés côté UI, `tap()` neutralisé côté serveur. `state.settings.linkEnabled` persisté (réactivé au boot). API : `POST /api/link {enabled}` ; état dans `/api/state` → `link {active, connected, bpm, peers, error}` ; OSC : `/cascade/link 0-1`. Cascade lance Carabiner lui-même (spawn, `windowsHide`), le tue au disable/quit/exit ; se connecte d'abord au cas où un Carabiner tourne déjà ; ~20 tentatives à 700 ms puis erreur propre (binaire absent → message « relance le lanceur »).
 3. **Charte graphique** reprise du manuel : orange signature `#f2900f` (`--accent`), anthracite profond, titres de sections orange espacés avec filet fin (`h2` border-bottom), panneaux radius 14 + ombre, TAP orange plein avec glow, `--accent2` devenu gris-bleu neutre (axes miroirs, hints), footer façon PDF (filet orange centré + signature orange). `button[disabled]`/`input[disabled]` à .35.
+
+## Nouveautés v1.5.0 (2026-07-25)
+
+### Groupes de barres
+
+`state.groups[] = { id, name (≤20), bars: [fixtureIds] }`, 16 max. Une couche
+les référence par `L.groupId` — **lien vivant, pas une copie**.
+
+`resolveBars(L, enabled)` tranche, dans cet ordre : `groupId` → barres du
+groupe · sinon `bars` → sélection manuelle · sinon toutes.
+⚠ Un groupe **vide ou disparu retombe sur TOUTES les barres**, jamais sur
+aucune : une couche muette sans explication coûte plus cher en régie qu'une
+couche qui éclaire trop.
+
+- `/api/groups {action: add|remove|rename|set, id, name, bars}`. `remove`
+  libère les couches (`L.groupId = null`).
+- Persistés, exportés, importés, assainis (`sanitizeGroups` : ids en double
+  écartés, noms bornés, barres dédoublonnées).
+- **Pas dans les presets** : un groupe appartient à la scéno, pas au look.
+  `POST /api/new` sans `keepFixtures` les efface avec les fixtures.
+- UI : panneau Fixtures (`#groupChips`), sélecteur `#layerBars` par couche.
+  `assignMode` vaut maintenant `null | {type:'layer'} | {type:'group', id}`.
+
+### Tests dans un vrai navigateur — `tests/browser.js` + `tests/ui.test.js`
+
+Chrome ou Edge lancé en `--headless=new`, piloté en **CDP** via le `WebSocket`
+natif de Node. Zéro dépendance.
+
+⚠ **Ne pas lire stderr pour trouver le point d'entrée DevTools** : Chrome y
+écrit « DevTools listening on… », **Edge n'écrit rien**. On interroge
+`http://127.0.0.1:<port>/json/version` jusqu'à réponse.
+
+- `Target.createTarget` + `Target.attachToTarget {flatten:true}` → `sessionId`
+  à joindre à chaque message.
+- Erreurs captées via `Runtime.exceptionThrown`, `Runtime.consoleAPICalled`
+  (type `error`) et `Log.entryAdded` — c'est ce dernier qui a révélé le 404 du
+  favicon.
+- Sans navigateur : `describe(..., { skip })`, la suite ne casse pas.
+- Efficacité vérifiée en cassant trois choses exprès (erreur au chargement,
+  bouton débranché, injection HTML) : les trois sont attrapées.
+
+### Icône
+
+Favicon SVG en `data:` dans le `<head>` — aucun fichier de plus à distribuer,
+et plus de 404 au chargement.
 
 ## Nouveautés v1.4.0 (2026-07-25)
 
@@ -131,7 +176,7 @@ nom de couche, nom de projet, message d'erreur du serveur — se pose par
 `tests/interface.test.js` relit le source et échoue si la règle est enfreinte
 (garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
-### Tests — `npm test` (84 tests, zéro dépendance)
+### Tests — `npm test` (103 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**

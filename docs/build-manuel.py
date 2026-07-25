@@ -20,7 +20,7 @@ from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
                                 Preformatted, KeepTogether)
 from reportlab.lib.styles import ParagraphStyle
 
-VERSION = "1.4"
+VERSION = "1.5"
 ORANGE = HexColor("#E8890B")
 DARK = HexColor("#33333B")
 GREY = HexColor("#6A6A74")
@@ -280,8 +280,24 @@ E += [h1("1. Présentation"),
       li("Niveau bas : au lieu de tomber au noir, les barres « éteintes » restent à ce niveau. "
          "Le chase court alors AU-DESSUS d'un fond allumé — un classique en spectacle : la scène "
          "reste habitée entre deux pas."),
-      li("Barres (cible) : limite la couche à certaines barres — activer puis cliquer les barres "
-         "dans la vue spatiale (les exclues passent en pointillés)."),
+      li("Barres pilotées : le menu choisit ce que la couche éclaire — toutes les barres, "
+         "un groupe (voir 4.7), ou une sélection manuelle. En sélection manuelle, cliquer "
+         "les barres dans la vue spatiale (les exclues passent en pointillés)."),
+
+      h2("4.7 — Groupes de barres"),
+      p("Un groupe nomme un ensemble de barres : « sol », « contres », « portique ». Ils se "
+        "gèrent dans le panneau Fixtures : « + Groupe » pour en créer un, clic sur un groupe "
+        "pour choisir ses barres dans la vue spatiale (elles se cerclent d'orange), "
+        "double-clic pour le renommer, la croix pour le supprimer. Seize groupes au maximum."),
+      p("L'intérêt vient du lien : une couche qui SUIT un groupe se met à jour toute seule "
+        "quand le groupe change. Vous déplacez trois barres du sol vers le portique, vous "
+        "corrigez le groupe une fois, et tous les chasers concernés suivent — au lieu de "
+        "reprendre chaque couche une par une."),
+      li("Les groupes appartiennent à la scéno, pas au look : ils voyagent avec le fichier "
+         "projet, mais ne sont PAS mémorisés dans les presets. Rappeler un preset ne touche "
+         "jamais à vos groupes."),
+      li("Un groupe vidé, ou supprimé, ramène les couches qui le suivaient sur toutes les "
+         "barres : mieux vaut éclairer trop que rester dans le noir sans comprendre pourquoi."),
 
       h2("4.6 — Groove et découpe"),
       p("Ces réglages viennent des consoles lumière : ils transforment un chase correct en "

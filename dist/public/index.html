@@ -8,6 +8,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0c10">
 <title>Cascade · MadMapper</title>
+<!-- Icône intégrée : trois barres qui descendent en cascade. En SVG dans la
+     page, donc aucun fichier de plus à distribuer — et plus de 404 au
+     chargement (le navigateur réclame toujours une icône). -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0c10'/%3E%3Crect x='12' y='16' width='40' height='7' rx='3.5' fill='%23f2900f'/%3E%3Crect x='12' y='29' width='30' height='7' rx='3.5' fill='%23f2900f' opacity='.7'/%3E%3Crect x='12' y='42' width='20' height='7' rx='3.5' fill='%23f2900f' opacity='.4'/%3E%3C/svg%3E">
 <style>
   /* Charte graphique Cascade — reprise du manuel : orange signature sur
      anthracite profond, titres orange espacés, filets fins, chrome discret. */
@@ -241,6 +245,8 @@
   .bar.dragging { cursor: grabbing; z-index: 10; border-color: var(--accent2); }
   .bar.off { opacity: .35; }
   .bar.excl { border-style: dashed; opacity: .45; }
+  /* Barre appartenant au groupe en cours d'édition */
+  .bar.grp { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .bar .lbl { position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
     margin-top: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; pointer-events: none; }
   .bar .num { position: absolute; inset: 0; display: flex; align-items: center;
@@ -368,6 +374,16 @@
     </div>
     <p class="hint">« Scanner » interroge MadMapper. Sinon : clic droit sur l'opacité dans
     MadMapper → copier l'adresse OSC → « + Manuel » (sans le /luminosity final).</p>
+
+    <h2 style="margin-top:16px">Groupes</h2>
+    <div id="groupChips"></div>
+    <div class="mini">
+      <button id="btnGroupAdd" title="Crée un groupe, puis clique les barres à y mettre dans la vue spatiale">+ Groupe</button>
+    </div>
+    <p class="hint">Un groupe nomme un ensemble de barres — « sol », « contres », « portique ».
+    Une couche qui suit un groupe se met à jour <b>toute seule</b> quand tu modifies le groupe :
+    tu changes la scéno une fois, tous les chasers concernés suivent.<br>
+    Clic sur un groupe = choisir ses barres · double-clic = renommer.</p>
   </div>
 
   <!-- ══════════ COUCHE SÉLECTIONNÉE ══════════ -->
@@ -449,8 +465,10 @@
       <input type="checkbox" id="oneShot">
       <button id="btnGo" style="padding:5px 14px; font-weight:700; letter-spacing:1px" title="Relance le cycle de cette couche maintenant">GO</button></label>
     </details>
-    <div class="mini">
-      <button id="btnAssign" title="Limite cette couche à certaines barres : active le mode puis clique les barres dans la vue spatiale. Re-cliquer = revenir à toutes.">🎯 Barres : toutes</button>
+    <label class="row" title="Quelles barres cette couche pilote-t-elle ? Un groupe est un lien vivant : modifier le groupe met à jour la couche."><span>Barres pilotées</span>
+      <select id="layerBars" style="flex:1"></select></label>
+    <div class="mini" id="rowAssign" style="display:none">
+      <button id="btnAssign" title="Active le mode puis clique les barres dans la vue spatiale">🎯 Choisir les barres…</button>
     </div>
     <p class="hint">Chaque couche est un séquenceur indépendant, mixé avec les autres (la plus lumineuse gagne).
     Moteur « Pas à pas » = chase classique ; « ∿ Vague » = onde fluide sur les positions réelles.
@@ -562,7 +580,7 @@
 
 <div style="text-align:center; color:var(--dim); font-size:11px; margin-top:26px; letter-spacing:.5px; line-height:2">
   <div style="width:200px; height:2px; background:var(--accent); border-radius:1px; margin:0 auto 8px; opacity:.9"></div>
-  CASCADE v1.4 — séquenceur LED pour MadMapper<br>
+  CASCADE v1.5 — séquenceur LED pour MadMapper<br>
   <b style="color:var(--accent); letter-spacing:1px">Pierre-Yves Mansour — Collectif WSK</b>
 </div>
 
@@ -572,7 +590,9 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 let S = null;          // état serveur
 let selId = null;      // couche sélectionnée
-let assignMode = false;
+// Mode « choisir des barres dans la vue spatiale ».
+// null = inactif · {type:'layer'} = pour la couche courante · {type:'group', id}
+let assignMode = null;
 let saveMode = false;  // presets : prochain clic = sauvegarde
 
 const post = (url, body = {}) => fetch(url, { method: 'POST',
@@ -838,9 +858,8 @@ function render() {
   $('#rowBlocks').style.display = isStep ? '' : 'none';
   $('#rowSparkle').style.display = isStep ? '' : 'none';
   $('#rowOneShot').style.display = isStep ? '' : 'none';
-  $('#btnAssign').textContent = '🎯 Barres : ' + (Array.isArray(L.bars) ? L.bars.length + ' sélectionnées' : 'toutes');
-  $('#btnAssign').classList.toggle('active', assignMode);
-  $('#assignHint').textContent = assignMode ? 'MODE ASSIGNATION : clique les barres pour la couche « ' + L.name + ' »' : '';
+  renderBarsTarget(L);
+  renderGroups();
 
   setSlider('#stepMs', sliderFromStep(L.stepMs), () => L.stepMs + ' ms');
   setSlider('#speed', sliderFromSpeed(L.speed), () => '×' + L.speed.toFixed(2));
@@ -912,6 +931,79 @@ function renderFixtures() {
   });
 }
 function pushFixtures() { post('/api/fixtures', { fixtures: S.fixtures }).then(poll); }
+
+// ── Barres pilotées par la couche : toutes, un groupe, ou une sélection ──
+function renderBarsTarget(L) {
+  const sel2 = $('#layerBars');
+  const groupes = S.groups || [];
+  const sig = groupes.map(g => g.id + g.name + g.bars.length).join(',') + '|'
+    + (L.groupId || '') + '|' + (Array.isArray(L.bars) ? L.bars.length : 'all');
+  if (sel2.dataset.sig !== sig) {
+    sel2.dataset.sig = sig;
+    sel2.innerHTML = '';
+    const opt = (val, txt) => { const o = document.createElement('option'); o.value = val; o.textContent = txt; sel2.appendChild(o); };
+    opt('all', 'Toutes les barres');
+    for (const g of groupes) opt('g:' + g.id, 'Groupe : ' + g.name + ' (' + g.bars.length + ')');
+    opt('manual', 'Sélection manuelle'
+      + (Array.isArray(L.bars) ? ' (' + L.bars.length + ')' : '…'));
+    sel2.value = L.groupId ? 'g:' + L.groupId : (Array.isArray(L.bars) ? 'manual' : 'all');
+  }
+  const manuel = !L.groupId && Array.isArray(L.bars);
+  $('#rowAssign').style.display = manuel ? '' : 'none';
+  $('#btnAssign').classList.toggle('active', assignMode && assignMode.type === 'layer');
+  $('#assignHint').textContent = !assignMode ? ''
+    : assignMode.type === 'layer'
+      ? 'CHOIX DES BARRES : clique les barres pour la couche « ' + L.name + ' »'
+      : 'CHOIX DES BARRES : clique les barres du groupe « '
+        + ((S.groups.find(g => g.id === assignMode.id) || {}).name || '?') + ' »';
+}
+
+// ── Groupes de barres ────────────────────────────────────────────────
+function renderGroups() {
+  const box = $('#groupChips');
+  const groupes = S.groups || [];
+  const sig = groupes.map(g => g.id + g.name + g.bars.length).join(',')
+    + (assignMode && assignMode.type === 'group' ? assignMode.id : '');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = '';
+  if (!groupes.length) {
+    const vide = document.createElement('span');
+    vide.className = 'hint';
+    vide.style.margin = '0';
+    vide.textContent = 'Aucun groupe. « + Groupe » pour en créer un.';
+    box.appendChild(vide);
+    return;
+  }
+  for (const g of groupes) {
+    const c = document.createElement('div');
+    c.className = 'chip' + (assignMode && assignMode.type === 'group' && assignMode.id === g.id ? ' sel' : '');
+    const n = document.createElement('span');
+    n.textContent = g.name + ' · ' + g.bars.length;   // jamais innerHTML : nom saisi par l'utilisateur
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.title = 'Supprimer ce groupe';
+    x.style.cssText = 'padding:0 5px; font-size:13px; line-height:1; border:none; background:none; color:var(--dim)';
+    x.onclick = (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Supprimer le groupe « ' + g.name + ' » ?\n\nLes couches qui le suivent repasseront sur toutes les barres.')) return;
+      if (assignMode && assignMode.type === 'group' && assignMode.id === g.id) assignMode = null;
+      post('/api/groups', { action: 'remove', id: g.id }).then(poll);
+    };
+    c.onclick = () => {
+      assignMode = (assignMode && assignMode.type === 'group' && assignMode.id === g.id)
+        ? null : { type: 'group', id: g.id };
+      box.dataset.sig = ''; render();
+    };
+    onDblTap(n, (ev) => {
+      ev.stopPropagation();
+      const nom = prompt('Nom du groupe :', g.name);
+      if (nom && nom.trim()) post('/api/groups', { action: 'rename', id: g.id, name: nom.trim() }).then(poll);
+    });
+    c.append(n, x);
+    box.appendChild(c);
+  }
+}
 
 function cellColor(i) {
   const v = S.levels[i] || 0;
@@ -998,7 +1090,20 @@ function renderSpatial() {
     el.style.width = (maxLen > 0 && f.len ? Math.round(30 + 100 * f.len / maxLen) : 84) + 'px';
     el.style.height = '14px';
     el.classList.toggle('off', f.enabled === false);
-    el.classList.toggle('excl', !!(L && Array.isArray(L.bars) && !L.bars.includes(f.id)));
+    // Pendant l'édition d'un groupe, la vue montre CE groupe ; sinon elle
+    // montre les barres pilotées par la couche sélectionnée.
+    let dedans = true;
+    if (assignMode && assignMode.type === 'group') {
+      const g = (S.groups || []).find(x => x.id === assignMode.id);
+      dedans = !g || g.bars.includes(f.id);
+    } else if (L && L.groupId) {
+      const g = (S.groups || []).find(x => x.id === L.groupId);
+      dedans = !g || !g.bars.length || g.bars.includes(f.id);
+    } else if (L && Array.isArray(L.bars)) {
+      dedans = L.bars.includes(f.id);
+    }
+    el.classList.toggle('excl', !dedans);
+    el.classList.toggle('grp', !!(assignMode && assignMode.type === 'group' && dedans));
     el.querySelector('.num').textContent = i + 1;
     el.querySelector('.lbl').textContent = f.name;
     el.querySelector('.lbl').style.transform = `translateX(-50%) rotate(${-rot}deg)`;
@@ -1036,12 +1141,19 @@ function renderAxes() {
   ay.style.top = ((L.axisY ?? 0.5) * 100) + '%';
   ay.style.display = L.mirrorV ? '' : 'none';
 }
+/** Clic sur une barre en mode sélection : bascule son appartenance, à la
+ *  couche courante ou au groupe en cours d'édition. */
 function toggleAssign(fid) {
+  const bascule = (liste) => liste.includes(fid) ? liste.filter(x => x !== fid) : [...liste, fid];
+  if (assignMode && assignMode.type === 'group') {
+    const g = (S.groups || []).find(x => x.id === assignMode.id);
+    if (!g) return;
+    post('/api/groups', { action: 'set', id: g.id, bars: bascule(g.bars) }).then(poll);
+    return;
+  }
   const L = sel();
-  let bars = Array.isArray(L.bars) ? [...L.bars] : S.fixtures.map(f => f.id);
-  if (bars.includes(fid)) bars = bars.filter(x => x !== fid);
-  else bars.push(fid);
-  setL({ bars }).then(poll);
+  const base = Array.isArray(L.bars) ? L.bars : S.fixtures.map(f => f.id);
+  setL({ bars: bascule(base) }).then(poll);
 }
 
 // ── Événements ───────────────────────────────────────────────────────
@@ -1355,10 +1467,33 @@ $('#speed').oninput = e => setL({ speed: +speedFromSlider(+e.target.value).toFix
 $('#gspeed').oninput = e => post('/api/global', { speed: +speedFromSlider(+e.target.value).toFixed(2) });
 $('#master').oninput = e => post('/api/global', { master: +e.target.value / 100 });
 $('#btnAssign').onclick = () => {
-  const L = sel();
-  if (!assignMode && Array.isArray(L.bars)) { setL({ bars: null }).then(poll); return; } // reset → toutes
-  assignMode = !assignMode;
+  assignMode = (assignMode && assignMode.type === 'layer') ? null : { type: 'layer' };
+  $('#layerBars').dataset.sig = ''; $('#groupChips').dataset.sig = '';
   render();
+};
+// Choix de la cible d'une couche : toutes / un groupe / sélection manuelle
+$('#layerBars').onchange = async (e) => {
+  const v = e.target.value;
+  assignMode = null;
+  if (v === 'all') await setL({ groupId: null, bars: null });
+  else if (v.startsWith('g:')) await setL({ groupId: v.slice(2), bars: null });
+  else { // manuelle : on démarre sur la sélection courante, ou tout
+    const L = sel();
+    await setL({ groupId: null, bars: Array.isArray(L.bars) ? L.bars : S.fixtures.map(f => f.id) });
+    assignMode = { type: 'layer' };
+  }
+  $('#layerBars').dataset.sig = '';
+  poll();
+};
+$('#btnGroupAdd').onclick = async () => {
+  const nom = prompt('Nom du groupe (ex. « sol », « contres ») :', '');
+  if (nom === null) return;
+  const r = await post('/api/groups', { action: 'add', name: nom.trim() });
+  const g = (r.groups || [])[(r.groups || []).length - 1];
+  // On enchaîne directement sur le choix des barres : c'est ce qu'on veut faire
+  if (g) assignMode = { type: 'group', id: g.id };
+  $('#groupChips').dataset.sig = '';
+  poll();
 };
 document.addEventListener('keydown', e => {
   // Jamais de raccourci pendant une saisie, ni dans un dialogue ouvert

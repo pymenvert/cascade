@@ -107,6 +107,71 @@ describe('API HTTP', () => {
     assert.deepEqual(Object.keys(m).sort(), ['cc:1:7', 'note:10:36']);
   });
 
+  test('groupes : création, renommage, contenu, suppression', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(6) });
+    let r = await h.post('/api/groups', { action: 'add', name: 'Sol' });
+    assert.equal(r.body.groups.length, 1);
+    const gid = r.body.groups[0].id;
+    assert.equal(r.body.groups[0].name, 'Sol');
+    assert.deepEqual(r.body.groups[0].bars, []);
+
+    r = await h.post('/api/groups', { action: 'set', id: gid, bars: ['f0', 'f1', 'f0'] });
+    assert.deepEqual(r.body.groups[0].bars, ['f0', 'f1'], 'les doublons doivent être écartés');
+
+    r = await h.post('/api/groups', { action: 'rename', id: gid, name: 'X'.repeat(60) });
+    assert.equal(r.body.groups[0].name.length, 20, 'nom borné à 20 caractères');
+
+    r = await h.post('/api/groups', { action: 'remove', id: gid });
+    assert.equal(r.body.groups.length, 0);
+  });
+
+  test('on ne dépasse pas 16 groupes', async () => {
+    for (let i = 0; i < 25; i++) await h.post('/api/groups', { action: 'add', name: 'G' + i });
+    const g = (await h.state()).groups;
+    assert.equal(g.length, 16);
+    for (const x of g) await h.post('/api/groups', { action: 'remove', id: x.id });
+  });
+
+  test('une couche suit son groupe, et le lien est vivant', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(6) });
+    const r = await h.post('/api/groups', { action: 'add', name: 'Contres' });
+    const gid = r.body.groups[0].id;
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f2', 'f3'] });
+    const id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { groupId: gid } });
+    assert.equal((await h.state()).layers[0].groupId, gid);
+    // Modifier le groupe ne touche pas la couche : c'est une référence
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f0'] });
+    assert.equal((await h.state()).layers[0].groupId, gid);
+    // Supprimer le groupe libère les couches qui le suivaient
+    await h.post('/api/groups', { action: 'remove', id: gid });
+    assert.equal((await h.state()).layers[0].groupId, null);
+  });
+
+  test('les groupes survivent à l’export/import et sont assainis', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    const r = await h.post('/api/groups', { action: 'add', name: 'Portique' });
+    await h.post('/api/groups', { action: 'set', id: r.body.groups[0].id, bars: ['f1', 'f2'] });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: false });
+    assert.deepEqual((await h.state()).groups, [], 'un projet neuf repart sans groupe');
+    await h.post('/api/import', exp.body);
+    const g = (await h.state()).groups;
+    assert.equal(g.length, 1);
+    assert.equal(g[0].name, 'Portique');
+    assert.deepEqual(g[0].bars, ['f1', 'f2']);
+    // Import hostile
+    await h.post('/api/import', { layers: exp.body.layers, groups: [
+      'pas un groupe', null, { id: 'a', name: 'X'.repeat(99), bars: 'pas un tableau' },
+      { id: 'a', name: 'doublon' },
+    ] });
+    const g2 = (await h.state()).groups;
+    assert.equal(g2.length, 1, 'les entrées invalides et les id en double sont écartés');
+    assert.equal(g2[0].name.length, 20);
+    assert.deepEqual(g2[0].bars, []);
+    for (const x of g2) await h.post('/api/groups', { action: 'remove', id: x.id });
+  });
+
   test('presets : sauvegarde, rappel, effacement', async () => {
     await h.post('/api/fixtures', { fixtures: fixtures(4) });
     const id = (await h.state()).layers[0].id;

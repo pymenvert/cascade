@@ -212,6 +212,57 @@ describe('Moteur', () => {
     assert.ok(!(lv.get('bar3') > 0), 'bar3 ne doit jamais s’allumer');
   });
 
+  test('une couche qui suit un groupe ne touche que ses barres', async () => {
+    await reset();
+    const r = await h.post('/api/groups', { action: 'add', name: 'Deux' });
+    const gid = r.body.groups[0].id;
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f1', 'f2'] });
+    await setL({ groupId: gid, pattern: 'all', mode: 'onoff' });
+    await h.post('/api/start');
+    await sleep(250);
+    const lv = levels(h.osc());
+    await h.post('/api/stop');
+    assert.ok(lv.get('bar1') > 0.5 && lv.get('bar2') > 0.5, 'les barres du groupe doivent s’allumer');
+    assert.ok(!(lv.get('bar0') > 0), 'bar0 est hors groupe');
+    assert.ok(!(lv.get('bar3') > 0), 'bar3 est hors groupe');
+    await h.post('/api/groups', { action: 'remove', id: gid });
+  });
+
+  test('modifier le groupe change immédiatement ce que joue la couche', async () => {
+    await reset();
+    const r = await h.post('/api/groups', { action: 'add', name: 'Vivant' });
+    const gid = r.body.groups[0].id;
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f0'] });
+    await setL({ groupId: gid, pattern: 'all', mode: 'onoff' });
+    await h.post('/api/start');
+    await sleep(200);
+    assert.ok(levels(h.osc()).get('bar0') > 0.5);
+    // On déplace le groupe sur une autre barre, SANS toucher à la couche
+    h.clearOsc();
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f3'] });
+    await sleep(250);
+    const lv = levels(h.osc());
+    await h.post('/api/stop');
+    assert.ok(lv.get('bar3') > 0.5, 'la nouvelle barre du groupe doit s’allumer');
+    assert.equal(lv.get('bar0'), 0, 'l’ancienne doit s’éteindre');
+    await h.post('/api/groups', { action: 'remove', id: gid });
+  });
+
+  test('un groupe vide ou disparu ne rend pas la couche muette', async () => {
+    await reset();
+    const r = await h.post('/api/groups', { action: 'add', name: 'Vide' });
+    const gid = r.body.groups[0].id;
+    await setL({ groupId: gid, pattern: 'all', mode: 'onoff' });
+    await h.post('/api/start');
+    await sleep(250);
+    const lv = levels(h.osc());
+    await h.post('/api/stop');
+    // Mieux vaut éclairer trop que rester noir sans explication
+    assert.equal([...lv.values()].filter(v => v > 0.5).length, 4,
+      'un groupe vide doit retomber sur toutes les barres');
+    await h.post('/api/groups', { action: 'remove', id: gid });
+  });
+
   test('le moteur vague sort des valeurs continues', async () => {
     await reset();
     await setL({ engine: 'wave', pattern: 'lr', waveform: 'sine', stepMs: 200, group: 4, width: 4 });

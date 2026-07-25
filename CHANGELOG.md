@@ -4,6 +4,46 @@ Toutes les évolutions notables de Cascade. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [sémantique](https://semver.org/lang/fr/).
 
+## [1.5.0] — 2026-07-25
+
+Version « scéno » : les groupes de barres, et des tests qui pilotent enfin un
+vrai navigateur.
+
+### Ajouté
+
+- **Groupes de barres nommés** — « sol », « contres », « portique ». Une couche
+  peut **suivre** un groupe : c'est un lien vivant, pas une copie. Vous changez
+  les barres du groupe, tous les chasers qui le suivent se mettent à jour.
+  - Jusqu'à 16 groupes, gérés depuis le panneau Fixtures : clic pour choisir
+    les barres dans la vue spatiale, double-clic pour renommer.
+  - Chaque couche choisit sa cible : toutes les barres, un groupe, ou une
+    sélection manuelle.
+  - Les groupes appartiennent à la scéno, pas au look : ils voyagent avec le
+    fichier projet mais ne sont **pas** mémorisés dans les presets.
+  - Un groupe vidé ou supprimé ramène la couche sur toutes les barres — mieux
+    vaut éclairer trop que rester noir sans explication.
+- **Icône d'application** — une petite cascade de barres orange, intégrée en
+  SVG dans la page (aucun fichier de plus à distribuer).
+
+### Corrigé
+
+- Le navigateur réclamait une icône à chaque chargement et récoltait un 404.
+  Trouvé par les nouveaux tests d'interface.
+
+### Interne
+
+- **Tests pilotant un vrai navigateur, toujours sans aucune dépendance.**
+  Chrome ou Edge est lancé en arrière-plan et piloté par le protocole DevTools,
+  à travers le WebSocket intégré à Node. Douze tests chargent la page, cliquent
+  sur les vrais boutons, envoient de vraies touches, et vérifient qu'aucune
+  erreur JavaScript ne survient.
+  - Vérifié en cassant volontairement trois choses : une erreur au chargement,
+    un bouton débranché, une injection HTML réintroduite. Les trois sont
+    attrapées.
+  - Sans navigateur installé, ces tests s'annoncent ignorés au lieu d'échouer.
+  - `npm run test:ui` pour ne lancer que ceux-là.
+- 103 tests (91 auparavant).
+
 ## [1.4.0] — 2026-07-25
 
 Version « conduite » : moins de réglages sous les yeux, plus de repères

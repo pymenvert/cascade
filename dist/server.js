@@ -16,13 +16,14 @@ const os = require('os');
 const { exec, spawn } = require('child_process');
 
 const APP_NAME = 'Cascade';
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
 const MAX_LAYERS = 8;
 const MAX_FIXTURES = 128;
 const MAX_MIDI_BINDINGS = 256;
 const MAX_FADE_MS = 30000; // fondu entre presets : 30 s, c'est déjà très long
+const MAX_GROUPS = 16;
 
 const PACKAGED = typeof process.pkg !== 'undefined';
 const DATA_DIR = PACKAGED ? path.dirname(process.execPath) : __dirname;
@@ -52,6 +53,7 @@ function defaultLayer(name) {
     engine: 'steps',        // 'steps' | 'wave'
     target: 'intensity',    // 'intensity' | 'color'
     bars: null,             // null = toutes les fixtures, sinon [ids]
+    groupId: null,          // si posé, la couche suit CE groupe (lien vivant)
     pattern: 'lr',          // steps : lr,rl,pingpong,random,evenodd,all — wave : lr,rl,tb,bt,pulse,radial
     mode: 'fade', curve: 'linear',
     waveform: 'sine',       // sine | triangle | square (moteur vague)
@@ -76,6 +78,11 @@ const state = {
   projectName: 'Sans titre',
   settings: { mmHost: '127.0.0.1', mmPort: 8000, feedbackPort: 9000, httpPort: 3333, oscInPort: 7000, linkEnabled: false },
   fixtures: [],
+  // Groupes de barres nommés (« sol », « contres »…). Une couche peut suivre un
+  // groupe : modifier le groupe met à jour toutes les couches qui l'utilisent.
+  // Ils appartiennent à la scéno, pas au look — ils ne sont donc PAS mémorisés
+  // dans les presets, mais ils voyagent avec le fichier projet.
+  groups: [],
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
             presetFade: 0 }, // durée du fondu entre presets, en ms (0 = rappel sec)
@@ -83,7 +90,7 @@ const state = {
   midiMap: {},  // 'cc:ch:num' | 'note:ch:num' -> cible (géré par l'UI, persisté ici)
 };
 
-const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'pattern', 'mode',
+const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'pattern', 'mode',
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle'];
@@ -103,6 +110,7 @@ function loadConfig() {
     // de courant, édition manuelle) ne doit jamais faire planter le moteur.
     if (saved.settings) state.settings = sanitizeSettings(saved.settings);
     if (saved.fixtures) state.fixtures = sanitizeFixtures(saved.fixtures);
+    if (saved.groups) state.groups = sanitizeGroups(saved.groups);
     if (saved.global) Object.assign(state.global, sanitizeGlobal(saved.global), { running: false });
     if (Array.isArray(saved.layers) && saved.layers.length) {
       state.layers = saved.layers.slice(0, MAX_LAYERS).map(sanitizeLayer);
@@ -132,7 +140,7 @@ function writeConfigNow() {
     const { running, ...global } = state.global;
     const data = JSON.stringify({
       app: APP_NAME, version: VERSION, projectName: state.projectName,
-      settings: state.settings, fixtures: state.fixtures,
+      settings: state.settings, fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global, presets: state.presets, midiMap: state.midiMap,
     }, null, 2);
     const tmp = CONFIG_FILE + '.tmp';
@@ -189,6 +197,7 @@ function sanitizeLayerSet(set) {
       case 'enabled': case 'mirrorH': case 'mirrorV': case 'invert':
       case 'oneShot': o[k] = !!v; break;
       case 'bars': if (v === null) o.bars = null; else if (Array.isArray(v)) o.bars = v.map(String).slice(0, 256); break;
+      case 'groupId': o.groupId = (v == null || v === '') ? null : String(v).slice(0, 40); break;
       case 'stepMs': o.stepMs = Math.round(cnum(v, 30, 10000, 250)); break;
       case 'speed': o.speed = cnum(v, 0.05, 5, 1); break;
       case 'width': case 'group': case 'blocks': o[k] = Math.round(cnum(v, 1, 8, 1)); break;
@@ -247,6 +256,23 @@ function sanitizeMidiMap(map) {
     o[k] = v; n++;
   }
   return o;
+}
+function sanitizeGroups(list) {
+  if (!Array.isArray(list)) return [];
+  const vus = new Set();
+  const out = [];
+  for (const g of list.slice(0, MAX_GROUPS)) {
+    if (!g || typeof g !== 'object') continue;
+    const id = String(g.id || '').slice(0, 40) || 'g' + Date.now() + '_' + out.length;
+    if (vus.has(id)) continue; // deux groupes de même id rendraient la résolution ambiguë
+    vus.add(id);
+    out.push({
+      id,
+      name: String(g.name || 'Groupe').slice(0, 20).trim() || 'Groupe',
+      bars: Array.isArray(g.bars) ? [...new Set(g.bars.map(String))].slice(0, MAX_FIXTURES) : [],
+    });
+  }
+  return out;
 }
 function sanitizePresets(list) {
   if (!Array.isArray(list)) return Array(PRESET_SLOTS).fill(null);
@@ -993,6 +1019,27 @@ function sendRGB(f, c, force) {
   }
 }
 
+/**
+ * Quelles barres cette couche pilote-t-elle ?
+ *  - `groupId` posé  → les barres du groupe (lien vivant : éditer le groupe
+ *    met à jour toutes les couches qui le suivent) ;
+ *  - sinon `bars`    → sélection manuelle ;
+ *  - sinon           → toutes les barres actives.
+ * Un groupe disparu ou vidé ramène la couche sur toutes les barres : mieux
+ * vaut une couche qui éclaire trop qu'une couche muette sans explication.
+ */
+function resolveBars(L, enabled) {
+  if (L.groupId) {
+    const g = state.groups.find(x => x.id === L.groupId);
+    if (g && g.bars.length) {
+      const dans = enabled.filter(f => g.bars.includes(f.id));
+      if (dans.length) return dans;
+    }
+    return enabled;
+  }
+  return Array.isArray(L.bars) ? enabled.filter(f => L.bars.includes(f.id)) : enabled;
+}
+
 /** Calcule le mix d'un jeu de couches : intensité (HTP) et couleur par fixture.
  *  Isolé pour pouvoir évaluer DEUX scènes dans le même tick pendant un fondu. */
 function computeMix(layers, fixtures, now, store) {
@@ -1001,7 +1048,7 @@ function computeMix(layers, fixtures, now, store) {
   let anyInt = false, anyCol = false;
   for (const L of layers) {
     if (!L.enabled) continue;
-    const list = Array.isArray(L.bars) ? enabled.filter(f => L.bars.includes(f.id)) : enabled;
+    const list = resolveBars(L, enabled);
     if (!list.length) continue;
     const vals = L.engine === 'wave' ? waveValues(L, list, now) : stepValues(L, list, now, store);
     const flr = Math.max(0, Math.min(1, L.floor || 0));
@@ -1191,7 +1238,8 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({
       app: 'cascade', version: 3, date: new Date().toISOString(),
       projectName: state.projectName,
-      fixtures: state.fixtures, layers: state.layers, global, presets: state.presets,
+      fixtures: state.fixtures, groups: state.groups,
+      layers: state.layers, global, presets: state.presets,
     }, null, 2));
   }
 
@@ -1199,7 +1247,7 @@ const server = http.createServer(async (req, res) => {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
     return json(res, {
       app: APP_NAME, version: VERSION, net: lanUrls(),
-      settings: state.settings, fixtures: state.fixtures,
+      settings: state.settings, fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
       presets: presetNames(),
       midiMap: state.midiMap,
@@ -1252,6 +1300,30 @@ const server = http.createServer(async (req, res) => {
         saveConfig();
         return json(res, { ok: true, presets: presetNames(), layers: state.layers, fixtures: state.fixtures });
       }
+      case '/api/groups': {
+        const gid = String(body.id || '');
+        if (body.action === 'add' && state.groups.length < MAX_GROUPS) {
+          state.groups.push({
+            id: 'g' + Date.now().toString(36) + Math.floor(Math.random() * 1e4),
+            name: String(body.name || '').trim().slice(0, 20) || 'Groupe ' + (state.groups.length + 1),
+            bars: Array.isArray(body.bars) ? [...new Set(body.bars.map(String))].slice(0, MAX_FIXTURES) : [],
+          });
+        } else if (body.action === 'remove') {
+          state.groups = state.groups.filter(g => g.id !== gid);
+          // Les couches qui suivaient ce groupe repassent sur toutes les barres
+          for (const L of state.layers) if (L.groupId === gid) L.groupId = null;
+        } else {
+          const g = state.groups.find(x => x.id === gid);
+          if (g) {
+            if (body.action === 'rename') g.name = String(body.name || '').trim().slice(0, 20) || g.name;
+            else if (body.action === 'set' && Array.isArray(body.bars)) {
+              g.bars = [...new Set(body.bars.map(String))].slice(0, MAX_FIXTURES);
+            }
+          }
+        }
+        saveConfig();
+        return json(res, { ok: true, groups: state.groups, layers: state.layers });
+      }
       case '/api/resync': {
         resync(body.id);
         return json(res, { ok: true });
@@ -1280,6 +1352,7 @@ const server = http.createServer(async (req, res) => {
         stopChase();
         state.layers = body.layers.slice(0, MAX_LAYERS).map(sanitizeLayer);
         if (Array.isArray(body.fixtures)) state.fixtures = sanitizeFixtures(body.fixtures);
+        if (Array.isArray(body.groups)) state.groups = sanitizeGroups(body.groups);
         if (body.global) Object.assign(state.global, sanitizeGlobal(body.global));
         if (Array.isArray(body.presets)) state.presets = sanitizePresets(body.presets);
         pruneCaches();
@@ -1296,7 +1369,7 @@ const server = http.createServer(async (req, res) => {
         state.layers = [defaultLayer('Chaser 1')];
         layerSeq = 2;
         state.presets = Array(PRESET_SLOTS).fill(null);
-        if (!body.keepFixtures) { state.fixtures = []; pruneCaches(); }
+        if (!body.keepFixtures) { state.fixtures = []; state.groups = []; pruneCaches(); }
         state.projectName = 'Sans titre';
         saveConfig();
         dirtySinceExport = false; // projet vierge : rien à exporter encore
