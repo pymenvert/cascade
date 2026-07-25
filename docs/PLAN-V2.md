@@ -7,6 +7,12 @@
 >
 > ⚠ **Rien ne commence avant les vérifications de la section 7**, à faire avec
 > MadMapper ouvert. Trois d'entre elles (T3, T4, T5) peuvent changer le plan.
+>
+> 📄 **Suite indispensable : [V2-TEXTURES.md](V2-TEXTURES.md)** — comment faire
+> voyager une vraie texture sur un axe. Ce document-ci conclut « une valeur par
+> barre » ; c'est vrai pour ce que **Cascade calcule**, mais faux dès qu'une
+> texture vit dans la composition MadMapper : les fixtures l'échantillonnent
+> alors à pleine résolution, LED par LED. Lire les deux.
 
 > **En deux phrases.** Cascade v2 saura placer les barres dans l'espace réel et y faire courir des effets calculés en 3D (balayages sur n'importe quel axe, ondes sphériques, bruit organique) — avec une vue 3D en plus de la vue 2D actuelle, les deux liées. Ce que Cascade ne saura **jamais** faire par OSC, c'est allumer le pixel n° 37 d'une barre : MadMapper ne l'expose pas.
 
