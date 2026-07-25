@@ -4,7 +4,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-1.4.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-76-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-1.4.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-84-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -80,6 +80,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, mixé en HTP avec les couches d'intensité.
 - **Vue spatiale** : barres positionnables au doigt ou importées depuis MadMapper (position, rotation, taille), allumage en temps réel.
 - **16 presets nommables** qui mémorisent les couches *et* la disposition complète — rappel instantané en live. « Refrain » se retrouve plus vite que « P7 ».
+- **Fondu entre presets** (0 à 30 s, réglable) : la scène sortante continue de jouer et décroît pendant que la nouvelle monte. À 0, le rappel reste sec.
 - **Raccourcis clavier** : `S` start/stop, `B` blackout, `Espace` tap, `R` resync, `G` GO, `1`–`8` couches, `?` pour l'aide.
 - **Tempo** : tap tempo, ÷2 ×2, resync sur le temps fort, vitesse par couche et vitesse globale.
 - **Ableton Link** : Cascade rejoint la session Link du réseau (Pulse, Ableton Live, Traktor…) et suit son BPM en direct.
@@ -106,6 +107,7 @@ Cascade écoute sur le port **7000** (réglable). Valeurs normalisées 0–1 ; p
 ```
 /cascade/start   /cascade/stop   /cascade/blackout   /cascade/tap   /cascade/resync
 /cascade/master 0-1              /cascade/speed 0-1
+/cascade/presetfade 0-1          (fondu entre presets, 0 à 10 s)
 /cascade/link 0-1                (Ableton Link off/on)
 /cascade/preset/1 … /cascade/preset/16
 
@@ -119,7 +121,7 @@ Le préfixe historique `/chaser/…` reste accepté.
 ## Développement
 
 ```bash
-npm test        # 76 tests, sans aucune dépendance
+npm test        # 84 tests, sans aucune dépendance
 node build.js   # exécutables des 4 plateformes → build/
 ```
 

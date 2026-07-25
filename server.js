@@ -22,6 +22,7 @@ const PRESET_SLOTS = 16;
 const MAX_LAYERS = 8;
 const MAX_FIXTURES = 128;
 const MAX_MIDI_BINDINGS = 256;
+const MAX_FADE_MS = 30000; // fondu entre presets : 30 s, c'est déjà très long
 
 const PACKAGED = typeof process.pkg !== 'undefined';
 const DATA_DIR = PACKAGED ? path.dirname(process.execPath) : __dirname;
@@ -76,7 +77,8 @@ const state = {
   settings: { mmHost: '127.0.0.1', mmPort: 8000, feedbackPort: 9000, httpPort: 3333, oscInPort: 7000, linkEnabled: false },
   fixtures: [],
   layers: [defaultLayer()],
-  global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear' },
+  global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
+            presetFade: 0 }, // durée du fondu entre presets, en ms (0 = rappel sec)
   presets: Array(PRESET_SLOTS).fill(null),
   midiMap: {},  // 'cc:ch:num' | 'note:ch:num' -> cible (géré par l'UI, persisté ici)
 };
@@ -220,6 +222,7 @@ function sanitizeGlobal(g) {
   if ('master' in g) o.master = cnum(g.master, 0, 1, 1);
   if ('param' in g) o.param = safeParam(g.param, 'luminosity');
   if ('dimmer' in g && ENUMS.dimmer.includes(g.dimmer)) o.dimmer = g.dimmer;
+  if ('presetFade' in g) o.presetFade = Math.round(cnum(g.presetFade, 0, MAX_FADE_MS, 0));
   return o;
 }
 function sanitizeSettings(s) {
@@ -566,6 +569,8 @@ function handleControlOsc(msgs) {
     else if (p[1] === 'link') { setLinkActive(on); changed = false; } // gère sa propre sauvegarde
     else if (p[1] === 'master') state.global.master = v;
     else if (p[1] === 'speed') state.global.speed = +speedCurve(v).toFixed(3);
+    // Fondu entre presets : 0-1 → 0 à 10 s (au-delà, passer par les réglages)
+    else if (p[1] === 'presetfade') state.global.presetFade = Math.round(v * 10000);
     else if (p[1] === 'preset') {
       const slot = p[2] ? (+p[2] - 1) : (m.args && typeof m.args[0] === 'number' ? Math.round(m.args[0]) - 1 : -1);
       if (on && slot >= 0 && slot < PRESET_SLOTS) recallPreset(slot);
@@ -702,14 +707,24 @@ const CURVES = {
 
 // État runtime par couche
 const engines = new Map();
-function eng(id) {
-  let e = engines.get(id);
+/** `store` permet de faire tourner une seconde scène en parallèle (fondu
+ *  entre presets) sans que les deux se marchent dessus : les identifiants de
+ *  couche sont souvent les mêmes des deux côtés. */
+function eng(id, store = engines) {
+  let e = store.get(id);
   if (!e) {
     e = { startTime: Date.now(), lastStep: -1, stepDur: 0,
       triggers: new Map(), lastEnv: new Map(), randomCache: new Map(), gain: new Map() };
-    engines.set(id, e);
+    store.set(id, e);
   }
   return e;
+}
+/** Copie l'état moteur d'une couche : la scène sortante d'un fondu continue
+ *  sa course là où elle en était, au lieu de repartir du premier pas. */
+function cloneEngine(e) {
+  return { startTime: e.startTime, lastStep: e.lastStep, stepDur: e.stepDur,
+    triggers: new Map(e.triggers), lastEnv: new Map(e.lastEnv),
+    randomCache: new Map(e.randomCache), gain: new Map(e.gain) };
 }
 
 // ── Presets : couches + disposition des barres (ordre et vue spatiale) ─────
@@ -718,9 +733,31 @@ function savePreset(i, name) {
   const n = String(name == null ? '' : name).trim().slice(0, 16);
   return { name: n || 'P' + (i + 1), layers: deep(state.layers), fixtures: deep(state.fixtures) };
 }
-function recallPreset(i) {
+/** Fondu en cours entre deux presets (null = rappel sec). */
+let fade = null; // { start, dur, layers, fixtures, engines }
+function cancelFade() { fade = null; }
+
+/**
+ * Rappelle un preset. Si un temps de fondu est réglé ET qu'un show tourne,
+ * la scène sortante est mise de côté avec son état moteur : elle continue de
+ * jouer et décroît pendant que la nouvelle monte.
+ * `fadeMs` permet de forcer une durée pour ce rappel précis (0 = sec).
+ */
+function recallPreset(i, fadeMs) {
   const p = state.presets[i];
   if (!p) return false;
+  const dur = Math.round(cnum(fadeMs == null ? state.global.presetFade : fadeMs, 0, MAX_FADE_MS, 0));
+  if (dur > 0 && state.global.running && state.layers.length) {
+    const store = new Map();
+    for (const L of state.layers) {
+      const e = engines.get(L.id);
+      if (e) store.set(L.id, cloneEngine(e));
+    }
+    // Un rappel pendant un fondu remplace le précédent : la scène en cours de
+    // sortie est abandonnée, sinon il faudrait empiler les fondus à l'infini.
+    fade = { start: Date.now(), dur, layers: deep(state.layers),
+             fixtures: deep(state.fixtures), engines: store };
+  } else cancelFade();
   state.layers = deep(p.layers);
   if (Array.isArray(p.fixtures) && p.fixtures.length) { state.fixtures = deep(p.fixtures); pruneCaches(); }
   engines.clear();
@@ -776,8 +813,8 @@ function envelope(L, elapsed, stepDur) {
 }
 
 /** Moteur pas-à-pas : renvoie Map fixtureId -> valeur 0..1 */
-function stepValues(L, list, now) {
-  const e = eng(L.id);
+function stepValues(L, list, now, store) {
+  const e = eng(L.id, store);
   const gs = Math.max(0.05, state.global.speed);
   const stepDur = Math.max(15, L.stepMs / (Math.max(0.05, L.speed) * gs));
   if (e.stepDur > 0 && Math.abs(e.stepDur - stepDur) > 0.001) {
@@ -956,6 +993,45 @@ function sendRGB(f, c, force) {
   }
 }
 
+/** Calcule le mix d'un jeu de couches : intensité (HTP) et couleur par fixture.
+ *  Isolé pour pouvoir évaluer DEUX scènes dans le même tick pendant un fondu. */
+function computeMix(layers, fixtures, now, store) {
+  const enabled = fixtures.filter(f => f.enabled !== false);
+  const lum = new Map(), col = new Map();
+  let anyInt = false, anyCol = false;
+  for (const L of layers) {
+    if (!L.enabled) continue;
+    const list = Array.isArray(L.bars) ? enabled.filter(f => L.bars.includes(f.id)) : enabled;
+    if (!list.length) continue;
+    const vals = L.engine === 'wave' ? waveValues(L, list, now) : stepValues(L, list, now, store);
+    const flr = Math.max(0, Math.min(1, L.floor || 0));
+    for (const [id, v0] of vals) {
+      let v = Math.max(0, Math.min(1, v0));
+      if (L.invert) v = 1 - v;
+      // Niveau bas : le chase court AU-DESSUS d'un fond allumé, au lieu de
+      // partir du noir (usage classique en spectacle).
+      if (flr > 0) v = flr + (1 - flr) * v;
+      v *= (typeof L.level === 'number' ? L.level : 1);
+      if (L.target === 'color') {
+        anyCol = true;
+        const c = mixColor(L, v);
+        const cur = col.get(id);
+        col.set(id, cur ? [Math.max(cur[0], c[0]), Math.max(cur[1], c[1]), Math.max(cur[2], c[2])] : c);
+      } else {
+        anyInt = true;
+        lum.set(id, Math.max(lum.get(id) || 0, v));
+      }
+    }
+  }
+  return { lum, col, anyInt, anyCol };
+}
+/** Niveau d'une fixture dans un mix, avant master et courbe.
+ *  Couches couleur seules : l'intensité est tenue à fond pour voir la couleur. */
+function mixLevel(mix, id) {
+  if (mix.anyInt) return mix.lum.get(id) || 0;
+  return mix.anyCol ? 1 : 0;
+}
+
 function tick() {
   const now = Date.now();
   // À l'arrêt, Cascade RELÂCHE le contrôle : plus aucun message OSC n'est envoyé.
@@ -966,35 +1042,16 @@ function tick() {
     runtime.colors = state.fixtures.map(() => null);
     return;
   }
-  const enabled = enabledFixtures();
-  const lum = new Map(), col = new Map();
-  let anyInt = false, anyCol = false;
+  const live = computeMix(state.layers, state.fixtures, now, engines);
 
-  {
-    for (const L of state.layers) {
-      if (!L.enabled) continue;
-      const list = Array.isArray(L.bars) ? enabled.filter(f => L.bars.includes(f.id)) : enabled;
-      if (!list.length) continue;
-      const vals = L.engine === 'wave' ? waveValues(L, list, now) : stepValues(L, list, now);
-      const flr = Math.max(0, Math.min(1, L.floor || 0));
-      for (const [id, v0] of vals) {
-        let v = Math.max(0, Math.min(1, v0));
-        if (L.invert) v = 1 - v;
-        // Niveau bas : le chase court AU-DESSUS d'un fond allumé, au lieu de
-        // partir du noir (usage classique en spectacle).
-        if (flr > 0) v = flr + (1 - flr) * v;
-        v *= (typeof L.level === 'number' ? L.level : 1);
-        if (L.target === 'color') {
-          anyCol = true;
-          const c = mixColor(L, v);
-          const cur = col.get(id);
-          col.set(id, cur ? [Math.max(cur[0], c[0]), Math.max(cur[1], c[1]), Math.max(cur[2], c[2])] : c);
-        } else {
-          anyInt = true;
-          lum.set(id, Math.max(lum.get(id) || 0, v));
-        }
-      }
-    }
+  // Fondu entre presets : la scène sortante continue de tourner et décroît
+  // pendant que la nouvelle monte. Mélange linéaire — c'est ce qu'attend un
+  // opérateur lumière d'un crossfade.
+  let sortante = null, t = 1;
+  if (fade) {
+    t = fade.dur > 0 ? (now - fade.start) / fade.dur : 1;
+    if (t >= 1) { fade = null; t = 1; }
+    else sortante = computeMix(fade.layers, fade.fixtures, now, fade.engines);
   }
 
   const force = now - lastForceAll > 1000;
@@ -1003,13 +1060,19 @@ function tick() {
   const dim = DIMMERS[state.global.dimmer] || DIMMERS.linear;
   runtime.levels = []; runtime.colors = [];
   for (const f of state.fixtures) {
-    let v;
-    if (anyInt) v = (lum.get(f.id) || 0) * m;
-    else if (anyCol) v = m; // couche couleur seule : intensité au master pour voir les couleurs
-    else v = 0;
-    v = dim(v);
+    let v = mixLevel(live, f.id);
+    let c = live.col.get(f.id) || null;
+    if (sortante) {
+      const vo = mixLevel(sortante, f.id);
+      v = vo + (v - vo) * t;
+      const co = sortante.col.get(f.id);
+      // Les deux côtés ont une couleur : on interpole. Un seul : il garde la
+      // main (sinon la barre virerait vers une teinte qui n'existe nulle part).
+      if (c && co) c = [0, 1, 2].map(k => co[k] + (c[k] - co[k]) * t);
+      else if (co) c = co;
+    }
+    v = dim(v * m);
     sendLum(f, v, force);
-    const c = col.get(f.id);
     if (c) sendRGB(f, c, force);
     runtime.levels.push(lastLum.get(f.id) || 0);
     runtime.colors.push(c ? c.map(x => Math.round(x * 255)) : null);
@@ -1039,10 +1102,11 @@ function forceResend() { lastLum.clear(); lastRGB.clear(); }
 
 function startChase() {
   engines.clear();
+  cancelFade();
   forceResend();
   state.global.running = true;
 }
-function stopChase() { state.global.running = false; engines.clear(); }
+function stopChase() { state.global.running = false; engines.clear(); cancelFade(); }
 function blackout() {
   stopChase();
   for (const f of state.fixtures) {
@@ -1142,6 +1206,8 @@ const server = http.createServer(async (req, res) => {
       link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers, error: link.error },
       mm: { alive: mmAlive(), socketOk: mm.socketOk, error: mm.error,
             host: state.settings.mmHost, port: state.settings.mmPort },
+      // Progression du fondu entre presets (0-1), pour l'afficher en direct
+      fade: fade ? Math.min(1, (Date.now() - fade.start) / fade.dur) : null,
       project: { name: state.projectName, dirty: dirtySinceExport, lastExportAt },
       levels: runtime.levels, colors: runtime.colors,
     });
@@ -1177,7 +1243,7 @@ const server = http.createServer(async (req, res) => {
       case '/api/preset': {
         const i = Math.max(0, Math.min(PRESET_SLOTS - 1, body.slot | 0));
         if (body.action === 'save') state.presets[i] = savePreset(i, body.name);
-        else if (body.action === 'recall') recallPreset(i);
+        else if (body.action === 'recall') recallPreset(i, body.fadeMs);
         else if (body.action === 'clear') state.presets[i] = null;
         else if (body.action === 'rename' && state.presets[i]) {
           const n = String(body.name || '').trim().slice(0, 16);

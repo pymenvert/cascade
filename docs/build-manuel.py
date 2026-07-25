@@ -349,6 +349,11 @@ E += [h1("1. Présentation"),
       h1("7. Presets, projets et sauvegarde"),
       li("Presets (1-16), barre du haut : photographient toutes les couches. Sauver puis clic "
          "sur un slot = mémorise ; clic simple = rappel instantané en live."),
+      li("Fondu entre presets (panneau Vitesse, réglage « Fondu presets ») : à 0 le rappel "
+         "est sec. Au-delà, la scène sortante CONTINUE DE JOUER et décroît pendant que la "
+         "nouvelle monte — les deux chases tournent en parallèle, ce n'est pas un passage par "
+         "le noir. Un filet orange sous la rangée de presets montre où en est le fondu. "
+         "STOP et BLACKOUT l'interrompent immédiatement."),
       li("Nommez-les : à l'enregistrement, Cascade demande un nom (laisser vide garde le "
          "numéro), et un double-clic sur un slot le renomme. En conduite, on cherche "
          "« Refrain » beaucoup plus vite que « P7 ». Le numéro reste affiché en petit — c'est "
@@ -376,7 +381,8 @@ E += [h1("1. Présentation"),
       h2("8.2 — OSC entrant (TouchOSC, console, QLab…)"),
       p("Envoyer sur le port 7000 (réglable) de la machine où tourne l'app. Valeurs normalisées "
         "0-1 ; pour les vitesses, 0.5 = ×1. Les nouveaux réglages de chase sont pilotables de "
-        "la même façon : floor (niveau bas), phase, swing (0.5 = pas de swing), blocks, "
+        "la même façon : /cascade/presetfade règle le fondu entre presets (0 à 10 s), et "
+        "par couche : floor (niveau bas), phase, swing (0.5 = pas de swing), blocks, "
         "sparkle, oneshot, et go pour relancer un cycle."),
       code("/cascade/start /cascade/stop /cascade/blackout /cascade/tap /cascade/resync\n"
            "/cascade/master 0-1  /cascade/speed 0-1 (0.5 = x1)\n"

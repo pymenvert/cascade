@@ -70,6 +70,26 @@ describe('Interface — garde-fous du source', () => {
     }
   });
 
+  // Ce test vient d'un vrai incident : une variable redéclarée a cassé TOUT le
+  // script de la page, sans qu'aucun des 82 autres tests ne s'en aperçoive —
+  // ils parlent au serveur, jamais au JavaScript du navigateur.
+  test('le script de l’interface est syntaxiquement valide', () => {
+    const m = UI.match(/<script>([\s\S]*)<\/script>/);
+    assert.ok(m, 'script introuvable dans index.html');
+    assert.doesNotThrow(() => new Function(m[1]),
+      'le script de la page ne peut pas être analysé — l’interface serait morte au chargement');
+  });
+
+  test('aucune variable de rendu n’est déclarée deux fois', () => {
+    // `new Function` attrape déjà les collisions dans une même portée ; ici on
+    // vérifie en plus que render() ne redéclare pas un nom qu'elle utilise déjà.
+    const m = /function render\(\) \{([\s\S]*?)\n\}/.exec(UI);
+    assert.ok(m, 'render() introuvable');
+    const noms = [...m[1].matchAll(/\n  const (\w+)\s*=/g)].map(x => x[1]);
+    const doublons = noms.filter((n, i) => noms.indexOf(n) !== i);
+    assert.deepEqual([...new Set(doublons)], [], 'déclarations en double dans render()');
+  });
+
   test('les repères d’usage courant sont présents', () => {
     for (const [quoi, motif] of [
       ['accueil premier lancement', /id="accueil"/],

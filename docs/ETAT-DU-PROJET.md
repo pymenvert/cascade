@@ -26,6 +26,27 @@
 
 ## Nouveautés v1.4.0 (2026-07-25)
 
+- **Fondu entre presets** — `state.global.presetFade` (ms, 0–30000, 0 = sec).
+  `recallPreset(i, fadeMs)` met la scène sortante de côté dans
+  `fade = { start, dur, layers, fixtures, engines }`, **avec une copie de son
+  état moteur** (`cloneEngine`) pour qu'elle poursuive sa course.
+  - Le mix a été extrait dans `computeMix(layers, fixtures, now, store)` : deux
+    scènes sont évaluées dans le même tick, puis mélangées linéairement.
+  - ⚠ `eng(id, store)` prend un **magasin** : les identifiants de couche sont
+    souvent identiques des deux côtés (un preset sauvé depuis les couches
+    courantes), donc un seul `Map` global les ferait se marcher dessus.
+  - Couleur : interpolée si les deux côtés en ont une, sinon celui qui en a une
+    garde la main (éviter une teinte qui n'existe nulle part).
+  - `startChase` / `stopChase` / `blackout` appellent `cancelFade()`.
+    Aucun fondu si `!running`. Un nouveau rappel remplace le fondu en cours.
+  - Progression exposée dans `/api/state` → `fade` (0–1 ou `null`).
+  - OSC `/cascade/presetfade` (0–1 → 0–10 s) ; `fadeMs` dans le corps du POST
+    force la durée d'un rappel précis.
+- ⚠ **Le script de `index.html` est analysé par les tests** (`new Function`).
+  Motif : une variable redéclarée dans `render()` a cassé toute la page sans
+  qu'aucun des 82 tests serveur ne le voie. Ils ne touchent jamais au JS du
+  navigateur — ne pas l'oublier en ajoutant des fonctionnalités d'interface.
+
 - **Presets nommables** : `savePreset(i, name)` et `action: 'rename'` sur
   `/api/preset`. Nom borné à 16 car., vide → `P<n>`. `presetNames()` renvoie
   désormais **le nom** (ou `null`), plus `true`. ⚠ La signature de rendu des
@@ -110,7 +131,7 @@ nom de couche, nom de projet, message d'erreur du serveur — se pose par
 `tests/interface.test.js` relit le source et échoue si la règle est enfreinte
 (garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
-### Tests — `npm test` (76 tests, zéro dépendance)
+### Tests — `npm test` (84 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**

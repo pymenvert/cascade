@@ -11,6 +11,18 @@ pendant le show.
 
 ### Ajouté
 
+- **Fondu entre presets** (réglable, 0 à 30 s) — au rappel d'un preset, la
+  scène sortante **continue de jouer** et décroît pendant que la nouvelle
+  monte. Ce n'est pas un simple fondu au noir : les deux chases tournent en
+  parallèle, chacun avec son propre état moteur, et les niveaux se mélangent.
+  À 0 le rappel reste sec, comme avant.
+  - Réglage global dans le panneau Tempo, échelle logarithmique (au dixième de
+    seconde dans les temps courts, là où ça compte).
+  - Un filet orange sous la rangée de presets montre la progression.
+  - Pilotable en OSC : `/cascade/presetfade 0-1` (0 à 10 s).
+  - Forçable pour un rappel précis : `POST /api/preset {action:'recall', slot, fadeMs}`.
+  - STOP, BLACKOUT et START annulent un fondu en cours. Aucun fondu n'est
+    déclenché si rien ne joue.
 - **Presets nommables** — à l'enregistrement, Cascade demande un nom ; un
   double-clic sur un slot le renomme. En conduite, on retrouve « Refrain »
   bien plus vite que « P7 ». Le numéro reste affiché en petit : c'est lui qui
@@ -37,7 +49,11 @@ pendant le show.
 - `node sync-dist.js` recopie les sources dans `dist/`, et **un test échoue si
   `dist/` diverge**. La copie manuelle était une source d'erreur : livrer un
   `dist/` obsolète, c'est livrer une version jamais testée.
-- 76 tests (71 auparavant).
+- **Le script de l'interface est désormais analysé par la suite de tests.** Une
+  variable redéclarée avait cassé toute la page sans qu'aucun des 82 autres
+  tests ne s'en aperçoive : ils parlent au serveur, jamais au JavaScript du
+  navigateur. Ce trou est comblé.
+- 84 tests (71 auparavant).
 
 ## [1.3.0] — 2026-07-24
 

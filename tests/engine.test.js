@@ -329,6 +329,120 @@ describe('Moteur', () => {
     await h.post('/api/fixtures', { fixtures: fixtures(4) });
   });
 
+  // ── Fondu entre presets ────────────────────────────────────────────────
+  // On compare deux scènes volontairement opposées : preset A = tout allumé,
+  // preset B = tout éteint. Le niveau observé doit descendre progressivement
+  // au lieu de tomber d'un coup.
+  const preparerFondu = async () => {
+    await reset();
+    await setL({ pattern: 'all', mode: 'onoff', stepMs: 500, width: 8, level: 1 });
+    await h.post('/api/preset', { action: 'save', slot: 12, name: 'Plein' });
+    await setL({ level: 0 });
+    await h.post('/api/preset', { action: 'save', slot: 13, name: 'Vide' });
+  };
+  // Niveau réel des barres à cet instant : dernière valeur reçue par barre.
+  // (Compter sur une tranche des N derniers messages est trompeur — leur
+  // nombre dépend du nombre de barres qui viennent de changer.)
+  const niveauActuel = () => {
+    const lv = levels(h.osc());
+    return lv.size ? Math.max(...lv.values()) : 0;
+  };
+
+  test('à 0, le rappel de preset reste sec', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 0 });
+    await h.post('/api/preset', { action: 'recall', slot: 12 });
+    await h.post('/api/start');
+    await sleep(300);
+    h.clearOsc();
+    await h.post('/api/preset', { action: 'recall', slot: 13 });
+    await sleep(150);
+    const msgs = h.osc();
+    await h.post('/api/stop');
+    // Sans fondu : on passe directement à zéro, aucune valeur intermédiaire
+    const inter = msgs.filter(m => /luminosity$/.test(m.address) && m.args[0] > 0.05 && m.args[0] < 0.95);
+    assert.equal(inter.length, 0, 'valeurs intermédiaires inattendues : ' + inter.length);
+    assert.equal(niveauActuel(), 0, 'la scène devrait être éteinte');
+  });
+
+  test('avec un fondu, le niveau descend progressivement', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 1500 });
+    await h.post('/api/preset', { action: 'recall', slot: 12 });
+    await h.post('/api/start');
+    await sleep(300);
+    h.clearOsc();
+    await h.post('/api/preset', { action: 'recall', slot: 13 });
+    await sleep(700); // à peu près la moitié du fondu
+    const milieu = niveauActuel();
+    await sleep(1200); // le fondu est terminé
+    const fin = niveauActuel();
+    await h.post('/api/stop');
+    await h.post('/api/global', { presetFade: 0 });
+    assert.ok(milieu > 0.15 && milieu < 0.85,
+      'à mi-fondu on attend un niveau intermédiaire, vu ' + milieu);
+    assert.ok(fin < 0.05, 'à la fin du fondu la scène doit être éteinte, vu ' + fin);
+  });
+
+  test('le fondu est décroissant, sans à-coup', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 1200 });
+    await h.post('/api/preset', { action: 'recall', slot: 12 });
+    await h.post('/api/start');
+    await sleep(300);
+    h.clearOsc();
+    await h.post('/api/preset', { action: 'recall', slot: 13 });
+    const releves = [];
+    for (let i = 0; i < 6; i++) { await sleep(200); releves.push(niveauActuel()); }
+    await h.post('/api/stop');
+    await h.post('/api/global', { presetFade: 0 });
+    for (let i = 1; i < releves.length; i++) {
+      assert.ok(releves[i] <= releves[i - 1] + 0.06,
+        'le niveau est remonté en plein fondu : ' + JSON.stringify(releves));
+    }
+    assert.ok(releves[0] > releves[releves.length - 1], 'aucune décroissance : ' + JSON.stringify(releves));
+  });
+
+  test('la durée du fondu peut être forcée pour un rappel', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 8000 }); // très long par défaut…
+    await h.post('/api/preset', { action: 'recall', slot: 12 });
+    await h.post('/api/start');
+    await sleep(300);
+    // …mais ce rappel-ci est demandé sec
+    h.clearOsc();
+    await h.post('/api/preset', { action: 'recall', slot: 13, fadeMs: 0 });
+    await sleep(150);
+    const apres = niveauActuel();
+    await h.post('/api/stop');
+    await h.post('/api/global', { presetFade: 0 });
+    assert.equal(apres, 0, 'le rappel forcé à 0 doit être instantané');
+  });
+
+  test('STOP et BLACKOUT interrompent un fondu en cours', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 6000 });
+    await h.post('/api/preset', { action: 'recall', slot: 12 });
+    await h.post('/api/start');
+    await sleep(300);
+    await h.post('/api/preset', { action: 'recall', slot: 13 });
+    await sleep(200);
+    assert.ok((await h.state()).fade > 0, 'un fondu devrait être en cours');
+    await h.post('/api/blackout');
+    await sleep(100);
+    assert.equal((await h.state()).fade, null, 'le blackout doit annuler le fondu');
+    await h.post('/api/global', { presetFade: 0 });
+  });
+
+  test('le fondu n’est pas déclenché à l’arrêt', async () => {
+    await preparerFondu();
+    await h.post('/api/global', { presetFade: 4000 });
+    await h.post('/api/stop');
+    await h.post('/api/preset', { action: 'recall', slot: 13 });
+    assert.equal((await h.state()).fade, null, 'rien ne joue : aucun fondu à faire');
+    await h.post('/api/global', { presetFade: 0 });
+  });
+
   test('tous les patterns tournent sans valeur aberrante', async () => {
     await reset();
     for (const engine of ['steps', 'wave']) {
