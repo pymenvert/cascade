@@ -81,6 +81,10 @@ const state = {
               linkPhase: true,   // caler les pas sur la grille de beats, pas seulement le tempo
               linkQuantum: 4 },  // beats par mesure, pour le témoin de temps fort
   fixtures: [],
+  // Dimensions du plateau, en MÈTRES. Repère main droite, origine au centre du
+  // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
+  // Z = hauteur. C'est la convention des plans de feu (MVR/GDTF).
+  scene: { w: 10, d: 8, h: 6 },
   // Groupes de barres nommés (« sol », « contres »…). Une couche peut suivre un
   // groupe : modifier le groupe met à jour toutes les couches qui l'utilisent.
   // Ils appartiennent à la scéno, pas au look — ils ne sont donc PAS mémorisés
@@ -112,6 +116,7 @@ function loadConfig() {
     // Tout ce qui vient du disque est revalidé : un fichier corrompu (coupure
     // de courant, édition manuelle) ne doit jamais faire planter le moteur.
     if (saved.settings) state.settings = sanitizeSettings(saved.settings);
+    if (saved.scene) state.scene = sanitizeScene(saved.scene);
     if (saved.fixtures) state.fixtures = sanitizeFixtures(saved.fixtures);
     if (saved.groups) state.groups = sanitizeGroups(saved.groups);
     if (saved.global) Object.assign(state.global, sanitizeGlobal(saved.global), { running: false });
@@ -143,7 +148,8 @@ function writeConfigNow() {
     const { running, ...global } = state.global;
     const data = JSON.stringify({
       app: APP_NAME, version: VERSION, projectName: state.projectName,
-      settings: state.settings, fixtures: state.fixtures, groups: state.groups,
+      settings: state.settings, scene: state.scene,
+      scene: state.scene, fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global, presets: state.presets, midiMap: state.midiMap,
     }, null, 2);
     const tmp = CONFIG_FILE + '.tmp';
@@ -262,6 +268,73 @@ function sanitizeMidiMap(map) {
   }
   return o;
 }
+// ---------------------------------------------------------------------------
+// Espace 3D — la scénographie réelle, en mètres
+//
+// RÈGLE : `p3` / `dir3` / `len3` sont la VÉRITÉ. `x` / `y` / `rot` sont
+// DÉRIVÉS, recalculés à chaque écriture, et servent à la vue 2D, aux miroirs
+// et à la compatibilité des projets v1. Ne jamais les modifier directement :
+// passer par set2D() ou set3D(), sinon les deux représentations divergent —
+// et deux vérités pour une position, c'est des bugs sans fin.
+// ---------------------------------------------------------------------------
+const DEG = Math.PI / 180;
+// ⚠ Le `v == null` n'est pas décoratif : `+null` vaut 0, donc sans lui un
+// champ absent passerait pour un zéro légitime. C'est exactement ce qui
+// couchait les barres verticales d'un projet v1 (rot absent, vert: true).
+function fini(v, dflt) {
+  if (v == null) return dflt;
+  v = +v;
+  return Number.isFinite(v) ? v : dflt;
+}
+
+/** Recalcule la projection 2D (vue de face) depuis la position 3D. */
+function derive2D(f, scene) {
+  const s = scene || state.scene;
+  const [px, , pz] = f.p3;
+  f.x = Math.min(1, Math.max(0, px / s.w + 0.5));
+  f.y = Math.min(1, Math.max(0, 1 - pz / s.h));
+  // La rotation 2D est l'angle de la barre dans le plan de face
+  f.rot = Math.round(Math.atan2(-f.dir3[2], f.dir3[0]) / DEG * 10) / 10;
+  f.vert = Math.abs(((f.rot % 180) + 180) % 180 - 90) < 15;
+  return f;
+}
+/** Pose une position 3D (mètres) et met la 2D à jour. */
+function set3D(f, p3, dir3, len3, scene) {
+  f.p3 = [fini(p3[0], 0), fini(p3[1], 0), fini(p3[2], 0)];
+  let d = [fini(dir3[0], 1), fini(dir3[1], 0), fini(dir3[2], 0)];
+  const n = Math.hypot(d[0], d[1], d[2]);
+  f.dir3 = n > 1e-6 ? [d[0] / n, d[1] / n, d[2] / n] : [1, 0, 0]; // jamais un vecteur nul
+  f.len3 = Math.min(50, Math.max(0.05, fini(len3, 1.2)));
+  return derive2D(f, scene);
+}
+/** Déplacement depuis la vue 2D : la profondeur est conservée. */
+function set2D(f, x, y, rot, scene) {
+  const s = scene || state.scene;
+  const nx = Math.min(1, Math.max(0, fini(x, 0.5)));
+  const ny = Math.min(1, Math.max(0, fini(y, 0.5)));
+  const r = fini(rot, f.rot ?? 0) * DEG;
+  return set3D(f, [(nx - 0.5) * s.w, f.p3 ? f.p3[1] : 0, (1 - ny) * s.h],
+    [Math.cos(r), 0, -Math.sin(r)], f.len3 ?? 1.2, s);
+}
+/** Projet v1 (x/y/rot/len seuls) → espace 3D. Tout arrive dans le plan de face,
+ *  exactement là où la vue 2D le montrait : aucun show ne change de rendu. */
+function migre3D(f, scene, lenMax) {
+  const s = scene || state.scene;
+  // ⚠ En v1, une barre verticale pouvait n'avoir QUE `vert: true`, sans `rot`.
+  // Oublier ce repli couche toutes les barres verticales d'un projet existant.
+  const r = fini(f.rot, f.vert ? 90 : 0) * DEG;
+  const l = (f.len > 0 && lenMax > 0) ? (f.len / lenMax) * 1.2 : 1.2;
+  return set3D(f, [(fini(f.x, 0.5) - 0.5) * s.w, 0, (1 - fini(f.y, 0.5)) * s.h],
+    [Math.cos(r), 0, -Math.sin(r)], l, s);
+}
+
+function sanitizeScene(sc) {
+  const o = { ...state.scene };
+  if (!sc || typeof sc !== 'object') return o;
+  for (const k of ['w', 'd', 'h']) if (k in sc) o[k] = cnum(sc[k], 0.5, 200, o[k]);
+  return o;
+}
+
 function sanitizeGroups(list) {
   if (!Array.isArray(list)) return [];
   const vus = new Set();
@@ -289,19 +362,35 @@ function sanitizePresets(list) {
       : null
   ).concat(Array(PRESET_SLOTS).fill(null)).slice(0, PRESET_SLOTS);
 }
-function sanitizeFixtures(list) {
+function sanitizeFixtures(list, scene) {
   if (!Array.isArray(list)) return [];
-  return list.slice(0, MAX_FIXTURES).map((f, i) => ({
-    id: (f && typeof f.id === 'string' ? f.id.slice(0, 40) : '') || 'fx' + Date.now() + '_' + i,
-    name: String((f && f.name) || 'Fixture ' + (i + 1)).slice(0, 64),
-    address: String((f && f.address) || '').slice(0, 200),
-    enabled: !f || f.enabled !== false,
-    x: f && typeof f.x === 'number' && Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : null,
-    y: f && typeof f.y === 'number' && Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : null,
-    rot: f && typeof f.rot === 'number' && Number.isFinite(f.rot) ? f.rot % 360 : null,
-    len: f && typeof f.len === 'number' && Number.isFinite(f.len) && f.len > 0 ? f.len : null,
-    vert: !!(f && f.vert),
-  }));
+  const s = scene || state.scene;
+  // Pour la migration v1 : la plus grande longueur sert d'échelle relative.
+  let lenMax = 0;
+  for (const f of list) if (f && f.len > 0 && Number.isFinite(f.len)) lenMax = Math.max(lenMax, f.len);
+
+  return list.slice(0, MAX_FIXTURES).map((f, i) => {
+    const o = {
+      id: (f && typeof f.id === 'string' ? f.id.slice(0, 40) : '') || 'fx' + Date.now() + '_' + i,
+      name: String((f && f.name) || 'Fixture ' + (i + 1)).slice(0, 64),
+      address: String((f && f.address) || '').slice(0, 200),
+      enabled: !f || f.enabled !== false,
+      x: f && typeof f.x === 'number' && Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : null,
+      y: f && typeof f.y === 'number' && Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : null,
+      rot: f && typeof f.rot === 'number' && Number.isFinite(f.rot) ? f.rot % 360 : null,
+      len: f && typeof f.len === 'number' && Number.isFinite(f.len) && f.len > 0 ? f.len : null,
+      vert: !!(f && f.vert),
+    };
+    // Espace 3D : on reprend celui du fichier s'il est valide, sinon on migre
+    // depuis la 2D. Une barre sans position 2D non plus reste au centre.
+    const p = f && f.p3, d = f && f.dir3;
+    if (Array.isArray(p) && p.length === 3 && Array.isArray(d) && d.length === 3) {
+      set3D(o, p, d, f.len3, s);   // la 3D fait foi, la 2D est recalculée
+    } else {
+      migre3D(o, s, lenMax);
+    }
+    return o;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1318,7 +1407,8 @@ const server = http.createServer(async (req, res) => {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
     return json(res, {
       app: APP_NAME, version: VERSION, net: lanUrls(),
-      settings: state.settings, fixtures: state.fixtures, groups: state.groups,
+      settings: state.settings, scene: state.scene,
+      fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
       presets: presetNames(),
       midiMap: state.midiMap,
@@ -1375,6 +1465,26 @@ const server = http.createServer(async (req, res) => {
         }
         saveConfig();
         return json(res, { ok: true, presets: presetNames(), layers: state.layers, fixtures: state.fixtures });
+      }
+      case '/api/scene': {
+        // Redimensionner le plateau ne DÉPLACE rien : les barres gardent leurs
+        // mètres, seule leur projection 2D change. C'est le comportement voulu.
+        if (body.scene) {
+          state.scene = sanitizeScene(body.scene);
+          for (const f of state.fixtures) derive2D(f);
+          saveConfig();
+        }
+        return json(res, { ok: true, scene: state.scene, fixtures: state.fixtures });
+      }
+      case '/api/fixture3d': {
+        // Déplacement d'une barre dans l'espace, en mètres.
+        const f = state.fixtures.find(x => x.id === body.id);
+        if (!f) return json(res, { ok: false });
+        const p = Array.isArray(body.p3) && body.p3.length === 3 ? body.p3 : f.p3;
+        const d = Array.isArray(body.dir3) && body.dir3.length === 3 ? body.dir3 : f.dir3;
+        set3D(f, p, d, 'len3' in body ? body.len3 : f.len3);
+        saveConfig();
+        return json(res, { ok: true, fixture: f });
       }
       case '/api/groups': {
         const gid = String(body.id || '');
@@ -1436,6 +1546,7 @@ const server = http.createServer(async (req, res) => {
         }
         stopChase();
         state.layers = body.layers.slice(0, MAX_LAYERS).map(sanitizeLayer);
+        if (body.scene) state.scene = sanitizeScene(body.scene);
         if (Array.isArray(body.fixtures)) state.fixtures = sanitizeFixtures(body.fixtures);
         if (Array.isArray(body.groups)) state.groups = sanitizeGroups(body.groups);
         if (body.global) Object.assign(state.global, sanitizeGlobal(body.global));
