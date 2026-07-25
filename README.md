@@ -139,6 +139,6 @@ Une seule instance tourne à la fois — un second lancement rouvre la fenêtre 
 
 [MIT](LICENSE) — © 2026 Pierre-Yves Mansour, Collectif WSK.
 
-Aucune dépendance npm : rien d'autre à créditer côté bibliothèques. Les exécutables embarquent un runtime Node.js (MIT). Ableton Link passe par [Carabiner](https://github.com/Deep-Symmetry/carabiner) (Deep Symmetry), téléchargé par l'utilisateur et non redistribué ici.
+Aucune dépendance npm : rien d'autre à créditer côté bibliothèques. Marques et composants tiers : voir [NOTICE.md](NOTICE.md).
 
 MadMapper est une marque de GarageCUBE / 1024 architecture. Cascade est un outil tiers indépendant, sans affiliation, qui dialogue avec MadMapper via son interface OSC publique.
