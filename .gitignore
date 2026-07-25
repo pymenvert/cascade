@@ -23,6 +23,13 @@ chaser-config.json.bak
 # jamais versionnés : ~60 Mo pièce)
 build/
 
+# Rapports d'audit et de session : ils détaillent des failles corrigées, donc
+# ils vivent dans le dossier PARENT du projet, jamais ici. Pas question d'offrir
+# une feuille de route à qui resterait sur une ancienne version.
+AUDIT*.md
+*-AUDIT.md
+audit*.md
+
 # Fichiers personnels de travail (pas pour le dépôt)
 scenoled.madproject
 Chaser 4.2.2 Setup.exe

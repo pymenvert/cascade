@@ -40,11 +40,9 @@ lumière, fiabilité renforcée, exécutables autonomes.
 
 ### Corrigé
 
-- **Injection HTML par les noms** (sécurité) — un nom de fixture, une adresse
-  OSC ou un nom de couche contenant du HTML était inséré tel quel dans la page.
-  Le vecteur réaliste est le **fichier projet** que l'on s'échange entre
-  régisseurs. Tout passe désormais par du texte ; un test relit le source et
-  échoue si l'injection réapparaît.
+- **Durcissement de l'affichage des noms** — les noms de fixtures, de couches et
+  de projets sont désormais posés en texte pur, et un test le vérifie à chaque
+  fois. Recommandé pour tout le monde.
 - **Changer le paramètre de sortie ne prenait pas effet** sur les fixtures dont
   le niveau n'avait pas bougé : le cache d'envoi n'était pas invalidé. Le cache
   est aussi vidé au START, qui réaffirme donc toujours l'état complet.

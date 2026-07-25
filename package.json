@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "build": "node build.js"
+    "sync-dist": "node sync-dist.js",
+    "build": "node sync-dist.js && node build.js"
   },
   "engines": {
     "node": ">=18"

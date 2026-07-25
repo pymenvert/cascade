@@ -125,7 +125,6 @@ node build.js   # exécutables des 4 plateformes → build/
 Les tests lancent de **vrais** serveurs Cascade et vérifient l'OSC **réellement émis** vers un faux MadMapper. Ils couvrent le moteur, l'API HTTP, l'OSC entrant, la persistance, la résistance aux données hostiles, la charge (8 couches × 128 barres) et des garde-fous de source contre le retour des défauts corrigés.
 
 - [`docs/ETAT-DU-PROJET.md`](docs/ETAT-DU-PROJET.md) — architecture, sémantique des paramètres, API MadMapper et Carabiner déjà établies, pièges connus.
-- [`docs/AUDIT.md`](docs/AUDIT.md) — audit technique complet (fiabilité, sécurité, performance, maintenabilité).
 - [`docs/madmapper-osc-api.md`](docs/madmapper-osc-api.md) — référence OSC de MadMapper.
 - [`CHANGELOG.md`](CHANGELOG.md) — journal des versions.
 

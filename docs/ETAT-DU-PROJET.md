@@ -2,7 +2,8 @@
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
 > Dernière mise à jour : 2026-07-24 — version **1.3.0**.
-> Voir aussi `CLAUDE.md` (règles), `CHANGELOG.md` (versions), `docs/AUDIT.md` (audit).
+> Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
+> L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`.
 
 ## Identité
 
@@ -78,26 +79,15 @@ Bouton **QR** → dialogue `dlgQR`. Générateur maison 100 % client
 — **validé par décodage jsQR sur toutes les versions et toutes les longueurs**.
 Fond blanc obligatoire (`#qrBox`). Plusieurs cartes réseau → boutons de choix.
 
-### ⚠ Injection HTML — la leçon la plus chère de cette version
+### ⚠ Règle d'affichage : jamais de donnée dans `innerHTML`
 
-Les noms de fixtures, leur `address` et les noms de couches étaient interpolés
-dans des gabarits `innerHTML` (`renderFixtures`, chips de couches). Un nom
-contenant `<img src=x onerror=…>` déposait une vraie balise dans la page.
-**Le vecteur réaliste n'est pas le réseau mais le fichier projet `.json`** que
-l'on s'échange entre régisseurs — et les noms peuvent aussi venir de MadMapper.
+Toute donnée affichée qui vient de l'extérieur — nom de fixture, adresse OSC,
+nom de couche, nom de projet, message d'erreur du serveur — se pose par
+`textContent` ou `title`, **jamais** par interpolation dans un gabarit
+`innerHTML`. Les gabarits doivent rester vides de données.
 
-L'audit avait d'abord conclu « sûr » sur la seule lecture du code : **c'était
-faux**. Le défaut n'est apparu qu'en injectant réellement une charge dans un
-navigateur. À retenir pour les prochains audits.
-
-Corrigé : les gabarits ne contiennent plus aucune donnée, tout passe par
-`textContent`. `tests/interface.test.js` relit le source et échoue si une
-interpolation de donnée externe réapparaît dans un `innerHTML` — garde-fou
-vérifié en réintroduisant volontairement la faille.
-
-**Règle** : toute nouvelle donnée affichée (nom, adresse, message d'erreur,
-libellé venant du serveur) se pose par `textContent` ou `title`, jamais par
-`innerHTML`.
+`tests/interface.test.js` relit le source et échoue si la règle est enfreinte
+(garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
 ### Tests — `npm test` (71 tests, zéro dépendance)
 
@@ -164,7 +154,6 @@ Cascade/
 ├── build/                  ← exécutables produits (ignoré par git, ~60 Mo pièce)
 ├── docs/
 │   ├── ETAT-DU-PROJET.md      ← ce fichier
-│   ├── AUDIT.md               ← audit technique (fiabilité, sécurité, à faire)
 │   ├── madmapper-osc-api.md   ← API OSC MadMapper (lire avant toute recherche web)
 │   └── build-manuel.py        ← génère « Cascade - Manuel.pdf » (reportlab)
 ├── Cascade - PC.bat / Cascade - Mac.command / Cascade - Manuel.pdf
@@ -268,7 +257,7 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 
 - **Icône systray** : point vert/rouge = serveur en route/arrêté ; clic droit → ouvrir l'interface / démarrer / arrêter. Objectif : pouvoir fermer la fenêtre en laissant le serveur tourner, tout en le voyant. (⚠ zéro-dep : pas de systray en Node pur — solution à discuter.)
 - **Capture ou GIF dans le README** : le seul point des « finitions GitHub » qui reste (nécessite une vraie session avec MadMapper).
-- **Suite de l'audit** (`docs/AUDIT.md`, section « À faire ») : code d'accès facultatif à 4 chiffres, repli « avancé » du panneau Couches, tests d'interface Playwright, signature/notarisation macOS.
+- **Suite de l'audit** (`../Cascade-AUDIT.md` (hors dépôt), section « À faire ») : code d'accès facultatif à 4 chiffres, repli « avancé » du panneau Couches, tests d'interface Playwright, signature/notarisation macOS.
 
 **Autres pistes :**
 

@@ -56,7 +56,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
    Node pur — pistes à discuter avec Pym (petit utilitaire par plateforme,
    PowerShell/AppleScript, ou accepter une dépendance ici).
 2. **Capture ou GIF dans le README** — nécessite une vraie session MadMapper.
-3. Suite de l'audit : voir la section « À faire » de `docs/AUDIT.md`
+3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt)
    (code d'accès 4 chiffres, repli « avancé » du panneau Couches, tests d'UI).
 
 Le chantier v1.3 « spectacle » (features de chase, UI premium, tests, audit,

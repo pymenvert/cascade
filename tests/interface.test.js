@@ -70,6 +70,15 @@ describe('Interface — garde-fous du source', () => {
     }
   });
 
+  test('dist/ est synchrone avec les sources', () => {
+    // dist/ est la copie qu'on envoie telle quelle. Livrer un dist/ obsolète,
+    // c'est livrer une version qui n'a jamais été testée.
+    const r = require('node:child_process').spawnSync(
+      process.execPath, [path.join(__dirname, '..', 'sync-dist.js'), '--check'],
+      { encoding: 'utf8' });
+    assert.equal(r.status, 0, (r.stdout || '') + (r.stderr || ''));
+  });
+
   test('les sémantiques non négociables sont toujours en place', () => {
     // STOP ne doit envoyer aucun OSC
     assert.match(SERVEUR, /if \(!state\.global\.running\)[\s\S]{0,400}?return;/,
