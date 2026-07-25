@@ -2,7 +2,7 @@
 
 App web (Node.js zéro dépendance + page unique) qui pilote les fixtures DMX de
 MadMapper en OSC : multi-chasers, vagues, couleur, presets, MIDI/OSC, Ableton
-Link. v1.3.0 · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
+Link. v1.4.0 · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
 
 ## À lire EN PREMIER
 

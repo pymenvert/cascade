@@ -4,7 +4,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-1.3.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-71-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-1.4.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-76-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -22,14 +22,14 @@ Téléchargez le fichier de votre système dans la [dernière release](../../rel
 
 | Système | Fichier |
 |---|---|
-| Windows | `Cascade-1.3.0-windows-x64.exe` |
-| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.3.0-macos-apple-silicon` |
-| macOS (Intel) | `Cascade-1.3.0-macos-intel` |
-| Linux | `Cascade-1.3.0-linux-x64` |
+| Windows | `Cascade-1.4.0-windows-x64.exe` |
+| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.4.0-macos-apple-silicon` |
+| macOS (Intel) | `Cascade-1.4.0-macos-intel` |
+| Linux | `Cascade-1.4.0-linux-x64` |
 
 > **macOS et Linux**, la première fois, dans un Terminal ouvert sur le dossier :
 > ```bash
-> xattr -cr Cascade-1.3.0-macos-apple-silicon && chmod +x Cascade-1.3.0-macos-apple-silicon
+> xattr -cr Cascade-1.4.0-macos-apple-silicon && chmod +x Cascade-1.4.0-macos-apple-silicon
 > ```
 > (les binaires ne sont pas signés — sans cela macOS annonce un « fichier endommagé »)
 
@@ -79,7 +79,8 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 
 - **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, mixé en HTP avec les couches d'intensité.
 - **Vue spatiale** : barres positionnables au doigt ou importées depuis MadMapper (position, rotation, taille), allumage en temps réel.
-- **16 presets** qui mémorisent les couches *et* la disposition complète — rappel instantané en live.
+- **16 presets nommables** qui mémorisent les couches *et* la disposition complète — rappel instantané en live. « Refrain » se retrouve plus vite que « P7 ».
+- **Raccourcis clavier** : `S` start/stop, `B` blackout, `Espace` tap, `R` resync, `G` GO, `1`–`8` couches, `?` pour l'aide.
 - **Tempo** : tap tempo, ÷2 ×2, resync sur le temps fort, vitesse par couche et vitesse globale.
 - **Ableton Link** : Cascade rejoint la session Link du réseau (Pulse, Ableton Live, Traktor…) et suit son BPM en direct.
 - **Contrôle externe** : MIDI (Web MIDI, apprentissage par cible) et OSC entrant (TouchOSC, QLab, console).
@@ -118,7 +119,7 @@ Le préfixe historique `/chaser/…` reste accepté.
 ## Développement
 
 ```bash
-npm test        # 71 tests, sans aucune dépendance
+npm test        # 76 tests, sans aucune dépendance
 node build.js   # exécutables des 4 plateformes → build/
 ```
 

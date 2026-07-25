@@ -121,6 +121,37 @@ describe('API HTTP', () => {
     assert.equal((await h.state()).presets[2], null);
   });
 
+  test('les presets peuvent être nommés, renommés et bornés', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 5, name: 'Refrain' });
+    assert.equal((await h.state()).presets[5], 'Refrain');
+    // Sans nom : numéro par défaut
+    await h.post('/api/preset', { action: 'save', slot: 6 });
+    assert.equal((await h.state()).presets[6], 'P7');
+    // Nom trop long : coupé à 16 caractères
+    await h.post('/api/preset', { action: 'save', slot: 7, name: 'X'.repeat(80) });
+    assert.equal((await h.state()).presets[7].length, 16);
+    // Renommage d'un preset existant
+    await h.post('/api/preset', { action: 'rename', slot: 5, name: 'Final' });
+    assert.equal((await h.state()).presets[5], 'Final');
+    // Nom vidé : on retombe sur le numéro
+    await h.post('/api/preset', { action: 'rename', slot: 5, name: '   ' });
+    assert.equal((await h.state()).presets[5], 'P6');
+    // Renommer un slot vide ne crée rien
+    await h.post('/api/preset', { action: 'rename', slot: 11, name: 'Fantôme' });
+    assert.equal((await h.state()).presets[11], null);
+    for (const s of [5, 6, 7]) await h.post('/api/preset', { action: 'clear', slot: s });
+  });
+
+  test('le nom d’un preset survit à l’export/import', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 9, name: 'Pont' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).presets[9], null);
+    await h.post('/api/import', exp.body);
+    assert.equal((await h.state()).presets[9], 'Pont');
+    await h.post('/api/preset', { action: 'clear', slot: 9 });
+  });
+
   test('un slot de preset hors bornes ne fait pas planter', async () => {
     const r = await h.post('/api/preset', { action: 'recall', slot: 9999 });
     assert.equal(r.body.ok, true);

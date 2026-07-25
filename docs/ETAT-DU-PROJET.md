@@ -1,7 +1,7 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-07-24 — version **1.3.0**.
+> Dernière mise à jour : 2026-07-24 — version **1.4.0**.
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
 > L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`.
 
@@ -23,6 +23,27 @@
    - **Dialogue Quitter** (`dlgQuit`) : rappelle que la séance est TOUJOURS enregistrée automatiquement ; si `dirty`, signale « modifs non exportées » (avec date du dernier export) + champ nom + bouton « ⬇ Exporter puis quitter » (`exportProject(name)` : POST /api/project → fetch blob /api/export → téléchargement → quit après 400 ms). Le bouton 📁 Sauvegarder réutilise `exportProject` (prompt prérempli avec le nom du projet).
 2. **Ableton Link** (Pulse, Live, Traktor…) via **Carabiner** (Deep Symmetry) — binaire officiel embarquant la lib Link, exposé en TCP local port 17000, téléchargé par les lanceurs dans `runtime/` (`carabiner.exe` / `carabiner`). Zéro dépendance npm conservée (client `net` maison, parse EDN par regex `:bpm`/`:peers`). Toggle **⧉ ABLETON LINK** dans le panneau Vitesse ; BPM session → `stepMs` de **toutes** les couches (1 beat = 1 pas, borné 30–2000 ms), chaque couche garde sa « Vitesse » ×0.1–×4. Quand Link actif : slider Temps/pas, TAP, ÷2, ×2 désactivés côté UI, `tap()` neutralisé côté serveur. `state.settings.linkEnabled` persisté (réactivé au boot). API : `POST /api/link {enabled}` ; état dans `/api/state` → `link {active, connected, bpm, peers, error}` ; OSC : `/cascade/link 0-1`. Cascade lance Carabiner lui-même (spawn, `windowsHide`), le tue au disable/quit/exit ; se connecte d'abord au cas où un Carabiner tourne déjà ; ~20 tentatives à 700 ms puis erreur propre (binaire absent → message « relance le lanceur »).
 3. **Charte graphique** reprise du manuel : orange signature `#f2900f` (`--accent`), anthracite profond, titres de sections orange espacés avec filet fin (`h2` border-bottom), panneaux radius 14 + ombre, TAP orange plein avec glow, `--accent2` devenu gris-bleu neutre (axes miroirs, hints), footer façon PDF (filet orange centré + signature orange). `button[disabled]`/`input[disabled]` à .35.
+
+## Nouveautés v1.4.0 (2026-07-25)
+
+- **Presets nommables** : `savePreset(i, name)` et `action: 'rename'` sur
+  `/api/preset`. Nom borné à 16 car., vide → `P<n>`. `presetNames()` renvoie
+  désormais **le nom** (ou `null`), plus `true`. ⚠ La signature de rendu des
+  presets (`psig`) inclut les noms, sinon un renommage ne s'affiche jamais.
+- **Repli « Groove & découpe »** (`<details id="advGroove">`) : les 6 réglages
+  fins y sont regroupés. `#grooveBadge` compte ceux hors valeur neutre.
+  ⚠ Le repli s'ouvre automatiquement **au changement de couche seulement**
+  (`det.dataset.vu !== selId`) — ne jamais le rouvrir à chaque rendu, sinon
+  l'utilisateur ne peut plus le refermer.
+- **Accueil premier lancement** (`#accueil`) : visible tant que
+  `S.fixtures.length === 0`, avec témoin MadMapper.
+- **Raccourcis** : `S` start/stop, `B` blackout, `Espace` tap, `R` resync,
+  `G` GO couche, `1`–`8` sélection, `?`/`H` aide (`#dlgAide`).
+  Neutralisés en saisie, en zone éditable, avec Ctrl/Cmd/Alt, et si un
+  `dialog[open]` est présent.
+- **`sync-dist.js`** : `node sync-dist.js` copie, `--check` vérifie. Un test
+  (`interface.test.js`) échoue si `dist/` diverge — la copie manuelle avait
+  déjà failli faire livrer un `dist/` obsolète.
 
 ## Nouveautés v1.3.0 (2026-07-24)
 
@@ -89,7 +110,7 @@ nom de couche, nom de projet, message d'erreur du serveur — se pose par
 `tests/interface.test.js` relit le source et échoue si la règle est enfreinte
 (garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
-### Tests — `npm test` (71 tests, zéro dépendance)
+### Tests — `npm test` (76 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**

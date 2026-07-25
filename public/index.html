@@ -134,6 +134,44 @@
   dialog label { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--dim); }
   dialog input { width: 100%; }
   .hint { font-size: 11px; color: var(--dim); margin-top: 8px; line-height: 1.5; }
+  /* Replis « avancé » : les réglages fins ne doivent pas encombrer la première
+     lecture, mais une pastille signale s'ils sont actifs — sinon on cherche
+     pendant dix minutes d'où vient un comportement inattendu. */
+  details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  details > summary { font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--accent); cursor: pointer; list-style: none; display: flex;
+    align-items: center; gap: 8px; padding: 3px 0; user-select: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: '▸'; font-size: 10px; transition: transform .18s; }
+  details[open] > summary::before { transform: rotate(90deg); }
+  details > summary:hover { color: #ffab3d; }
+  .badge { font-size: 9px; letter-spacing: .5px; text-transform: none; color: #000;
+    background: var(--accent); border-radius: 10px; padding: 2px 7px; font-weight: 700; }
+  .badge:empty { display: none; }
+  /* Premier lancement : un vrai accueil plutôt qu'une page vide */
+  #accueil { background: linear-gradient(180deg, #15181f 0%, #12141b 100%);
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 14px; padding: 18px 22px; margin-bottom: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  #accueil ol { margin: 4px 0 0 20px; font-size: 13px; line-height: 1.9; color: var(--text); }
+  #accueil li { padding-left: 4px; }
+  #accueil li::marker { color: var(--accent); font-weight: 700; }
+  #accueil b { color: var(--accent); font-weight: 600; }
+  #accueilMM { display: block; font-size: 11px; margin-top: 2px; }
+  #accueilMM.ko { color: #ffb3b3; }
+  #accueilMM.ok { color: var(--on); }
+  /* Aide clavier */
+  table.aide { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.aide th { text-align: left; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 2px; color: var(--accent); padding: 14px 0 5px; font-weight: 600;
+    border-bottom: 1px solid var(--border); }
+  table.aide tr:first-child th { padding-top: 4px; }
+  table.aide td { padding: 5px 10px 5px 0; vertical-align: top; color: var(--dim); }
+  table.aide td:first-child { width: 108px; color: var(--text); white-space: nowrap; }
+  kbd { display: inline-block; min-width: 20px; text-align: center; font: inherit;
+    font-size: 11px; font-weight: 700; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
+    padding: 2px 6px; }
   /* QR code (fond blanc obligatoire pour être scannable sur l'UI sombre) */
   #qrBox { background: #fff; border-radius: 10px; padding: 8px; width: 232px; max-width: 100%; margin: 4px auto 10px; }
   #qrBox svg { display: block; width: 100%; height: auto; }
@@ -172,6 +210,14 @@
   /* Un slot occupé porte une pastille orange : on lit la banque d'un coup d'œil */
   #presets button.slot:not(.empty)::after { content: ''; position: absolute; top: 4px; right: 4px;
     width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  /* Preset nommé : le nom prime, le numéro reste lisible pour le MIDI/OSC */
+  #presets button.slot.named { min-width: 0; padding: 6px 12px 6px 9px; display: inline-flex;
+    align-items: baseline; gap: 6px; }
+  #presets button.slot.named::after { display: none; }
+  #presets .pnum { font-size: 10px; color: var(--dim); font-weight: 700; }
+  #presets button.slot.named:hover .pnum { color: var(--accent); }
+  #presets .pname { font-size: 12px; font-weight: 600; letter-spacing: .3px;
+    max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #presets button.empty { opacity: .4; font-weight: 400; }
   #presets button.savemode { border-color: var(--off); color: var(--off);
     animation: blinkSave 1s steps(2, start) infinite; }
@@ -211,6 +257,7 @@
   <button id="btnMidi" title="Contrôle MIDI / OSC">🎹</button>
   <button id="btnProject" title="Projet : nouveau / sauvegarder / charger">📁</button>
   <button id="btnSettings" title="Réglages OSC">⚙</button>
+  <button id="btnAide" title="Raccourcis clavier et gestes (touche ? ou H)">?</button>
   <button id="btnQuit" title="Quitter Cascade — arrête le serveur (MadMapper garde son dernier état)">⏻</button>
 </div>
 
@@ -242,6 +289,30 @@
   </div>
 </dialog>
 
+<dialog id="dlgAide" style="max-width:540px">
+  <h2>Raccourcis &amp; gestes</h2>
+  <table class="aide">
+    <tr><th colspan="2">Pendant le show</th></tr>
+    <tr><td><kbd>S</kbd></td><td>Démarrer / arrêter les chasers</td></tr>
+    <tr><td><kbd>B</kbd></td><td>Blackout — coupe tout immédiatement</td></tr>
+    <tr><td><kbd>Espace</kbd></td><td>Tap tempo sur la couche sélectionnée</td></tr>
+    <tr><td><kbd>R</kbd></td><td>Resync — relance tous les chasers ensemble (temps fort)</td></tr>
+    <tr><td><kbd>G</kbd></td><td>GO — relance le cycle de la couche sélectionnée</td></tr>
+    <tr><td><kbd>1</kbd>…<kbd>8</kbd></td><td>Sélectionner une couche</td></tr>
+    <tr><td><kbd>?</kbd> ou <kbd>H</kbd></td><td>Ouvrir / fermer cette aide</td></tr>
+    <tr><th colspan="2">Gestes</th></tr>
+    <tr><td>Double-clic</td><td>Sur une ligne de réglage : retour à la valeur par défaut</td></tr>
+    <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
+    <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
+    <tr><td>Glisser</td><td>Une barre dans la vue spatiale : la déplacer</td></tr>
+  </table>
+  <p class="hint">Sur iPad, un double-tap remplace le double-clic.
+  Les raccourcis sont ignorés pendant une saisie de texte.</p>
+  <div class="mini" style="justify-content:flex-end; margin-top:12px">
+    <button id="aideClose">Fermer</button>
+  </div>
+</dialog>
+
 <dialog id="dlgQR">
   <h2>Connexion iPad / téléphone</h2>
   <div id="qrBox"></div>
@@ -253,6 +324,26 @@
     <button id="qrClose">Fermer</button>
   </div>
 </dialog>
+
+<!-- Premier lancement : sans barre, l'interface n'a rien à montrer. Plutôt
+     qu'un écran vide, on dit quoi faire, dans l'ordre. -->
+<div id="accueil" style="display:none">
+  <h2>Premiers pas</h2>
+  <ol>
+    <li><b>Lance MadMapper</b> et ouvre ton projet. Dans ses Préférences → OSC,
+      active l'entrée <b>8000</b> et le feedback <b>9000</b>.
+      <span id="accueilMM"></span></li>
+    <li>Clique <b>⟳ Scanner</b> dans le panneau Fixtures : Cascade récupère les
+      barres de ton projet. Si le scan ne trouve rien, clic droit sur l'intensité
+      d'une fixture dans MadMapper → copier l'adresse OSC → bouton <b>+ Manuel</b>.</li>
+    <li>Clique <b>⤓ Importer depuis MadMapper</b> sous la vue spatiale : tes barres
+      se placent comme sur scène.</li>
+    <li>Appuie sur <b>▶ START</b>. C'est parti.</li>
+  </ol>
+  <p class="hint">Tout est enregistré automatiquement : au prochain lancement,
+  tu retrouveras exactement cet état. Le bouton <b>QR</b> en haut ouvre l'interface
+  sur un iPad en un scan.</p>
+</div>
 
 <div id="presets"></div>
 <div id="preview"></div>
@@ -338,7 +429,8 @@
     <label class="row" title="Inverse la couche : tout est allumé sauf ce que le chase éclaire (ombre qui balaye)"><span>Inverser (négatif)</span>
       <input type="checkbox" id="invert"></label>
 
-    <h2 style="margin-top:14px">Groove &amp; découpe</h2>
+    <details id="advGroove">
+      <summary>Groove &amp; découpe <span class="badge" id="grooveBadge"></span></summary>
     <label class="row" title="Décale le départ de cette couche dans son cycle. Deux couches identiques avec des phases différentes se répondent."><span>Décalage (phase)</span>
       <input type="range" id="phase" min="0" max="360" step="5"><output></output></label>
     <label class="row" id="rowSwing" title="Groove : retarde un pas sur deux, comme un shuffle. 0 = régulier."><span>Swing</span>
@@ -350,6 +442,7 @@
     <label class="row" id="rowOneShot" title="Le motif joue UN seul cycle puis se tait, jusqu'au prochain GO. Pour les accents ponctuels."><span>Une fois (one-shot)</span>
       <input type="checkbox" id="oneShot">
       <button id="btnGo" style="padding:5px 14px; font-weight:700; letter-spacing:1px" title="Relance le cycle de cette couche maintenant">GO</button></label>
+    </details>
     <div class="mini">
       <button id="btnAssign" title="Limite cette couche à certaines barres : active le mode puis clique les barres dans la vue spatiale. Re-cliquer = revenir à toutes.">🎯 Barres : toutes</button>
     </div>
@@ -461,7 +554,7 @@
 
 <div style="text-align:center; color:var(--dim); font-size:11px; margin-top:26px; letter-spacing:.5px; line-height:2">
   <div style="width:200px; height:2px; background:var(--accent); border-radius:1px; margin:0 auto 8px; opacity:.9"></div>
-  CASCADE v1.3 — séquenceur LED pour MadMapper<br>
+  CASCADE v1.4 — séquenceur LED pour MadMapper<br>
   <b style="color:var(--accent); letter-spacing:1px">Pierre-Yves Mansour — Collectif WSK</b>
 </div>
 
@@ -553,6 +646,17 @@ function render() {
             + '\n\nLes chasers continuent d’émettre : si tes barres s’allument, tout va bien.');
   }
 
+  // Accueil : visible tant qu'aucune barre n'est configurée
+  const vide = !S.fixtures.length;
+  $('#accueil').style.display = vide ? '' : 'none';
+  if (vide) {
+    const a = $('#accueilMM');
+    a.className = mm.alive ? 'ok' : 'ko';
+    a.textContent = mm.alive
+      ? '✓ MadMapper répond — tu peux passer à l’étape 2.'
+      : '× MadMapper ne répond pas encore (voir la pastille en haut).';
+  }
+
   // chips couches
   const chips = $('#layerChips');
   const sig = S.layers.map(l => l.id + l.name + (l.enabled ? 1 : 0) + (l.id === selId ? 's' : '')).join(',');
@@ -588,21 +692,43 @@ function render() {
 
   // presets
   const pr = $('#presets');
-  const psig = S.presets.map(p => p ? 1 : 0).join('') + (saveMode ? 'S' : '');
+  // La signature inclut les NOMS : sinon un renommage ne se verrait jamais.
+  const psig = S.presets.map(p => p || '·').join('') + (saveMode ? 'S' : '');
   if (pr.dataset.sig !== psig) {
     pr.dataset.sig = psig;
     pr.innerHTML = '<span style="font-size:11px;color:var(--dim);letter-spacing:1px">PRESETS</span>';
     S.presets.forEach((p, i) => {
       const b = document.createElement('button');
       b.className = 'slot' + (p ? '' : ' empty');
-      b.textContent = i + 1;
+      // Un preset nommé affiche son nom : en live on cherche « Refrain »,
+      // pas « P7 ». Le numéro reste en petit pour le repérage MIDI/OSC.
+      const nomAuto = 'P' + (i + 1);
+      if (p && p !== nomAuto) {
+        b.classList.add('named');
+        b.textContent = '';
+        const n = document.createElement('span'); n.className = 'pname'; n.textContent = p;
+        const num = document.createElement('span'); num.className = 'pnum'; num.textContent = i + 1;
+        b.append(num, n);
+      } else {
+        b.textContent = i + 1;
+      }
       b.title = saveMode ? 'Enregistrer ici' : (p
-        ? 'Rappeler le preset ' + (i + 1) + ' : couches + ordre des fixtures + vue spatiale'
+        ? 'Rappeler « ' + p +' » : couches + ordre des fixtures + vue spatiale'
+          + '\nDouble-clic : renommer'
         : 'Slot vide');
       b.onclick = () => {
-        if (saveMode) { post('/api/preset', { action: 'save', slot: i }).then(() => { saveMode = false; poll(); }); }
-        else if (p) post('/api/preset', { action: 'recall', slot: i }).then(poll);
+        if (saveMode) {
+          const nom = prompt('Nom du preset ' + (i + 1) + ' (vide = numéro) :', p && p !== nomAuto ? p : '');
+          if (nom === null) { saveMode = false; poll(); return; } // annulé
+          post('/api/preset', { action: 'save', slot: i, name: nom })
+            .then(() => { saveMode = false; poll(); });
+        } else if (p) post('/api/preset', { action: 'recall', slot: i }).then(poll);
       };
+      if (p) onDblTap(b, (ev) => {
+        ev.stopPropagation();
+        const nom = prompt('Nom du preset ' + (i + 1) + ' (vide = numéro) :', p === nomAuto ? '' : p);
+        if (nom !== null) post('/api/preset', { action: 'rename', slot: i, name: nom }).then(poll);
+      });
       pr.appendChild(b);
     });
     const sv = document.createElement('button');
@@ -670,6 +796,23 @@ function render() {
   setSlider('#sparkle', Math.round((L.sparkle || 0) * 100), v => v ? v + ' %' : '—');
   $('#oneShot').checked = !!L.oneShot;
   $('#btnGo').classList.toggle('active', !!L.oneShot);
+  // Pastille sur le repli : combien de réglages fins sont hors de leur valeur
+  // neutre. Sans ça, un swing oublié derrière le repli devient un mystère.
+  const actifs = [
+    L.phase && 'décalage', L.swing && 'swing', (L.blocks || 1) > 1 && 'blocs',
+    L.floor && 'niveau bas', L.sparkle && 'scintillement', L.oneShot && 'une fois',
+  ].filter(Boolean);
+  const badge = $('#grooveBadge');
+  badge.textContent = actifs.length ? actifs.length + (actifs.length > 1 ? ' actifs' : ' actif') : '';
+  badge.title = actifs.length ? actifs.join(', ') : '';
+  // En arrivant sur une couche qui a des réglages fins actifs, on ouvre le
+  // repli : sinon ils resteraient invisibles. Ensuite on n'impose plus rien —
+  // si l'utilisateur referme, ça reste fermé tant qu'il ne change pas de couche.
+  const det = $('#advGroove');
+  if (det.dataset.vu !== selId) {
+    det.dataset.vu = selId;
+    if (actifs.length) det.open = true;
+  }
   // Le swing et le scintillement n'ont de sens qu'en pas-à-pas
   const isStep = L.engine !== 'wave';
   $('#rowSwing').style.display = isStep ? '' : 'none';
@@ -1101,6 +1244,8 @@ $('#btnQR').onclick = () => {
   $('#dlgQR').showModal();
 };
 $('#qrClose').onclick = () => $('#dlgQR').close();
+$('#btnAide').onclick = () => $('#dlgAide').showModal();
+$('#aideClose').onclick = () => $('#dlgAide').close();
 $('#btnStart').onclick = () => post('/api/start').then(poll);
 $('#btnStop').onclick = () => post('/api/stop').then(poll);
 $('#btnBlackout').onclick = () => post('/api/blackout').then(poll);
@@ -1190,9 +1335,25 @@ $('#btnAssign').onclick = () => {
   render();
 };
 document.addEventListener('keydown', e => {
-  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  // Jamais de raccourci pendant une saisie, ni dans un dialogue ouvert
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const dlgOuvert = !!document.querySelector('dialog[open]');
+  if (e.key === '?' || (e.key === 'h' && !dlgOuvert)) {
+    e.preventDefault();
+    if ($('#dlgAide').open) $('#dlgAide').close(); else $('#dlgAide').showModal();
+    return;
+  }
+  if (dlgOuvert) return;
   if (e.code === 'Space') { e.preventDefault(); post('/api/tap', { id: sel().id }).then(poll); }
   else if (e.code === 'KeyR') { e.preventDefault(); post('/api/resync').then(poll); }
+  else if (e.code === 'KeyG') { e.preventDefault(); post('/api/resync', { id: sel().id }).then(poll); }
+  else if (e.code === 'KeyS') { e.preventDefault(); post(S.global.running ? '/api/stop' : '/api/start').then(poll); }
+  else if (e.code === 'KeyB') { e.preventDefault(); post('/api/blackout').then(poll); }
+  else if (/^Digit[1-8]$/.test(e.code)) { // 1-8 : sélectionner une couche
+    const i = +e.code.slice(5) - 1;
+    if (S.layers[i]) { e.preventDefault(); selId = S.layers[i].id; $('#layerChips').dataset.sig = ''; render(); }
+  }
 });
 
 // Double-clic ligne de paramètre = défaut (couche ou global)

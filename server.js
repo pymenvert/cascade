@@ -16,7 +16,7 @@ const os = require('os');
 const { exec, spawn } = require('child_process');
 
 const APP_NAME = 'Cascade';
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
 const MAX_LAYERS = 8;
@@ -714,8 +714,9 @@ function eng(id) {
 
 // ── Presets : couches + disposition des barres (ordre et vue spatiale) ─────
 const deep = o => JSON.parse(JSON.stringify(o));
-function savePreset(i) {
-  return { name: 'P' + (i + 1), layers: deep(state.layers), fixtures: deep(state.fixtures) };
+function savePreset(i, name) {
+  const n = String(name == null ? '' : name).trim().slice(0, 16);
+  return { name: n || 'P' + (i + 1), layers: deep(state.layers), fixtures: deep(state.fixtures) };
 }
 function recallPreset(i) {
   const p = state.presets[i];
@@ -725,7 +726,8 @@ function recallPreset(i) {
   engines.clear();
   return true;
 }
-function presetNames() { return state.presets.map(p => p ? (p.name || true) : null); }
+/** Noms des presets pour l'interface : null = slot vide. */
+function presetNames() { return state.presets.map((p, i) => p ? (p.name || 'P' + (i + 1)) : null); }
 
 /** Resync : recale la phase (départ des pas) d'une couche, ou de toutes. */
 function resync(layerId) {
@@ -1174,9 +1176,13 @@ const server = http.createServer(async (req, res) => {
       }
       case '/api/preset': {
         const i = Math.max(0, Math.min(PRESET_SLOTS - 1, body.slot | 0));
-        if (body.action === 'save') state.presets[i] = savePreset(i);
+        if (body.action === 'save') state.presets[i] = savePreset(i, body.name);
         else if (body.action === 'recall') recallPreset(i);
         else if (body.action === 'clear') state.presets[i] = null;
+        else if (body.action === 'rename' && state.presets[i]) {
+          const n = String(body.name || '').trim().slice(0, 16);
+          state.presets[i].name = n || 'P' + (i + 1);
+        }
         saveConfig();
         return json(res, { ok: true, presets: presetNames(), layers: state.layers, fixtures: state.fixtures });
       }

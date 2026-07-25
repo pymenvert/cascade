@@ -1,6 +1,6 @@
 {
   "name": "cascade-madmapper",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Cascade — séquenceur LED multi-couches pour MadMapper (OSC) : chases, vagues, couleur, presets, MIDI/OSC, Ableton Link",
   "author": "Pierre-Yves Mansour — Collectif WSK",
   "license": "MIT",
@@ -15,5 +15,14 @@
     "type": "git",
     "url": "https://github.com/pymenvert/cascade.git"
   },
-  "keywords": ["madmapper", "osc", "led", "dmx", "chaser", "lighting", "vj", "ableton-link"]
+  "keywords": [
+    "madmapper",
+    "osc",
+    "led",
+    "dmx",
+    "chaser",
+    "lighting",
+    "vj",
+    "ableton-link"
+  ]
 }

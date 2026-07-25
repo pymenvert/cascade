@@ -4,6 +4,41 @@ Toutes les évolutions notables de Cascade. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [sémantique](https://semver.org/lang/fr/).
 
+## [1.4.0] — 2026-07-25
+
+Version « conduite » : moins de réglages sous les yeux, plus de repères
+pendant le show.
+
+### Ajouté
+
+- **Presets nommables** — à l'enregistrement, Cascade demande un nom ; un
+  double-clic sur un slot le renomme. En conduite, on retrouve « Refrain »
+  bien plus vite que « P7 ». Le numéro reste affiché en petit : c'est lui qui
+  compte pour le MIDI et l'OSC. Le nom suit l'export et l'import.
+- **Raccourcis clavier** — `S` démarrer/arrêter, `B` blackout, `Espace` tap,
+  `R` resync, `G` GO sur la couche courante, `1`–`8` choisir une couche,
+  `?` ou `H` pour l'aide. Un bouton **?** ouvre la même liste.
+  Les raccourcis sont ignorés pendant une saisie et quand un dialogue est ouvert.
+- **Premier lancement guidé** — sans barre configurée, l'interface affiche les
+  quatre étapes à suivre au lieu d'une page vide, avec un témoin qui dit si
+  MadMapper répond déjà.
+
+### Modifié
+
+- **Panneau Couches simplifié** — les réglages fins (décalage, swing, blocs,
+  scintillement, une fois) sont regroupés sous un repli « Groove & découpe ».
+  Une pastille orange indique combien y sont actifs, et le repli s'ouvre tout
+  seul quand on arrive sur une couche qui en utilise : rien ne se cache
+  silencieusement.
+- Le manuel PDF passe à 9 pages (presets nommés, repli, chapitre raccourcis).
+
+### Interne
+
+- `node sync-dist.js` recopie les sources dans `dist/`, et **un test échoue si
+  `dist/` diverge**. La copie manuelle était une source d'erreur : livrer un
+  `dist/` obsolète, c'est livrer une version jamais testée.
+- 76 tests (71 auparavant).
+
 ## [1.3.0] — 2026-07-24
 
 Version « spectacle » : nouvelles fonctions de chase reprises des consoles

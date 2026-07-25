@@ -20,7 +20,7 @@ from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
                                 Preformatted, KeepTogether)
 from reportlab.lib.styles import ParagraphStyle
 
-VERSION = "1.3"
+VERSION = "1.4"
 ORANGE = HexColor("#E8890B")
 DARK = HexColor("#33333B")
 GREY = HexColor("#6A6A74")
@@ -219,6 +219,8 @@ E += [h1("1. Présentation"),
          "chaque barre et reproduit la scéno dans la vue."),
       li("Ordre = position G→D : cale l'ordre du chase sur le placement physique."),
       li("Le bouton éclair à côté d'une fixture la flashe sur scène pour l'identifier."),
+      li("Tant qu'aucune barre n'est configurée, Cascade affiche ces étapes directement "
+         "dans l'interface, avec un témoin qui dit si MadMapper répond déjà."),
       li("START — et c'est parti. STOP relâche le contrôle (MadMapper garde le dernier état) ; "
          "BLACKOUT éteint. La préview et la vue spatiale montrent le rendu en temps réel."),
       note("Si rien ne bouge sur scène : bouton Diagnostic (panneau Fixtures). Il interroge "
@@ -282,8 +284,12 @@ E += [h1("1. Présentation"),
          "dans la vue spatiale (les exclues passent en pointillés)."),
 
       h2("4.6 — Groove et découpe"),
-      p("Ces quatre réglages viennent des consoles lumière : ils transforment un chase correct "
-        "en chase qui a du caractère. Tous sont neutres par défaut — vous ne les subissez pas."),
+      p("Ces réglages viennent des consoles lumière : ils transforment un chase correct en "
+        "chase qui a du caractère. Tous sont neutres par défaut — vous ne les subissez pas. "
+        "Ils sont regroupés sous un repli « Groove et découpe » pour ne pas encombrer la "
+        "première lecture ; une pastille orange sur ce repli indique combien de réglages y "
+        "sont actifs, et le repli s'ouvre tout seul quand vous arrivez sur une couche qui "
+        "en utilise."),
       li("Décalage (phase), 0 à 360° : décale le départ de la couche dans son cycle. Deux couches "
          "réglées à l'identique mais déphasées de 180° se répondent au lieu de se superposer. "
          "C'est LE réglage pour faire dialoguer deux rangées de barres."),
@@ -343,6 +349,10 @@ E += [h1("1. Présentation"),
       h1("7. Presets, projets et sauvegarde"),
       li("Presets (1-16), barre du haut : photographient toutes les couches. Sauver puis clic "
          "sur un slot = mémorise ; clic simple = rappel instantané en live."),
+      li("Nommez-les : à l'enregistrement, Cascade demande un nom (laisser vide garde le "
+         "numéro), et un double-clic sur un slot le renomme. En conduite, on cherche "
+         "« Refrain » beaucoup plus vite que « P7 ». Le numéro reste affiché en petit — c'est "
+         "lui qui compte pour le MIDI et l'OSC."),
       li("Tout est sauvegardé en continu et automatiquement (avec copie de secours) : en cas de "
          "coupure ou en quittant, on retrouve son état exact au relancement. La dernière "
          "modification est garantie écrite avant chaque fermeture."),
@@ -437,7 +447,22 @@ t.setStyle(TableStyle([
 E.append(t)
 
 # ── 10. Notes techniques ─────────────────────────────────────────────────────
-E += [h1("10. Notes techniques"),
+E += [h1("10. Raccourcis clavier et gestes"),
+      p("Le bouton « ? » en haut de l'interface (ou la touche ? ou H) affiche cette liste "
+        "à tout moment. Les raccourcis sont ignorés pendant une saisie de texte et lorsqu'une "
+        "fenêtre de dialogue est ouverte."),
+      li("S : démarrer ou arrêter les chasers. B : blackout immédiat."),
+      li("Espace : tap tempo sur la couche sélectionnée."),
+      li("R : resync — relance tous les chasers ensemble, à taper sur le temps fort."),
+      li("G : GO — relance le cycle de la couche sélectionnée (mode « une fois »)."),
+      li("1 à 8 : sélectionner une couche."),
+      li("Double-clic sur une ligne de réglage : retour à la valeur par défaut."),
+      li("Double-clic sur un nom de couche : renommer. Sur un preset : renommer. "
+         "Sur une barre de la vue spatiale : la faire pivoter."),
+      li("Glisser une barre dans la vue spatiale : la déplacer."),
+      note("Sur iPad, un double-tap remplace partout le double-clic."),
+
+      h1("11. Notes techniques"),
       li("Aucune installation système : le moteur Node.js portable et le module Link vivent "
          "dans le dossier de l'app."),
       li("Le dossier est autonome : copier le dossier = installer l'app ailleurs."),

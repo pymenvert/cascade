@@ -70,6 +70,26 @@ describe('Interface — garde-fous du source', () => {
     }
   });
 
+  test('les repères d’usage courant sont présents', () => {
+    for (const [quoi, motif] of [
+      ['accueil premier lancement', /id="accueil"/],
+      ['repli Groove & découpe', /id="advGroove"/],
+      ['pastille de réglages actifs', /id="grooveBadge"/],
+      ['dialogue d’aide', /id="dlgAide"/],
+      ['bouton d’aide', /id="btnAide"/],
+      ['voyant MadMapper', /id="mmLink"/],
+      ['bouton QR', /id="btnQR"/],
+    ]) assert.match(UI, motif, quoi + ' introuvable');
+  });
+
+  test('les raccourcis ne se déclenchent ni en saisie ni dans un dialogue', () => {
+    const bloc = UI.slice(UI.indexOf("addEventListener('keydown'"));
+    assert.match(bloc, /INPUT\|SELECT\|TEXTAREA/, 'les champs de saisie doivent être exclus');
+    assert.match(bloc, /isContentEditable/, 'les zones éditables doivent être exclues');
+    assert.match(bloc, /dialog\[open\]/, 'un dialogue ouvert doit neutraliser les raccourcis');
+    assert.match(bloc, /ctrlKey \|\| e\.metaKey \|\| e\.altKey/, 'les combinaisons système doivent passer');
+  });
+
   test('dist/ est synchrone avec les sources', () => {
     // dist/ est la copie qu'on envoie telle quelle. Livrer un dist/ obsolète,
     // c'est livrer une version qui n'a jamais été testée.
