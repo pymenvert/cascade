@@ -91,6 +91,13 @@ de travail.
   Pour un régisseur, un noir qui ne fait pas noir est le pire des défauts.
   Résultat : ⟨à remplir⟩
 
+- [ ] **T22 — Spout de Resolume échantillonné par une fixture.**
+  Sortie Spout dans Resolume, flux récupéré dans MadMapper, posé sur une
+  surface couvrant une barre, dégradé animé horizontal joué dans Resolume.
+  Attendu : les LED s'allument successivement. Relever si une surface porteuse
+  est obligatoire, et la latence ressentie jusqu'aux LED.
+  Résultat : ⟨à remplir⟩
+
 ## Les tests du plan initial (rappel)
 
 Détaillés en section 7 de [`PLAN-V2.md`](PLAN-V2.md) : T1 (liste OSC et numéro

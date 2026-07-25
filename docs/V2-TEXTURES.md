@@ -230,3 +230,105 @@ Franchement — et en précisant que **je n'ai pas le document du plan v2 sous l
 - **Que la fixture « Line » de MM6 soit exactement le même objet** que la fixture « largeur N / hauteur 1 » des sources forum, qui datent de MM3/MM4. Le vocabulaire a changé (*Fixed Size / LED Strip Mode / Matrix Mode*).
 
 **Sources principales :** [DMX Fixtures](https://docs.madmapper.com/madmapper/6/5.-dmx-and-led-mapping/dmx-fixtures) · [DMX Fundamentals](https://docs.madmapper.com/madmapper/6/5.-dmx-and-led-mapping/dmx-fundamentals) · [Outputs](https://docs.madmapper.com/madmapper/6/6.-outputs) · [OSC Commands and Channels List](https://docs.madmapper.com/madmapper/6/11.-live-performance-and-control/osc-commands-and-channels-list) · [Media Bin](https://docs.madmapper.com/madmapper/6/3.-media/media-bin) · [MadMapper Materials — MaterialsDoc.md](https://github.com/madmappersoftware/MadMapper-Materials/blob/main/MaterialsDoc.md) · [Fonctionnalités MadMapper](https://madmapper.com/madmapper/features) · [FAQ MadMapper](https://madmapper.com/madmapper/faq) · [forum garageCube — import SVG de fixtures](https://forum.garagecube.com/viewtopic.php?t=35819) · [forum garageCube — « 18 squares »](http://forum.garagecube.com/viewtopic.php?t=9773) · [Resolume — Syphon/Spout](https://resolume.com/support/en/syphonspout) · [Resolume — NDI](https://www.resolume.com/support/en/NDI_inputs_and_outputs) · [NDI — encodage/décodage](https://docs.ndi.video/docs/white-paper/encoding-and-decoding) · [ISF & MadMapper Materials](https://projectileobjects.com/2020/10/22/isf-shaders-and-madmapper-materials/)
+---
+
+## 9. Cas pratique : un flux Spout (ou NDI) de Resolume sur les différents axes
+
+> Question de Pym, 2026-07-26 : « imaginons que je veuille appliquer une source
+> Spout sortie de Resolume et entrée dans MadMapper. Comment on fait pour
+> appliquer ça sur les différents axes ? »
+
+### Spout ou NDI : aucune différence de méthode
+
+Les deux arrivent au même endroit — le Media Bin de MadMapper, catégorie
+*Live Inputs* — et se comportent ensuite exactement pareil. Le choix ne dépend
+que de la topologie :
+
+| | Quand | Coût |
+|---|---|---|
+| **Spout** (Windows) | Resolume et MadMapper sur la **même machine** | partage de texture sur le GPU : pas de compression, pas de réseau, latence quasi nulle |
+| **Syphon** (macOS) | idem, sur Mac | idem |
+| **NDI** | deux **machines différentes** | ~33 ms (encodage + décodage), 135–150 Mbit/s en 1080p60, chroma 4:2:2 dont les artefacts se voient LED par LED. Switch gigabit dédié obligatoire, jamais le wifi de la salle |
+
+Sur une seule machine, **Spout, sans hésiter**. Tout ce qui suit vaut pour les
+deux.
+
+### Le point à comprendre : le flux n'a pas d'axe
+
+Un flux Spout est **un rectangle plat**. Il a une largeur et une hauteur, rien
+d'autre. Il ne sait pas ce qu'est la profondeur de ta salle.
+
+**L'axe n'est donc pas dans la texture : il est dans la DISPOSITION.**
+C'est en plaçant les barres dans la composition que tu décides quelle
+coordonnée réelle correspond à quelle direction de l'image.
+
+### La recette, à la main, aujourd'hui
+
+1. **Resolume** → sortie Spout activée.
+2. **MadMapper** → le flux apparaît tout seul dans le Media Bin (*Live Inputs*).
+3. Le poser sur une **surface** qui couvre la zone où vivent tes fixtures.
+   ⚠ Point à confirmer (test T22 ci-dessous) : les fixtures échantillonnent la
+   *composition*, donc le flux doit bien s'y trouver, à cet endroit-là.
+4. **Placer les barres** dans cette zone selon l'axe voulu.
+5. Jouer du contenu dans Resolume : un balayage horizontal parcourt maintenant
+   l'axe que tu as choisi à l'étape 4.
+
+### L'astuce qui change tout
+
+Avec une disposition **frontale fidèle** (chaque barre à sa vraie largeur et sa
+vraie hauteur, à l'échelle), tu obtiens **tous les axes du plan gratuitement,
+en direct, sans toucher aux fixtures** — il suffit de tourner le contenu dans
+Resolume :
+
+| Dans Resolume | Dans la salle |
+|---|---|
+| Balayage horizontal | jardin → cour |
+| Balayage vertical | bas → haut |
+| Balayage tourné à 45° | diagonale |
+| Zoom radial depuis le centre | onde qui s'ouvre depuis le centre du rig |
+| Rotation du contenu | l'axe de balayage tourne en continu |
+
+Autrement dit : **le choix de la disposition ne décide pas quels axes tu peux
+animer, il décide seulement quel axe tu sacrifies** — celui qui est
+perpendiculaire au plan de projection, et qui s'écrase.
+
+C'est important en régie : changer d'axe pendant le show ne demande **aucun
+déplacement de fixture**, donc ça ne dépend pas du test T13 (l'écriture OSC de
+la position, non vérifiée). Ça se pilote dans Resolume, et Resolume est
+entièrement adressable en OSC.
+
+### Et la profondeur ?
+
+C'est le seul axe qui demande un vrai changement de disposition, puisque c'est
+lui qu'une vue de face écrase. Trois façons :
+
+- **Disposition de dessus** — largeur × profondeur. Un balayage horizontal
+  devient un balayage lointain → face. C'est la hauteur qu'on sacrifie alors.
+- **Disposition de côté** — profondeur × hauteur. On sacrifie la largeur.
+- **Développé trié par profondeur** — les barres rangées côte à côte dans
+  l'ordre de leur éloignement. Un balayage horizontal parcourt la profondeur
+  plan par plan, mais la cohérence spatiale en largeur est perdue.
+
+### Ce que Cascade v2 apporte là-dedans
+
+Rien de tout ça n'est impossible aujourd'hui — c'est juste **long et fastidieux
+à la main**, et à refaire à chaque changement de scéno.
+
+Cascade v2 calcule ces dispositions depuis le modèle 3D : un menu
+« Projection : face / dessus / côté / développé », et il produit le placement
+de toutes les barres à l'échelle métrique. Le régisseur choisit un axe, pas des
+coordonnées.
+
+Et il peut mémoriser plusieurs dispositions par spectacle (une frontale, une de
+dessus) pour basculer entre deux tableaux.
+
+### Test supplémentaire
+
+> **T22 — Spout de Resolume échantillonné par une fixture.**
+> Sortie Spout dans Resolume, flux récupéré dans MadMapper, posé sur une
+> surface couvrant une barre. Jouer un dégradé animé horizontal dans Resolume.
+> **Attendu :** les LED de la barre s'allument successivement.
+> **Relever :** faut-il obligatoirement une surface porteuse, ou le flux
+> peut-il alimenter directement le canvas DMX ? Et la latence ressentie
+> Resolume → LED est-elle acceptable pour un flash calé au tempo ?
+> Résultat : ⟨à remplir⟩
