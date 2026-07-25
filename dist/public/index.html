@@ -98,6 +98,18 @@
   button.linkbtn { width: 100%; margin-top: 10px; font-weight: 700; letter-spacing: 2px; padding: 11px; }
   #linkStatus { text-align: center; min-height: 15px; }
   #linkStatus b { color: var(--accent); font-size: 13px; }
+  /* Témoin de mesure : un point par temps, le temps fort en tête. On voit
+     battre la musique — et donc si Cascade est bien accroché dessus. */
+  #beats { display: flex; justify-content: center; gap: 7px; margin: 10px 0 4px; min-height: 12px; }
+  #beats .bt { width: 9px; height: 9px; border-radius: 50%; background: var(--panel2);
+    border: 1px solid var(--border); transition: background .08s, box-shadow .08s, transform .08s; }
+  #beats .bt.fort { border-color: var(--accent2); }
+  #beats .bt.on { background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 10px var(--glow); transform: scale(1.35); }
+  #beats .bt.fort.on { transform: scale(1.6); }
+  #linkLock { text-align: right; }
+  #linkLock.ok { color: var(--on); }
+  #linkLock.ko { color: var(--dim); }
   .patterns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .patterns button { font-size: 16px; padding: 12px 4px; }
   .patterns small { display: block; font-size: 9px; opacity: .75; margin-top: 3px; }
@@ -491,6 +503,21 @@
     <div id="bpm">— <b>0</b> BPM (pas)</div>
     <button class="linkbtn" id="btnLink" title="Suit le tempo Ableton Link (Pulse, Ableton Live…) : le BPM de la session pilote le temps/pas de toutes les couches (1 beat = 1 pas). Chaque couche garde sa « Vitesse » pour les croches/rondes.">⧉ ABLETON LINK</button>
     <div id="linkStatus" class="hint"></div>
+    <div id="linkPhaseBox" style="display:none">
+      <div id="beats" title="Position dans la mesure : le temps fort est le premier point"></div>
+      <label class="row" title="Cale chaque pas exactement sur un beat de la session Link. Sans ça, Cascade suit le bon tempo mais peut jouer à contretemps de la musique."><span>Phase</span>
+        <input type="checkbox" id="linkPhase">
+        <span id="linkLock" class="hint" style="margin:0; flex:1"></span></label>
+      <label class="row" title="Nombre de beats par mesure — sert au témoin de temps fort ci-dessus."><span>Mesure</span>
+        <select id="linkQuantum" style="flex:1">
+          <option value="1">1 temps</option>
+          <option value="2">2 temps</option>
+          <option value="3">3 temps (valse)</option>
+          <option value="4">4 temps</option>
+          <option value="6">6 temps</option>
+          <option value="8">8 temps</option>
+        </select></label>
+    </div>
     <h2 style="margin-top:16px">Global</h2>
     <label class="row" title="Multiplie la vitesse de TOUTES les couches — accélère/ralentit tout le show d'un geste"><span>Vitesse globale</span>
       <input type="range" id="gspeed" min="-100" max="100" step="1"><output></output></label>
@@ -580,7 +607,7 @@
 
 <div style="text-align:center; color:var(--dim); font-size:11px; margin-top:26px; letter-spacing:.5px; line-height:2">
   <div style="width:200px; height:2px; background:var(--accent); border-radius:1px; margin:0 auto 8px; opacity:.9"></div>
-  CASCADE v1.5 — séquenceur LED pour MadMapper<br>
+  CASCADE v1.6 — séquenceur LED pour MadMapper<br>
   <b style="color:var(--accent); letter-spacing:1px">Pierre-Yves Mansour — Collectif WSK</b>
 </div>
 
@@ -881,8 +908,10 @@ function render() {
   if (lk.active && lk.connected) {
     st.innerHTML = '● <b>' + (lk.bpm ? lk.bpm.toFixed(1) : '—') + '</b> BPM (session Link' +
       (lk.peers ? ' · ' + lk.peers + ' appareil' + (lk.peers > 1 ? 's' : '') : ' · en attente de Pulse/Ableton…') + ')';
+    renderBeats(lk);
   } else if (lk.active) {
     st.textContent = lk.error || 'Connexion à la session Link…';
+    renderBeats(lk);
   } else {
     st.textContent = lk.error || '';
   }
@@ -892,6 +921,33 @@ function render() {
   renderPreviewCells();
   renderSpatial();
 }
+/** Témoin de mesure Link : un point par temps, allumé sur le temps courant. */
+function renderBeats(lk) {
+  const box = $('#linkPhaseBox');
+  box.style.display = lk.active ? '' : 'none';
+  if (!lk.active) return;
+  if (document.activeElement !== $('#linkPhase')) $('#linkPhase').checked = !!lk.phaseOn;
+  if (document.activeElement !== $('#linkQuantum')) $('#linkQuantum').value = String(lk.quantum || 4);
+  const verrou = $('#linkLock');
+  verrou.className = 'hint ' + (lk.locked ? 'ok' : 'ko');
+  verrou.style.margin = '0';
+  verrou.textContent = !lk.phaseOn ? 'tempo seul'
+    : lk.locked ? '● calé sur la grille' : 'en attente de la grille…';
+
+  const q = Math.max(1, lk.quantum || 4);
+  const pts = $('#beats');
+  if (pts.children.length !== q) {
+    pts.innerHTML = '';
+    for (let i = 0; i < q; i++) {
+      const d = document.createElement('div');
+      d.className = 'bt' + (i === 0 ? ' fort' : '');
+      pts.appendChild(d);
+    }
+  }
+  const courant = (lk.phase == null) ? -1 : Math.floor(lk.phase * q) % q;
+  [...pts.children].forEach((d, i) => d.classList.toggle('on', i === courant));
+}
+
 function setSlider(selr, val, fmt) {
   const el = $(selr);
   if (document.activeElement !== el) el.value = val;
@@ -1391,6 +1447,8 @@ $('#btnHalf').onclick = () => setL({ stepMs: Math.max(30, Math.round(sel().stepM
 $('#btnDouble').onclick = () => setL({ stepMs: Math.max(30, Math.round(sel().stepMs / 2)) }).then(poll);
 $('#btnResync').onclick = () => post('/api/resync').then(poll);
 $('#btnLink').onclick = () => post('/api/link', { enabled: !(S && S.link && S.link.active) }).then(poll);
+$('#linkPhase').onchange = e => post('/api/link', { phase: e.target.checked }).then(poll);
+$('#linkQuantum').onchange = e => post('/api/link', { quantum: +e.target.value }).then(poll);
 // ── Quitter (mode app : plus de terminal à fermer) ───────────────────
 // La config est TOUJOURS sauvegardée automatiquement ; « non sauvegardé »
 // signifie : des modifs depuis le dernier export en fichier projet .json.

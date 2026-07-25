@@ -4,7 +4,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-1.5.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-103-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-1.6.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-111-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -22,14 +22,14 @@ Téléchargez le fichier de votre système dans la [dernière release](../../rel
 
 | Système | Fichier |
 |---|---|
-| Windows | `Cascade-1.5.0-windows-x64.exe` |
-| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.5.0-macos-apple-silicon` |
-| macOS (Intel) | `Cascade-1.5.0-macos-intel` |
-| Linux | `Cascade-1.5.0-linux-x64` |
+| Windows | `Cascade-1.6.0-windows-x64.exe` |
+| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.6.0-macos-apple-silicon` |
+| macOS (Intel) | `Cascade-1.6.0-macos-intel` |
+| Linux | `Cascade-1.6.0-linux-x64` |
 
 > **macOS et Linux**, la première fois, dans un Terminal ouvert sur le dossier :
 > ```bash
-> xattr -cr Cascade-1.5.0-macos-apple-silicon && chmod +x Cascade-1.5.0-macos-apple-silicon
+> xattr -cr Cascade-1.6.0-macos-apple-silicon && chmod +x Cascade-1.6.0-macos-apple-silicon
 > ```
 > (les binaires ne sont pas signés — sans cela macOS annonce un « fichier endommagé »)
 
@@ -84,7 +84,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **Fondu entre presets** (0 à 30 s, réglable) : la scène sortante continue de jouer et décroît pendant que la nouvelle monte. À 0, le rappel reste sec.
 - **Raccourcis clavier** : `S` start/stop, `B` blackout, `Espace` tap, `R` resync, `G` GO, `1`–`8` couches, `?` pour l'aide.
 - **Tempo** : tap tempo, ÷2 ×2, resync sur le temps fort, vitesse par couche et vitesse globale.
-- **Ableton Link** : Cascade rejoint la session Link du réseau (Pulse, Ableton Live, Traktor…) et suit son BPM en direct.
+- **Ableton Link avec synchro de phase** : Cascade rejoint la session Link du réseau (Pulse, Ableton Live, Traktor…), suit son BPM **et cale ses pas sur les temps** — plus de chase à contretemps. Un témoin de mesure bat sous le bouton.
 - **Contrôle externe** : MIDI (Web MIDI, apprentissage par cible) et OSC entrant (TouchOSC, QLab, console).
 - **QR code** : bouton `QR` près de l'adresse réseau — scannez avec un iPad, l'interface s'ouvre.
 - **Voyant MadMapper** : une pastille verte confirme que MadMapper répond. Rouge = quelque chose ne va pas, et l'infobulle dit quoi vérifier.
@@ -122,7 +122,7 @@ Le préfixe historique `/chaser/…` reste accepté.
 ## Développement
 
 ```bash
-npm test        # 103 tests, sans aucune dépendance
+npm test        # 111 tests, sans aucune dépendance
 node build.js   # exécutables des 4 plateformes → build/
 ```
 

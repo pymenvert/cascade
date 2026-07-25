@@ -4,6 +4,44 @@ Toutes les évolutions notables de Cascade. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [sémantique](https://semver.org/lang/fr/).
 
+## [1.6.0] — 2026-07-25
+
+Version « phase » : Cascade ne se contente plus de suivre le tempo d'Ableton
+Link, il joue **sur** les temps.
+
+### Ajouté
+
+- **Synchronisation de phase Ableton Link.** Jusqu'ici Cascade prenait le BPM
+  de la session : le bon tempo, mais démarré n'importe où — donc capable de
+  jouer à contretemps de la musique toute la soirée. Désormais chaque pas est
+  calé sur un beat de la grille Link, et le pas 0 tombe sur un temps fort.
+  - Recalculé à **chaque image** depuis la position réelle sur la grille :
+    aucune dérive possible, même après des heures.
+  - Mesuré : les allumages tombent à moins d'un tick moteur (25 ms) du beat.
+  - Activé par défaut, débrayable d'une case (« Phase ») pour retrouver le
+    comportement précédent. Aussi en OSC : `/cascade/linkphase 0-1`.
+- **Témoin de mesure** — une rangée de points, un par temps, le temps fort en
+  tête, qui bat avec la session Link. On voit d'un coup d'œil si Cascade est
+  accroché à la musique. Mesure réglable de 1 à 16 temps (valse comprise).
+- Le premier allumage part **au moment du START**, pas au beat suivant : un
+  show doit démarrer quand on appuie. La grille reprend la main dès le pas
+  suivant.
+
+### Corrigé
+
+- **Démarrer avec Link rejouait toute l'histoire de la session.** L'origine
+  des pas étant le beat 0 de Link — vieux de plusieurs heures — un START
+  déclenchait d'un coup tous les pas écoulés depuis. Trouvé par les nouveaux
+  tests de phase.
+
+### Interne
+
+- `tests/link.test.js` : un faux Carabiner en TCP répond aux `status` avec une
+  position de beat qui avance réellement. Huit tests vérifient le tempo, le
+  verrouillage de la grille, l'alignement réel des allumages, le changement de
+  tempo à chaud, et le repli propre quand Carabiner se tait.
+- 111 tests (103 auparavant).
+
 ## [1.5.0] — 2026-07-25
 
 Version « scéno » : les groupes de barres, et des tests qui pilotent enfin un

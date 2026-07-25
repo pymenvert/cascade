@@ -1,7 +1,7 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-07-24 — version **1.5.0**.
+> Dernière mise à jour : 2026-07-24 — version **1.6.0**.
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
 > L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`.
 
@@ -23,6 +23,58 @@
    - **Dialogue Quitter** (`dlgQuit`) : rappelle que la séance est TOUJOURS enregistrée automatiquement ; si `dirty`, signale « modifs non exportées » (avec date du dernier export) + champ nom + bouton « ⬇ Exporter puis quitter » (`exportProject(name)` : POST /api/project → fetch blob /api/export → téléchargement → quit après 400 ms). Le bouton 📁 Sauvegarder réutilise `exportProject` (prompt prérempli avec le nom du projet).
 2. **Ableton Link** (Pulse, Live, Traktor…) via **Carabiner** (Deep Symmetry) — binaire officiel embarquant la lib Link, exposé en TCP local port 17000, téléchargé par les lanceurs dans `runtime/` (`carabiner.exe` / `carabiner`). Zéro dépendance npm conservée (client `net` maison, parse EDN par regex `:bpm`/`:peers`). Toggle **⧉ ABLETON LINK** dans le panneau Vitesse ; BPM session → `stepMs` de **toutes** les couches (1 beat = 1 pas, borné 30–2000 ms), chaque couche garde sa « Vitesse » ×0.1–×4. Quand Link actif : slider Temps/pas, TAP, ÷2, ×2 désactivés côté UI, `tap()` neutralisé côté serveur. `state.settings.linkEnabled` persisté (réactivé au boot). API : `POST /api/link {enabled}` ; état dans `/api/state` → `link {active, connected, bpm, peers, error}` ; OSC : `/cascade/link 0-1`. Cascade lance Carabiner lui-même (spawn, `windowsHide`), le tue au disable/quit/exit ; se connecte d'abord au cas où un Carabiner tourne déjà ; ~20 tentatives à 700 ms puis erreur propre (binaire absent → message « relance le lanceur »).
 3. **Charte graphique** reprise du manuel : orange signature `#f2900f` (`--accent`), anthracite profond, titres de sections orange espacés avec filet fin (`h2` border-bottom), panneaux radius 14 + ombre, TAP orange plein avec glow, `--accent2` devenu gris-bleu neutre (axes miroirs, hints), footer façon PDF (filet orange centré + signature orange). `button[disabled]`/`input[disabled]` à .35.
+
+## Nouveautés v1.6.0 (2026-07-25)
+
+### Synchro de phase Ableton Link
+
+Le BPM seul ne suffit pas : même tempo ≠ même moment. On cale désormais chaque
+pas sur la grille de beats de Link.
+
+**Le principe** : `beat` (Carabiner) et `Date.now()` sont **deux horloges
+différentes** — on ne les compare jamais. On note « à cet instant local, on
+était au beat B » (`linkClock = {anchorLocal, anchorBeat, bpm}`), puis on
+extrapole. `linkGrid(now)` rend `{beat, beatMs}` ou `null`.
+
+Dans `stepValues`, quand la grille est là :
+```
+stepDur = beatMs / (speed × globalSpeed)
+origin  = now − beat × parBeat × stepDur − phaseMs
+```
+`origin` est **recalculé à chaque tick** depuis la position réelle : aucune
+dérive possible. Le pas 0 tombe sur le beat 0, donc sur un temps fort.
+
+⚠ **Pièges rencontrés — à ne pas réintroduire :**
+1. **Carabiner ne pousse pas en continu**, il pousse sur changement. Sans le
+   `status` renvoyé toutes les `LINK_POLL_MS` (400 ms), la grille se périme.
+   `LINK_CLOCK_TTL` (4 s) coupe la confiance si le flux s'arrête.
+2. **Un moteur neuf doit ENTRER dans la grille au pas courant**
+   (`if (e.lastStep < 0) e.lastStep = step - 1`). Sinon, l'origine étant le
+   beat 0 de la session — vieux de plusieurs heures — un START rejoue tous les
+   pas écoulés d'un seul tick.
+3. **`oneShot` garde son origine libre** : le coup part au GO, pas au beat.
+4. En mesurant l'alignement, ne compter que les **transitions** 0→1 : le
+   keep-alive réémet la valeur courante chaque seconde et se ferait passer
+   pour un allumage à un instant quelconque.
+5. Le **premier** allumage après START est volontairement hors grille : un show
+   démarre quand on appuie.
+
+Réglages : `settings.linkPhase` (défaut **true**), `settings.linkQuantum`
+(1–16, défaut 4, sert au témoin). API `POST /api/link {phase, quantum}`,
+OSC `/cascade/linkphase`. État : `link {phaseOn, quantum, locked, phase}`.
+
+UI : `#linkPhaseBox` (visible seulement si Link actif), témoin `#beats`
+(un point par temps, le premier marqué `fort`).
+
+### Tests Link — faux Carabiner
+
+`tests/link.test.js` ouvre un serveur TCP sur 17000 qui répond aux `status`
+avec un beat qui avance vraiment. ⚠ Le test **saute proprement** si le port est
+déjà pris (vrai Carabiner). ⚠ `skip` étant évalué à la *définition* des tests,
+la vérification asynchrone passe par `t.skip()` **dans** le test.
+
+⚠ La suite tourne en parallèle : juger l'alignement sur la **médiane**, pas sur
+le max — un pic de charge retarde un tick isolé sans qu'il y ait dérive.
 
 ## Nouveautés v1.5.0 (2026-07-25)
 
@@ -176,7 +228,7 @@ nom de couche, nom de projet, message d'erreur du serveur — se pose par
 `tests/interface.test.js` relit le source et échoue si la règle est enfreinte
 (garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
-### Tests — `npm test` (103 tests, zéro dépendance)
+### Tests — `npm test` (111 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**

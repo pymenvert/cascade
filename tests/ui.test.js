@@ -230,6 +230,48 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await rafraichir();
   });
 
+  test('le panneau Link n’apparaît que quand Link est actif', async () => {
+    await rafraichir();
+    const cache = await nav.evaluate(
+      'return getComputedStyle(document.querySelector("#linkPhaseBox")).display');
+    assert.equal(cache, 'none', 'sans Link, le réglage de phase n’a rien à faire là');
+  });
+
+  test('le témoin de mesure se dessine avec le bon nombre de temps', async () => {
+    // On simule un état Link plutôt que de lancer un Carabiner : ce qui est
+    // testé ici, c'est le rendu, pas la liaison (couverte par link.test.js).
+    const r = await nav.evaluate(`
+      S.link = { active: true, connected: true, bpm: 120, peers: 1,
+                 phaseOn: true, quantum: 4, locked: true, phase: 0.55 };
+      render();
+      const pts = [...document.querySelectorAll('#beats .bt')];
+      return { visible: getComputedStyle(document.querySelector('#linkPhaseBox')).display !== 'none',
+               points: pts.length,
+               fort: pts[0].classList.contains('fort'),
+               allume: pts.findIndex(d => d.classList.contains('on')),
+               verrou: document.querySelector('#linkLock').textContent,
+               caseCochee: document.querySelector('#linkPhase').checked };`);
+    assert.equal(r.visible, true);
+    assert.equal(r.points, 4, 'une mesure à 4 temps → 4 points');
+    assert.equal(r.fort, true, 'le premier point doit être marqué comme temps fort');
+    assert.equal(r.allume, 2, 'à 55 % de la mesure, on est sur le 3e temps');
+    assert.match(r.verrou, /calé sur la grille/);
+    assert.equal(r.caseCochee, true);
+
+    const r3 = await nav.evaluate(`
+      S.link = { active: true, connected: true, bpm: 120, peers: 1,
+                 phaseOn: false, quantum: 3, locked: false, phase: null };
+      render();
+      return { points: document.querySelectorAll('#beats .bt').length,
+               allume: [...document.querySelectorAll('#beats .bt')].filter(d => d.classList.contains('on')).length,
+               verrou: document.querySelector('#linkLock').textContent };`);
+    assert.equal(r3.points, 3, 'une valse → 3 points');
+    assert.equal(r3.allume, 0, 'sans phase connue, aucun point allumé');
+    assert.match(r3.verrou, /tempo seul/);
+    assert.deepEqual(nav.erreurs(), []);
+    await nav.evaluate('await poll(); return 1'); // on rend la main au vrai état
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

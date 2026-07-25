@@ -20,7 +20,7 @@ from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
                                 Preformatted, KeepTogether)
 from reportlab.lib.styles import ParagraphStyle
 
-VERSION = "1.5"
+VERSION = "1.6"
 ORANGE = HexColor("#E8890B")
 DARK = HexColor("#33333B")
 GREY = HexColor("#6A6A74")
@@ -347,7 +347,27 @@ E += [h1("1. Présentation"),
          "le statut affiche le BPM et le nombre d'appareils de la session."),
       li("Re-cliquer sur le bouton = retour au tempo manuel. L'état Link est mémorisé au "
          "redémarrage, et pilotable en OSC : /cascade/link 0-1."),
-      li("RESYNC reste utile pour recaler le départ des chasers sur le temps fort."),
+      li("RESYNC reste utile pour recaler le départ des chasers sur le temps fort — mais "
+         "avec la synchro de phase (ci-dessous), le calage est permanent."),
+
+      h2("5.2 — Synchro de phase : jouer SUR les temps"),
+      p("Suivre le tempo ne suffit pas. Deux appareils peuvent tourner exactement au même BPM "
+        "et rester décalés l'un de l'autre toute la soirée : ils ont le bon rythme, mais pas au "
+        "bon moment. C'est ce que corrige la case « Phase », active par défaut : chaque pas est "
+        "calé sur un beat de la session Link, et le premier pas du motif tombe sur un temps fort."),
+      li("Le calage est recalculé en permanence à partir de la position réelle sur la grille "
+         "Link : il ne dérive pas, même après plusieurs heures de spectacle."),
+      li("La rangée de points sous le bouton est le témoin de mesure : un point par temps, le "
+         "premier étant le temps fort. Il bat avec la musique — un coup d'œil suffit pour voir "
+         "si Cascade est bien accroché. Le menu « Mesure » règle le nombre de temps (4 par "
+         "défaut, 3 pour une valse, etc.)."),
+      li("La mention « calé sur la grille » confirme que la liaison est exploitable. "
+         "« en attente de la grille » signifie que Carabiner n'a pas encore donné de position."),
+      li("Décocher « Phase » revient au comportement d'avant : le bon tempo, mais un départ "
+         "libre. Pilotable en OSC : /cascade/linkphase 0-1."),
+      note("Le premier allumage part au moment où vous appuyez sur START, pas au beat suivant : "
+           "un show doit démarrer quand on le demande. La grille reprend la main dès le pas "
+           "d'après."),
       note("Techniquement, Link passe par Carabiner, un petit module officiel téléchargé par le "
            "lanceur au premier démarrage. S'il manque (message dans le panneau), relancer "
            "simplement le lanceur Cascade avec une connexion internet."),

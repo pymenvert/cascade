@@ -16,7 +16,7 @@ const os = require('os');
 const { exec, spawn } = require('child_process');
 
 const APP_NAME = 'Cascade';
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
 const MAX_LAYERS = 8;
@@ -76,7 +76,10 @@ function defaultLayer(name) {
 
 const state = {
   projectName: 'Sans titre',
-  settings: { mmHost: '127.0.0.1', mmPort: 8000, feedbackPort: 9000, httpPort: 3333, oscInPort: 7000, linkEnabled: false },
+  settings: { mmHost: '127.0.0.1', mmPort: 8000, feedbackPort: 9000, httpPort: 3333, oscInPort: 7000,
+              linkEnabled: false,
+              linkPhase: true,   // caler les pas sur la grille de beats, pas seulement le tempo
+              linkQuantum: 4 },  // beats par mesure, pour le témoin de temps fort
   fixtures: [],
   // Groupes de barres nommés (« sol », « contres »…). Une couche peut suivre un
   // groupe : modifier le groupe met à jour toutes les couches qui l'utilisent.
@@ -242,6 +245,8 @@ function sanitizeSettings(s) {
     if (k in s) o[k] = Math.round(cnum(s[k], 1, 65535, o[k]));
   }
   if ('linkEnabled' in s) o.linkEnabled = !!s.linkEnabled;
+  if ('linkPhase' in s) o.linkPhase = !!s.linkPhase;
+  if ('linkQuantum' in s) o.linkQuantum = Math.round(cnum(s.linkQuantum, 1, 16, 4));
   return o;
 }
 /** Les clés MIDI sont bornées en nombre ET en forme (`cc:1:7`, `note:10:36`). */
@@ -430,6 +435,36 @@ const link = { active: false, connected: false, bpm: 0, peers: 0, error: null };
 let linkSock = null, linkChild = null, linkRetry = null, linkBuf = '';
 let linkFailStreak = 0; // reconnexions successives après une connexion réussie
 
+// ── Synchronisation de PHASE ───────────────────────────────────────────────
+// Suivre le BPM ne suffit pas : deux appareils au même tempo peuvent jouer à
+// contretemps l'un de l'autre. Link expose aussi une POSITION sur la grille
+// (le numéro de beat courant, fractionnaire). En l'ancrant sur notre horloge
+// locale, on peut caler chaque pas exactement sur un beat — et le pas 0 tombe
+// alors sur un temps fort, puisque le beat 0 de Link en est un.
+//
+// `beat` de Carabiner et `Date.now()` sont deux horloges différentes : on ne
+// les compare jamais. On note simplement « au moment où j'ai lu ce statut,
+// on était au beat B », puis on extrapole avec le BPM.
+const linkClock = { anchorLocal: 0, anchorBeat: 0, bpm: 0 };
+const LINK_CLOCK_TTL = 4000;   // sans nouveau statut, on cesse de faire confiance
+const LINK_POLL_MS = 400;      // Carabiner ne pousse pas forcément en continu
+
+/** Position sur la grille Link, en beats fractionnaires, ou null. */
+function linkGrid(now) {
+  if (!link.active || !state.settings.linkPhase) return null;
+  if (!linkClock.anchorLocal || !(linkClock.bpm > 0)) return null;
+  if (now - linkClock.anchorLocal > LINK_CLOCK_TTL) return null;
+  const beatMs = 60000 / linkClock.bpm;
+  return { beat: linkClock.anchorBeat + (now - linkClock.anchorLocal) / beatMs, beatMs };
+}
+/** Position dans la mesure, 0 à 1 — pour le témoin visuel de l'interface. */
+function linkPhase() {
+  const g = linkGrid(Date.now());
+  if (!g) return null;
+  const q = Math.max(1, state.settings.linkQuantum || 4);
+  return ((g.beat % q) + q) % q / q;
+}
+
 function carabinerPath() {
   const bin = process.platform === 'win32' ? 'carabiner.exe' : 'carabiner';
   const p = path.join(DATA_DIR, 'runtime', bin);
@@ -471,6 +506,12 @@ function linkConnect(attempt) {
   sock.on('connect', () => {
     link.connected = true; link.error = null; sock._ok = true; sock._since = Date.now();
     sock.write('status\n'); // ensuite Carabiner pousse les mises à jour tout seul
+    // …mais il ne pousse que sur changement : pour garder la grille de phase
+    // fraîche, on redemande le statut régulièrement (TCP local, coût nul).
+    clearInterval(sock._poll);
+    sock._poll = setInterval(() => {
+      try { if (!sock.destroyed) sock.write('status\n'); } catch (e) {}
+    }, LINK_POLL_MS);
   });
   sock.on('data', (d) => {
     linkBuf += d.toString('utf8');
@@ -479,14 +520,27 @@ function linkConnect(attempt) {
       const line = linkBuf.slice(0, i); linkBuf = linkBuf.slice(i + 1);
       const mp = /:peers\s+(\d+)/.exec(line);
       const mb = /:bpm\s+([0-9.]+)/.exec(line);
+      const mt = /:beat\s+(-?[0-9.]+)/.exec(line);
       if (mp) link.peers = +mp[1];
       if (mb) applyLinkBpm(parseFloat(mb[1]));
+      // On ancre la grille à l'instant PRÉCIS de la lecture : c'est la seule
+      // chose qui relie l'horloge de Link à la nôtre.
+      if (mt && mb) {
+        const bpm = parseFloat(mb[1]);
+        if (bpm > 0) {
+          linkClock.anchorLocal = Date.now();
+          linkClock.anchorBeat = parseFloat(mt[1]);
+          linkClock.bpm = bpm;
+        }
+      }
     }
   });
   sock.on('error', () => {}); // le close qui suit gère la reconnexion
   sock.on('close', () => {
+    clearInterval(sock._poll);
     if (linkSock === sock) linkSock = null;
     link.connected = false;
+    linkClock.anchorLocal = 0; // la grille n'est plus fiable
     if (!link.active) return;
     // Personne n'écoute encore : on lance notre Carabiner puis on réessaie.
     const canRetry = spawnCarabiner();
@@ -593,6 +647,7 @@ function handleControlOsc(msgs) {
     else if (p[1] === 'tap') { if (on) tap(state.layers[0] && state.layers[0].id); changed = false; }
     else if (p[1] === 'resync' || p[1] === 'go') { if (on) resync(); changed = false; }
     else if (p[1] === 'link') { setLinkActive(on); changed = false; } // gère sa propre sauvegarde
+    else if (p[1] === 'linkphase') state.settings.linkPhase = on;
     else if (p[1] === 'master') state.global.master = v;
     else if (p[1] === 'speed') state.global.speed = +speedCurve(v).toFixed(3);
     // Fondu entre presets : 0-1 → 0 à 10 s (au-delà, passer par les réglages)
@@ -842,7 +897,13 @@ function envelope(L, elapsed, stepDur) {
 function stepValues(L, list, now, store) {
   const e = eng(L.id, store);
   const gs = Math.max(0.05, state.global.speed);
-  const stepDur = Math.max(15, L.stepMs / (Math.max(0.05, L.speed) * gs));
+  // Avec la synchro de phase, la durée d'un pas est celle d'un beat Link divisé
+  // par la vitesse de la couche : le pas COLLE à la grille, il ne l'approxime pas.
+  const grille = linkGrid(now);
+  const parBeat = Math.max(0.05, L.speed) * gs; // pas par beat
+  const stepDur = grille
+    ? Math.max(15, grille.beatMs / parBeat)
+    : Math.max(15, L.stepMs / (Math.max(0.05, L.speed) * gs));
   if (e.stepDur > 0 && Math.abs(e.stepDur - stepDur) > 0.001) {
     const oldFloat = (now - e.startTime) / e.stepDur;
     e.startTime = now - oldFloat * stepDur; // tempo changé : phase préservée
@@ -881,7 +942,13 @@ function stepValues(L, list, now, store) {
   // (donc il suit le tempo). Ignoré en mode « une fois » : le coup part au GO.
   const cycleMs = cellsPerBlock * stepDur;
   const phaseMs = L.oneShot ? 0 : ((L.phase || 0) / 360) * cycleMs;
-  const origin = e.startTime - phaseMs;
+  // Origine du pas 0. Sans Link : l'instant du démarrage. Avec la synchro de
+  // phase : recalculée à chaque tick depuis la position réelle sur la grille,
+  // donc AUCUNE dérive possible, et le pas 0 tombe sur le beat 0 — un temps fort.
+  // Le mode « une fois » garde son origine libre : le coup part au GO, pas au beat.
+  const origin = (grille && !L.oneShot)
+    ? now - grille.beat * parBeat * stepDur - phaseMs
+    : e.startTime - phaseMs;
   // Swing : retarde un pas sur deux (groove). ±75 % du demi-pas.
   const sw = Math.max(-75, Math.min(75, L.swing || 0)) / 100;
   const stepStart = (k) => origin + k * stepDur + (k % 2 ? sw * stepDur * 0.5 : 0);
@@ -889,6 +956,10 @@ function stepValues(L, list, now, store) {
   let step = Math.floor((now - origin) / stepDur);
   while (stepStart(step + 1) <= now) step++;
   while (step >= 0 && stepStart(step) > now) step--;
+  // Moteur neuf : on ENTRE dans la grille au pas courant. Sans ça, avec la
+  // synchro de phase, l'origine est le beat 0 de la session Link — vieux de
+  // plusieurs heures — et un START rejouerait toute cette histoire d'un coup.
+  if (e.lastStep < 0) e.lastStep = step - 1;
   // Garde-fou : après une mise en veille de la machine, `now` fait un bond de
   // plusieurs minutes. Sans ça on rejouerait des dizaines de milliers de pas
   // dans un seul tick (interface figée). On repart du pas courant.
@@ -1251,7 +1322,12 @@ const server = http.createServer(async (req, res) => {
       layers: state.layers, global: state.global,
       presets: presetNames(),
       midiMap: state.midiMap,
-      link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers, error: link.error },
+      link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers,
+              error: link.error,
+              // Synchro de phase : `phase` = position dans la mesure (0-1),
+              // `locked` = la grille est fraîche et exploitable.
+              phaseOn: !!state.settings.linkPhase, quantum: state.settings.linkQuantum || 4,
+              locked: !!linkGrid(Date.now()), phase: linkPhase() },
       mm: { alive: mmAlive(), socketOk: mm.socketOk, error: mm.error,
             host: state.settings.mmHost, port: state.settings.mmPort },
       // Progression du fondu entre presets (0-1), pour l'afficher en direct
@@ -1329,8 +1405,17 @@ const server = http.createServer(async (req, res) => {
         return json(res, { ok: true });
       }
       case '/api/link': {
-        setLinkActive(!!body.enabled);
-        return json(res, { ok: true, link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers, error: link.error } });
+        // `phase` et `quantum` se règlent sans toucher à l'activation de Link.
+        if ('phase' in body) { state.settings.linkPhase = !!body.phase; saveConfig(); }
+        if ('quantum' in body) {
+          state.settings.linkQuantum = Math.round(cnum(body.quantum, 1, 16, 4));
+          saveConfig();
+        }
+        if ('enabled' in body) setLinkActive(!!body.enabled);
+        return json(res, { ok: true, link: {
+          active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers,
+          error: link.error, phaseOn: !!state.settings.linkPhase,
+          quantum: state.settings.linkQuantum || 4, locked: !!linkGrid(Date.now()) } });
       }
       case '/api/quit': {
         // Bouton ⏻ de l'interface : indispensable en mode « app » (pas de terminal à fermer).
