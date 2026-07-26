@@ -2013,6 +2013,31 @@ $('#btnSettings').onclick = () => {
   $('#setOscIn').value = S.settings.oscInPort || 7000;
   $('#dlgSettings').showModal();
 };
+// « Trouver le port » : le port d'entrée OSC de MadMapper est un réglage de
+// PROJET, et il n'est pas toujours 8000 — vu 8010 sur le poste de Pym, sans
+// aucun indice côté Cascade à part un voyant rouge. Ce bouton interroge les
+// ports habituels et dit lequel répond. Lecture seule : `/getControls` ne
+// modifie rien dans MadMapper.
+$('#btnTrouverPort').onclick = async () => {
+  const b = $('#btnTrouverPort'), etat = $('#portTrouve');
+  b.disabled = true; b.textContent = '… recherche';
+  etat.textContent = '';
+  try {
+    const r = await post('/api/trouverport');
+    if (r.ports && r.ports.length) {
+      const p = r.ports[0];
+      $('#setPort').value = p;
+      etat.textContent = 'Trouvé sur ' + r.ports.join(', ') + ' — enregistre pour l’appliquer.';
+      toast('MadMapper répond sur le port ' + p);
+    } else {
+      etat.textContent = 'Aucune réponse. Vérifie aussi le port de feedback ('
+        + r.feedbackPort + ') : MadMapper répond sur CELUI-LÀ, pas sur un autre.';
+    }
+  } catch (e) {
+    etat.textContent = 'Recherche impossible.';
+  }
+  b.disabled = false; b.textContent = '🔎 Trouver le port';
+};
 $('#setCancel').onclick = () => $('#dlgSettings').close();
 $('#setSave').onclick = async () => {
   await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });

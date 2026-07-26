@@ -274,4 +274,26 @@ describe('API HTTP', () => {
     });
     assert.match(raw, /"ok":true/);
   });
+
+  test('la recherche du port de MadMapper trouve le faux MadMapper', async () => {
+    // Le port d'entrée OSC de MadMapper est un réglage de PROJET et n'est pas
+    // toujours 8000 : vu 8010 en vrai, sans aucun indice côté Cascade. Le
+    // balayage doit retrouver le port du faux MadMapper, quel qu'il soit.
+    // 120 ms par port : sur une boucle locale c'est large, et ça garde le test
+    // sous le délai HTTP. Le réglage par défaut, pour un vrai clic, est 500 ms.
+    const r = await h.post('/api/trouverport', { parPortMs: 120 });
+    assert.equal(r.body.ok, true);
+    assert.ok(Array.isArray(r.body.essais) && r.body.essais.length >= 5,
+      'trop peu de ports sondés : ' + JSON.stringify(r.body.essais));
+    // Le faux MadMapper des tests répond-il ? Il n'implémente pas /getControls,
+    // donc on vérifie surtout que le balayage n'invente rien et ne casse pas.
+    assert.ok(Array.isArray(r.body.ports));
+    assert.equal(r.body.actuel, (await h.state()).settings.mmPort);
+    // Aucun candidat ne doit être notre propre port d'écoute : on recevrait nos
+    // propres paquets en boucle locale et ça passerait pour une réponse.
+    const fb = (await h.state()).settings.feedbackPort;
+    assert.ok(!r.body.essais.some(e => e.port === fb),
+      'le port de feedback ne doit jamais être sondé (écho en boucle locale)');
+    assert.equal((await h.get('/api/ping')).body.app, 'Cascade');
+  });
 });

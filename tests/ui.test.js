@@ -533,6 +533,32 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await rafraichir();
   });
 
+  test('le bouton « Trouver le port » répond sans casser la page', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="conduite"]').click();
+      await new Promise(r => setTimeout(r, 150));
+      document.querySelector('#btnSettings').click();
+      await new Promise(r => setTimeout(r, 200));
+      const b = document.querySelector('#btnTrouverPort');
+      if (!b) return { absent: true };
+      b.click();
+      const pendant = b.textContent;
+      // Le balayage prend quelques secondes : on attend qu'il rende la main.
+      for (let i = 0; i < 40 && b.disabled; i++) await new Promise(r => setTimeout(r, 300));
+      const out = { pendant, apres: b.textContent, bloque: b.disabled,
+                    message: document.querySelector('#portTrouve').textContent };
+      document.querySelector('#setCancel').click();
+      return out;`);
+    assert.ok(!r.absent, 'le bouton doit exister');
+    assert.match(r.pendant, /recherche/, 'le bouton doit dire qu’il travaille');
+    assert.equal(r.bloque, false, 'le bouton doit se réactiver');
+    assert.match(r.apres, /Trouver le port/, 'le libellé doit revenir');
+    // Le faux MadMapper des tests ne répond pas à /getControls : le message doit
+    // alors AIDER — en rappelant que la réponse arrive sur le port de feedback.
+    assert.ok(r.message.length > 10, 'un message doit être affiché, vu : ' + r.message);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

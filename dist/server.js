@@ -850,7 +850,7 @@ function discover(timeoutMs = 1200) {
  */
 const PORTS_CANDIDATS = [8000, 8010, 8080, 8100, 7000, 8888, 9010, 1234];
 
-function chercherMadMapper(parPortMs = 900) {
+function chercherMadMapper(parPortMs = 500) {
   const requete = '/getControls?root=/&recursive=0';
   const attendus = new Set(['/fixtures', '/surfaces', '/media', '/outputs',
                             '/master', '/modules', '/application', '/timelines']);
@@ -869,7 +869,10 @@ function chercherMadMapper(parPortMs = 900) {
     feedbackHandlers.push(handler);
 
     const suivant = (i) => {
-      if (i >= ports.length) {
+      // On s'arrête au premier port qui répond : le bon est presque toujours en
+      // tête de liste, et un régisseur qui clique n'a pas à attendre le balayage
+      // complet. Les ports non essayés sont simplement absents du résultat.
+      if (i >= ports.length || resultats.some(r => r.reponses > 0)) {
         feedbackHandlers = feedbackHandlers.filter(h => h !== handler);
         return resolve(resultats);
       }
@@ -1718,7 +1721,8 @@ const server = http.createServer(async (req, res) => {
       case '/api/trouverport': {
         // Balayage des ports d'entrée plausibles de MadMapper. Lecture seule :
         // `/getControls` ne modifie rien.
-        const essais = await chercherMadMapper();
+        const essais = await chercherMadMapper(
+          Math.round(cnum(body.parPortMs, 60, 2000, 500)));
         const gagnants = essais.filter(e => e.reponses > 0).map(e => e.port);
         return json(res, { ok: true, essais, ports: gagnants,
           feedbackPort: state.settings.feedbackPort, actuel: state.settings.mmPort });
