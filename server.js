@@ -71,6 +71,16 @@ function defaultLayer(name) {
     blocks: 1,              // segmente les barres en N blocs jouant le motif en parallèle
     oneShot: false,         // le motif joue UN cycle puis se tait (relancé par GO/resync)
     sparkle: 0,             // scintillement : variation aléatoire d'intensité par pas
+    // ── v2 : moteur « champ 3D » (engine: 'field') ──
+    // Un effet est une fonction f(position, temps) évaluée à l'endroit RÉEL de
+    // chaque barre. Les réglages ci-dessous décrivent la forme du champ ; tout
+    // le reste (forme d'onde, largeur, phase, niveau bas, couleur, HTP, master,
+    // Link) reste celui des autres moteurs. C'est ce qui permet à un `field` en
+    // plan sur l'axe X de rendre EXACTEMENT les mêmes valeurs qu'un `wave lr`.
+    field: 'plan',          // plan | sphere | cylindre | boite | bruit
+    axAz: 0,                // azimut de l'axe, en degrés : 0 = vers cour (+X)
+    axEl: 0,                // élévation de l'axe, en degrés : -90 = vers le sol
+    srcX: 0, srcY: 0, srcZ: 2,   // source du champ, en MÈTRES (sphere/cylindre/boite)
   };
 }
 
@@ -109,7 +119,8 @@ const state = {
 const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'pattern', 'mode',
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
-  'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle'];
+  'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ'];
 
 function loadConfig() {
   let saved = null;
@@ -194,7 +205,8 @@ function saveConfigSoon() {
 // Validation des entrées (tout ce qui vient de l'extérieur est borné)
 // ---------------------------------------------------------------------------
 const ENUMS = {
-  engine: ['steps', 'wave'], target: ['intensity', 'color'], mode: ['onoff', 'fade'],
+  engine: ['steps', 'wave', 'field'], target: ['intensity', 'color'], mode: ['onoff', 'fade'],
+  field: ['plan', 'sphere', 'cylindre', 'boite', 'bruit'],
   curve: ['linear', 'easeIn', 'easeOut', 'easeInOut', 'expo'],
   waveform: ['sine', 'triangle', 'square'],
   pattern: ['lr', 'rl', 'pingpong', 'random', 'evenodd', 'all', 'tb', 'bt', 'pulse', 'radial', 'outin', 'inout'],
@@ -223,6 +235,11 @@ function sanitizeLayerSet(set) {
       case 'phase': o.phase = Math.round(cnum(v, 0, 360, 0)); break;
       case 'swing': o.swing = Math.round(cnum(v, -75, 75, 0)); break;
       case 'axisX': case 'axisY': o[k] = cnum(v, 0, 1, 0.5); break;
+      // L'azimut boucle (359° et -1° sont le même axe) ; l'élévation, non :
+      // au-delà de ±90° on repasse par-dessus, ce qui n'ajoute aucune direction.
+      case 'axAz': o.axAz = Math.round(((cnum(v, -100000, 100000, 0) % 360) + 360) % 360); break;
+      case 'axEl': o.axEl = Math.round(cnum(v, -90, 90, 0)); break;
+      case 'srcX': case 'srcY': case 'srcZ': o[k] = cnum(v, -P3_MAX, P3_MAX, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
       case 'colorA': case 'colorB': if (/^#[0-9a-fA-F]{6}$/.test(String(v))) o[k] = String(v); break;
@@ -1223,6 +1240,165 @@ function waveValues(L, list, now) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Moteur « champ 3D » — un effet est une fonction de la POSITION RÉELLE.
+//
+// Le principe, et la raison pour laquelle ça ne coûte presque rien : on ne
+// rastérise aucun volume. On n'a que N points d'intérêt (les barres), donc on
+// évalue la fonction directement à ces N points. 128 barres à 40 Hz font 5 120
+// évaluations par seconde — négligeable devant les 6 450 messages OSC/s déjà
+// tenus en test d'endurance.
+//
+// Le champ ne produit qu'une grandeur `u`, sans dimension. Ensuite `u` traverse
+// EXACTEMENT la même chaîne que les autres moteurs : forme d'onde → inversion →
+// niveau bas → niveau → intensité ou mélange de couleurs → HTP → master →
+// courbe de gradateur → OSC. Rien de l'acquis v1 n'est réécrit, et c'est ce qui
+// rend possible le test de non-régression : un plan sur l'axe X doit rendre les
+// mêmes valeurs, au bit près, qu'une vague `lr`.
+// ---------------------------------------------------------------------------
+
+/** Vecteur unitaire depuis azimut/élévation en degrés. 0/0 = vers cour (+X). */
+function axeDe(azDeg, elDeg) {
+  const az = fini(azDeg, 0) * DEG, el = fini(elDeg, 0) * DEG;
+  const ce = Math.cos(el);
+  return [ce * Math.cos(az), ce * Math.sin(az), Math.sin(el)];
+}
+
+/**
+ * Bruit 3D à valeurs, interpolé en douceur. Écrit à la main : c'est le seul
+ * moyen de garder la promesse « zéro dépendance », et une soixantaine de lignes
+ * suffisent pour ce qu'on en attend visuellement (feu, nuages, scintillement
+ * organique). Déterministe : le même point au même instant rend la même valeur,
+ * donc pas de tremblement parasite entre deux ticks.
+ */
+function hash3(x, y, z) {
+  // Mélange entier, sans état ni table : reproductible d'une machine à l'autre.
+  let h = (x | 0) * 374761393 + (y | 0) * 668265263 + (z | 0) * 2147483647;
+  h = (h ^ (h >>> 13)) * 1274126177;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+const doux = (t) => t * t * (3 - 2 * t);   // lissage cubique
+function bruit3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = doux(x - xi), yf = doux(y - yi), zf = doux(z - zi);
+  let v = 0;
+  for (let dz = 0; dz <= 1; dz++) {
+    const wz = dz ? zf : 1 - zf;
+    for (let dy = 0; dy <= 1; dy++) {
+      const wy = dy ? yf : 1 - yf;
+      for (let dx = 0; dx <= 1; dx++) {
+        const wx = dx ? xf : 1 - xf;
+        v += hash3(xi + dx, yi + dy, zi + dz) * wx * wy * wz;
+      }
+    }
+  }
+  return v;
+}
+
+/**
+ * Étale le bruit sur [0, 1] sans l'écraser aux extrêmes.
+ *
+ * L'interpolation de huit valeurs tirées au hasard ne donne PAS une loi
+ * uniforme : mesuré sur 60 000 tirages, moyenne 0,500 et écart-type 0,181 — donc
+ * tout se serre autour du milieu. Sans étalement, un bruit direct donnerait un
+ * champ mou et gris.
+ *
+ * Mais trop étaler est pire. Ma première version divisait par 0,44 : elle
+ * saturait **24,5 %** des valeurs à 0 ou à 1, ce qui sur scène ne donne pas du
+ * mouvement organique mais du clignotement dur. En prenant ±2 écarts-types on
+ * tombe à 3,8 % de saturation : il reste de vrais noirs et de vrais pleins —
+ * c'est ce qui fait vivre un feu — sans que le champ passe son temps aux butées.
+ */
+const BRUIT_MOY = 0.5, BRUIT_EC = 0.1809;
+function etaler(v) {
+  const r = (v - (BRUIT_MOY - 2 * BRUIT_EC)) / (4 * BRUIT_EC);
+  return r < 0 ? 0 : r > 1 ? 1 : r;
+}
+
+/**
+ * Valeurs du champ, une par barre.
+ *
+ * ⚠ Le centrage n'est pas décoratif : le champ est centré sur le MILIEU du
+ * plateau, à (0, d/2, h/2). C'est ce qui fait qu'un plan sur +X rend `f.x` et
+ * qu'un plan vers le bas rend `f.y` — donc que les vagues 2D existantes sont
+ * des cas particuliers exacts. Déplacer ce centre casserait la compatibilité
+ * sans que rien ne le signale.
+ */
+function fieldValues(L, list, now) {
+  const sc = state.scene;
+  const gs = Math.max(0.05, state.global.speed);
+  const period = Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
+  const t = now / period + (L.phase || 0) / 360;
+  const wl = Math.max(0.1, Math.max(1, L.width) / 8);   // même sémantique que `wave`
+  const forme = L.field || 'plan';
+  const a = axeDe(L.axAz, L.axEl);
+  // Étendue du plateau le long de l'axe : pour un axe pur on retrouve w, d ou h.
+  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);
+  const cx = 0, cy = sc.d / 2, cz = sc.h / 2;
+  const src = [fini(L.srcX, 0), fini(L.srcY, 0), fini(L.srcZ, 2)];
+  const diag = Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2);
+  const out = new Map();
+
+  for (const f of list) {
+    const p = f.p3 || [0, 0, 0];
+    let u;
+    switch (forme) {
+      case 'sphere': {
+        // Ondes concentriques depuis un point : le « radial » en volume.
+        u = Math.hypot(p[0] - src[0], p[1] - src[1], p[2] - src[2]) / diag;
+        break;
+      }
+      case 'cylindre': {
+        // Phare : l'angle autour de l'axe. Un cycle du champ = un tour complet.
+        const d0 = [p[0] - src[0], p[1] - src[1], p[2] - src[2]];
+        const long = d0[0] * a[0] + d0[1] * a[1] + d0[2] * a[2];
+        // composante perpendiculaire à l'axe
+        const q = [d0[0] - long * a[0], d0[1] - long * a[1], d0[2] - long * a[2]];
+        // Deux vecteurs perpendiculaires à l'axe, pour mesurer un angle stable.
+        // On part d'un vecteur non colinéaire à l'axe, choisi selon sa plus
+        // petite composante — sinon le produit vectoriel s'annule et l'angle
+        // devient n'importe quoi près des pôles.
+        const t0 = Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+        const e1 = [a[1] * t0[2] - a[2] * t0[1], a[2] * t0[0] - a[0] * t0[2], a[0] * t0[1] - a[1] * t0[0]];
+        const n1 = Math.hypot(e1[0], e1[1], e1[2]) || 1;
+        const u1 = [e1[0] / n1, e1[1] / n1, e1[2] / n1];
+        const u2 = [a[1] * u1[2] - a[2] * u1[1], a[2] * u1[0] - a[0] * u1[2], a[0] * u1[1] - a[1] * u1[0]];
+        const ang = Math.atan2(q[0] * u2[0] + q[1] * u2[1] + q[2] * u2[2],
+                               q[0] * u1[0] + q[1] * u1[1] + q[2] * u1[2]);
+        u = (ang / (2 * Math.PI) + 1) % 1;
+        break;
+      }
+      case 'boite': {
+        // Coques rectangulaires depuis la source : distance de Tchebychev,
+        // normalisée par les cotes du plateau. Donne des « murs » qui avancent.
+        u = Math.max(Math.abs(p[0] - src[0]) / Math.max(0.1, sc.w / 2),
+                     Math.abs(p[1] - src[1]) / Math.max(0.1, sc.d / 2),
+                     Math.abs(p[2] - src[2]) / Math.max(0.1, sc.h / 2));
+        break;
+      }
+      case 'bruit': {
+        // Le bruit rend DÉJÀ une valeur : il ne traverse pas la forme d'onde,
+        // sinon on obtiendrait de la bouillie. `width` règle la finesse du
+        // grain (large = grandes taches), le temps fait dériver le volume.
+        const k = 1 / Math.max(0.15, wl * ext);
+        out.set(f.id, etaler(bruit3(p[0] * k, p[1] * k, p[2] * k + t)));
+        continue;
+      }
+      default: {   // plan / balayage
+        u = ((p[0] - cx) * a[0] + (p[1] - cy) * a[1] + (p[2] - cz) * a[2]) / ext + 0.5;
+        break;
+      }
+    }
+    const d = (((t - u / wl) % 1) + 1) % 1;
+    let v;
+    if (L.waveform === 'triangle') v = 1 - 2 * Math.min(d, 1 - d);
+    else if (L.waveform === 'square') v = d < 0.5 ? 1 : 0;
+    else v = (1 + Math.cos(2 * Math.PI * d)) / 2;
+    out.set(f.id, v);
+  }
+  return out;
+}
+
 // Couleurs
 function hexToRgb(h) {
   const m = /^#?([0-9a-f]{6})$/i.exec(h || '');
@@ -1298,7 +1474,9 @@ function computeMix(layers, fixtures, now, store) {
     if (!L.enabled) continue;
     const list = resolveBars(L, enabled);
     if (!list.length) continue;
-    const vals = L.engine === 'wave' ? waveValues(L, list, now) : stepValues(L, list, now, store);
+    const vals = L.engine === 'field' ? fieldValues(L, list, now)
+      : L.engine === 'wave' ? waveValues(L, list, now)
+      : stepValues(L, list, now, store);
     const flr = Math.max(0, Math.min(1, L.floor || 0));
     for (const [id, v0] of vals) {
       let v = Math.max(0, Math.min(1, v0));

@@ -445,6 +445,7 @@
     <div class="seg">
       <button data-eng="steps">⧉ Pas à pas</button>
       <button data-eng="wave">∿ Vague</button>
+      <button data-eng="field" title="Effets calculés dans l’espace 3D : la profondeur, la hauteur et l’orientation comptent enfin. Se règle dans la page Scène.">◈ Champ 3D</button>
     </div>
     <div class="seg">
       <button data-tgt="intensity">💡 Intensité</button>
@@ -495,6 +496,42 @@
           <option value="square">Carré</option>
         </select>
       </label>
+    </div>
+    <div id="fieldCtrls" style="display:none">
+      <label class="row" title="La géométrie du champ. Chacune se règle avec l’axe ou la source ci-dessous."><span>Forme du champ</span>
+        <select id="fieldForme">
+          <option value="plan">Plan / balayage</option>
+          <option value="sphere">Sphère (ondes)</option>
+          <option value="cylindre">Cylindre (phare)</option>
+          <option value="boite">Boîte (coques)</option>
+          <option value="bruit">Bruit 3D (organique)</option>
+        </select>
+      </label>
+      <label class="row" title="Forme d’onde du champ. Sans effet sur le bruit, qui produit déjà ses propres valeurs."><span>Forme d'onde</span>
+        <select id="fieldWaveform">
+          <option value="sine">Sinus</option>
+          <option value="triangle">Triangle</option>
+          <option value="square">Carré</option>
+        </select>
+      </label>
+      <div id="fieldAxe">
+        <label class="row" title="Direction du balayage, à l’horizontale. 0° = vers cour, 90° = vers le lointain."><span>Azimut de l'axe</span>
+          <input type="range" id="axAz" min="0" max="359" step="1"><output></output></label>
+        <label class="row" title="Inclinaison de l’axe. −90° = vers le sol, +90° = vers le ciel."><span>Élévation de l'axe</span>
+          <input type="range" id="axEl" min="-90" max="90" step="1"><output></output></label>
+      </div>
+      <div id="fieldSrc">
+        <label class="coord" title="Point d’où part le champ, en mètres"><span>Source X</span>
+          <input type="number" id="srcX" step="0.25"><span class="unite">m</span></label>
+        <label class="coord"><span>Source Y</span>
+          <input type="number" id="srcY" step="0.25"><span class="unite">m</span></label>
+        <label class="coord"><span>Source Z</span>
+          <input type="number" id="srcZ" step="0.25"><span class="unite">m</span></label>
+        <button id="btnSrcCentre" class="ghost" style="font-size:11px; padding:4px 9px" title="Pose la source au centre du plateau, à mi-hauteur">Centrer la source</button>
+      </div>
+      <p class="hint">Le champ est évalué à la <strong>position réelle</strong> de chaque barre —
+      règle-la dans la page Scène. Un plan sur l’azimut 0° reproduit exactement la vague
+      « G › D » : le champ est une généralisation, pas un autre moteur.</p>
     </div>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
@@ -934,6 +971,9 @@ function render() {
   if (document.activeElement !== $('#colorB')) $('#colorB').value = L.colorB || '#0040ff';
 
   // patterns selon moteur
+  // Le champ n'utilise pas `pattern` (sa géométrie vient de `field` + l'axe) :
+  // afficher la grille de motifs ferait croire à un réglage sans effet.
+  $('#patterns').style.display = L.engine === 'field' ? 'none' : '';
   const pats = PATTERNS[L.engine] || PATTERNS.steps;
   const pgrid = $('#patterns');
   const pgsig = L.engine + ':' + L.pattern;
@@ -960,13 +1000,35 @@ function render() {
     $(sid).parentElement.querySelector('output').style.visibility = on ? '' : 'hidden';
   });
 
-  const wave = L.engine === 'wave';
+  // Le champ 3D partage la sémantique de la vague pour `group` et `width` :
+  // c'est ce qui rend les deux moteurs interchangeables sans réapprentissage.
+  const champ = L.engine === 'field';
+  const wave = L.engine === 'wave' || champ;
   $('#lblGroup').textContent = wave ? 'Pas par cycle' : 'Barres par pas';
-  $('#lblWidth').textContent = wave ? 'Largeur de vague' : 'Tenue (traîne)';
+  $('#lblWidth').textContent = champ ? 'Étendue du motif'
+    : wave ? 'Largeur de vague' : 'Tenue (traîne)';
   setSlider('#group', L.group || 1, v => wave ? v + ' pas' : v + (v > 1 ? ' barres' : ' barre'));
   setSlider('#width', L.width, v => wave ? Math.round(v / 8 * 100) + ' %' : v + ' pas');
   $('#stepCtrls').style.display = wave ? 'none' : '';
-  $('#waveCtrls').style.display = wave ? '' : 'none';
+  $('#waveCtrls').style.display = (wave && !champ) ? '' : 'none';
+  $('#fieldCtrls').style.display = champ ? '' : 'none';
+  if (champ) {
+    const forme = L.field || 'plan';
+    $('#fieldForme').value = forme;
+    $('#fieldWaveform').value = L.waveform || 'sine';
+    // L'axe ne sert qu'au plan et au cylindre ; la source, à tout sauf le plan.
+    // Le bruit n'utilise ni l'un ni l'autre : montrer des réglages sans effet est
+    // le meilleur moyen de faire croire à une panne.
+    $('#fieldAxe').style.display = (forme === 'plan' || forme === 'cylindre') ? '' : 'none';
+    $('#fieldSrc').style.display = (forme === 'plan' || forme === 'bruit') ? 'none' : '';
+    $('#fieldWaveform').closest('label').style.display = forme === 'bruit' ? 'none' : '';
+    setSlider('#axAz', L.axAz || 0, v => v + '°');
+    setSlider('#axEl', L.axEl || 0, v => v + '°');
+    for (const [id, cle] of [['#srcX', 'srcX'], ['#srcY', 'srcY'], ['#srcZ', 'srcZ']]) {
+      const el = $(id);
+      if (document.activeElement !== el) el.value = Math.round((L[cle] || 0) * 100) / 100;
+    }
+  }
   $$('.seg button[data-m]').forEach(b => b.classList.toggle('active', b.dataset.m === L.mode));
   $('#fadeCtrls').style.display = L.mode === 'fade' ? '' : 'none';
   $('#curve').value = L.curve;
@@ -1001,7 +1063,7 @@ function render() {
     if (actifs.length) det.open = true;
   }
   // Le swing et le scintillement n'ont de sens qu'en pas-à-pas
-  const isStep = L.engine !== 'wave';
+  const isStep = L.engine === 'steps';
   $('#rowSwing').style.display = isStep ? '' : 'none';
   $('#rowBlocks').style.display = isStep ? '' : 'none';
   $('#rowSparkle').style.display = isStep ? '' : 'none';
@@ -1624,6 +1686,24 @@ $('#quitExport').onclick = async () => {
   setTimeout(quitCascade, 400); // laisse partir le téléchargement
 };
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
+$('#fieldForme').onchange = (e) => setL({ field: e.target.value }).then(poll);
+$('#fieldWaveform').onchange = (e) => setL({ waveform: e.target.value }).then(poll);
+for (const cle of ['axAz', 'axEl']) {
+  const el = $('#' + cle);
+  el.oninput = () => setSlider('#' + cle, +el.value, v => v + '°');
+  el.onchange = () => setL({ [cle]: +el.value }).then(poll);
+}
+for (const cle of ['srcX', 'srcY', 'srcZ']) {
+  $('#' + cle).onchange = (e) => setL({ [cle]: +e.target.value }).then(poll);
+}
+// « Centrer la source » : au milieu du plateau, à mi-hauteur. Retrouver ce point
+// à la main demande de lire trois cotes et de les diviser par deux — autant le
+// faire faire par un bouton.
+$('#btnSrcCentre').onclick = () => {
+  const sc = (S && S.scene) || { w: 10, d: 8, h: 6 };
+  setL({ srcX: 0, srcY: Math.round(sc.d / 2 * 100) / 100, srcZ: Math.round(sc.h / 2 * 100) / 100 })
+    .then(poll);
+};
 $$('.seg button[data-tgt]').forEach(b => b.onclick = () => setL({ target: b.dataset.tgt }).then(poll));
 $$('.seg button[data-m]').forEach(b => b.onclick = () => setL({ mode: b.dataset.m }).then(poll));
 $('#colorA').oninput = e => setL({ colorA: e.target.value });

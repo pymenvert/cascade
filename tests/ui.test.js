@@ -559,6 +559,81 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.deepEqual(nav.erreurs(), []);
   });
 
+  test('le moteur Champ 3D s’affiche et ne montre que les réglages qui agissent', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="conduite"]').click();
+      await new Promise(r => setTimeout(r, 150));
+      const vu = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).display !== 'none' : null;
+      };
+      const etat = async (forme) => {
+        if (forme) { $('#fieldForme').value = forme; $('#fieldForme').dispatchEvent(new Event('change')); }
+        await new Promise(r => setTimeout(r, 250));
+        await poll();
+        return { champ: vu('#fieldCtrls'), vague: vu('#waveCtrls'), motifs: vu('#patterns'),
+                 axe: vu('#fieldAxe'), src: vu('#fieldSrc'), pas: vu('#stepCtrls'),
+                 swing: vu('#rowSwing') };
+      };
+      document.querySelector('.seg button[data-eng="field"]').click();
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      const out = { plan: await etat(null), sphere: await etat('sphere'),
+                    bruit: await etat('bruit'), cylindre: await etat('cylindre') };
+      // retour au pas-à-pas
+      document.querySelector('.seg button[data-eng="steps"]').click();
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      out.steps = await etat(null);
+      return out;`);
+
+    assert.equal(r.plan.champ, true, 'les réglages du champ doivent apparaître');
+    assert.equal(r.plan.vague, false, 'ceux de la vague doivent disparaître');
+    assert.equal(r.plan.motifs, false,
+      'la grille de motifs n’agit pas sur le champ : elle doit être masquée');
+    assert.equal(r.plan.pas, false);
+    assert.equal(r.plan.swing, false, 'le swing ne concerne que le pas-à-pas');
+
+    // Un plan n'utilise pas de source ; une sphère, si.
+    assert.equal(r.plan.axe, true, 'le plan a besoin de son axe');
+    assert.equal(r.plan.src, false, 'le plan n’a pas de source');
+    assert.equal(r.sphere.src, true, 'la sphère a besoin d’une source');
+    assert.equal(r.sphere.axe, false, 'la sphère n’utilise pas l’axe');
+    assert.equal(r.cylindre.axe, true, 'le cylindre a besoin de l’axe');
+    assert.equal(r.cylindre.src, true, 'et de la source');
+    // Le bruit n'utilise ni l'un ni l'autre
+    assert.equal(r.bruit.axe, false, 'le bruit n’utilise pas l’axe');
+    assert.equal(r.bruit.src, false, 'ni la source');
+
+    // Et on revient bien au pas-à-pas
+    assert.equal(r.steps.champ, false);
+    assert.equal(r.steps.pas, true);
+    assert.equal(r.steps.motifs, true);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('« Centrer la source » pose le milieu du plateau', async () => {
+    await h.post('/api/scene', { scene: { w: 12, d: 9, h: 7 } });
+    const r = await nav.evaluate(`
+      await poll();
+      document.querySelector('.seg button[data-eng="field"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      $('#fieldForme').value = 'sphere'; $('#fieldForme').dispatchEvent(new Event('change'));
+      await new Promise(r => setTimeout(r, 250));
+      document.querySelector('#btnSrcCentre').click();
+      await new Promise(r => setTimeout(r, 350));
+      await poll();
+      const L = sel();
+      return { x: L.srcX, y: L.srcY, z: L.srcZ };`);
+    assert.equal(r.x, 0, 'X au centre du plateau');
+    assert.ok(Math.abs(r.y - 4.5) < 0.01, 'Y à mi-profondeur, vu ' + r.y);
+    assert.ok(Math.abs(r.z - 3.5) < 0.01, 'Z à mi-hauteur, vu ' + r.z);
+    await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
+    await nav.evaluate(`document.querySelector('.seg button[data-eng="steps"]').click();
+                        await new Promise(r => setTimeout(r, 200)); return 1`);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

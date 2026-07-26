@@ -193,7 +193,7 @@ Chaque étape produit quelque chose d'utilisable seul et testable. `npm test` do
 | **1** | **Repère 3D + migration.** Panneau « Scène », champs numériques X/Y/Z/azimut/élévation/longueur par barre. Pas encore de vue 3D. | Placer 24 barres au mètre plutôt qu'à la souris | 2–3 j |
 | **2** | **Vue 3D en lecture seule.** Caméra orbitale, grille, barres colorées par leur niveau réel (monitoring live), sélection liée à la 2D, vues Face/Dessus/3-4. | **Objectif 1 de Pym atteint** : voir son show en 3D pendant qu'il tourne | 3–4 j |
 | **3** ✅ | **Manipulation 3D.** Glisser au sol / Maj en hauteur, rotation, magnétisme, annuler. Bouton explicite « Renvoyer la disposition vers MadMapper » (`output/x|y|rot`), **jamais automatique** — sinon on écrase le réglage manuel du régisseur. | **Objectif 2 atteint** — livré | 2–3 j |
-| **4** | **Moteur « Champ 3D ».** 4 formes (plan/axe libre, sphère, cylindre, boîte), axe réglable au gizmo + numériquement, formes d'onde et palettes. Option « ordre = projection sur l'axe » pour le pas-à-pas. | **Objectif 3 atteint**, version « une valeur par barre ». Livrer avec 3-4 presets de démonstration qui exploitent la profondeur | 4–5 j |
+| **4** ✅ | **Moteur « Champ 3D ».** 4 formes (plan/axe libre, sphère, cylindre, boîte), axe réglable au gizmo + numériquement, formes d'onde et palettes. Option « ordre = projection sur l'axe » pour le pas-à-pas. | **Objectif 3 atteint**, version « une valeur par barre ». Livrer avec 3-4 presets de démonstration qui exploitent la profondeur | 4–5 j |
 | **5** | **Bruit 3D et sources mobiles.** Feu, nuages, scintillement organique, comètes. | Le « wow ». Indépendant du reste | 2–3 j |
 | **6** | **Segments** *(conditionnelle — dépend de T5/T6)*. `seg` par barre, adresses dérivées, **export CSV de définition de fixtures**, compteur de messages/s dans l'UI, garde-fou de débit. | Multiplie la résolution par 4 à 16 **sans toucher à un seul effet** | 4–6 j |
 | **7** | **Finitions v2.** Manuel PDF, CHANGELOG, presets mémorisant la 3D, exécutables, capture 3D dans le README. | La version se vend | 3–4 j |
@@ -276,3 +276,42 @@ Banc d'essai du rendu 3D, réutilisable : `C:\Users\PYMENV~1\AppData\Local\Temp\
 - **Étape 4** — à faire, et **conditionnée par T11/T12** (voir
   `V2-TESTS-MADMAPPER.md`, section « Relevé du 2026-07-26 » : l'entrée OSC de
   MadMapper est désactivée sur le poste, ces tests restent à faire à la main).
+
+- **Étape 4** ✅ moteur « champ 3D » (`engine: 'field'`), cinq formes :
+  - **plan / balayage** — axe réglable en azimut et élévation ;
+  - **sphère** — ondes concentriques depuis une source en mètres ;
+  - **cylindre** — balayage rotatif autour d'un axe (le « phare ») ;
+  - **boîte** — coques rectangulaires (distance de Tchebychev) ;
+  - **bruit 3D** — value noise trilinéaire écrit à la main, zéro dépendance.
+
+  Le champ ne produit qu'une grandeur `u` : elle traverse **exactement** la
+  chaîne existante (forme d'onde → inversion → niveau bas → niveau → intensité
+  ou mélange de couleurs → HTP → master → courbe de gradateur → OSC). Rien de
+  l'acquis v1 n'est réécrit, et c'est ce qui rend le test de non-régression
+  possible : **un plan sur l'axe X rend les mêmes valeurs qu'une vague `lr`**, et
+  un plan vers le bas les mêmes qu'une vague `tb` — les deux sont testés.
+
+  Décisions prises en écrivant, et leurs raisons :
+  - **Pas de refonte « émetteurs ».** Le plan la prévoyait pour préparer les
+    segments (étape 6, conditionnelle). Avec `seg = 1` une barre vaut un
+    émetteur : le champ s'évalue à `f.p3` et la refonte transverse — la partie
+    risquée — attend que les segments soient décidés.
+  - **Le champ est centré sur (0, d/2, h/2)**, le milieu du plateau. C'est ce
+    centrage précis qui fait qu'un plan sur +X rend `f.x` et qu'un plan vers le
+    bas rend `f.y`. Le déplacer casserait la compatibilité en silence.
+  - **Le bruit ne traverse pas la forme d'onde** : il produit déjà une valeur.
+    L'y faire passer donnerait de la bouillie.
+  - **L'étalement du bruit a été mesuré, pas deviné.** L'interpolation de huit
+    tirages donne une moyenne de 0,500 et un écart-type de 0,181 — donc tout se
+    serre au milieu. Ma première version divisait par 0,44 et **saturait 24,5 %
+    des valeurs aux butées** : sur scène, du clignotement dur, pas du mouvement
+    organique. À ±2 écarts-types on tombe à 3,8 %.
+  - **`width` et `group` gardent la sémantique de la vague**, pour que les deux
+    moteurs soient interchangeables sans réapprentissage.
+  - **L'interface ne montre que les réglages qui agissent** : le plan n'affiche
+    pas de source, la sphère n'affiche pas d'axe, le bruit ni l'un ni l'autre, et
+    la grille de motifs disparaît. Un réglage sans effet passe pour une panne.
+
+- **Reste de la spécification, non fait** : les sources mobiles (comètes,
+  étape 5), la palette à N arrêts, et l'option « ordre = projection sur l'axe »
+  pour le moteur pas-à-pas.
