@@ -79,7 +79,16 @@ const state = {
   settings: { mmHost: '127.0.0.1', mmPort: 8000, feedbackPort: 9000, httpPort: 3333, oscInPort: 7000,
               linkEnabled: false,
               linkPhase: true,   // caler les pas sur la grille de beats, pas seulement le tempo
-              linkQuantum: 4 },  // beats par mesure, pour le témoin de temps fort
+              linkQuantum: 4,    // beats par mesure, pour le témoin de temps fort
+              // Résolution de la sortie MadMapper, en PIXELS. Mesuré sur
+              // MadMapper 6.0.9 : `output/x` et `output/y` sont en pixels de la
+              // composition, PAS en 0..1 — une barre au centre d'une sortie
+              // 1920×1080 lit x=960, y=540. Et son API OSC ne permet pas de
+              // demander cette résolution (elle n'expose que /getControls et
+              // /getControlValues). D'où ce réglage explicite : sans lui, tout
+              // renvoi de disposition entasserait les barres dans le coin
+              // supérieur gauche.
+              outW: 1920, outH: 1080 },
   fixtures: [],
   // Dimensions du plateau, en MÈTRES. Repère main droite, origine au centre du
   // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
@@ -253,6 +262,9 @@ function sanitizeSettings(s) {
   if ('linkEnabled' in s) o.linkEnabled = !!s.linkEnabled;
   if ('linkPhase' in s) o.linkPhase = !!s.linkPhase;
   if ('linkQuantum' in s) o.linkQuantum = Math.round(cnum(s.linkQuantum, 1, 16, 4));
+  for (const k of ['outW', 'outH']) {
+    if (k in s) o[k] = Math.round(cnum(s[k], 16, 32768, o[k]));
+  }
   return o;
 }
 /** Les clés MIDI sont bornées en nombre ET en forme (`cc:1:7`, `note:10:36`). */
@@ -332,6 +344,20 @@ function migre3D(f, scene, lenMax) {
   const l = (f.len > 0 && lenMax > 0) ? (f.len / lenMax) * 1.2 : 1.2;
   return set3D(f, [(fini(f.x, 0.5) - 0.5) * s.w, 0, (1 - fini(f.y, 0.5)) * s.h],
     [Math.cos(r), 0, -Math.sin(r)], l, s);
+}
+
+/**
+ * Angle ramené dans [0, 360[, pour MadMapper.
+ *
+ * Mesuré sur MadMapper 6.0.9 : `output/rot` n'accepte QUE cet intervalle. Hors
+ * plage, il n'écrête pas et ne replie pas — il **ignore le message sans rien
+ * dire**. Or le `rot` de Cascade vient d'un `atan2`, donc entre -180 et +180 :
+ * sans cette conversion, une barre sur deux gardait silencieusement son ancien
+ * angle. Trouvé par le test de bout en bout, invisible autrement.
+ */
+function rot360(deg) {
+  const d = fini(deg, 0) % 360;
+  return d < 0 ? d + 360 : d;
 }
 
 function sanitizeScene(sc) {
@@ -1509,14 +1535,26 @@ const server = http.createServer(async (req, res) => {
         // uniquement sur un clic explicite. Le reste du temps, Cascade ne
         // touche qu'aux niveaux et aux couleurs.
         //
-        // ⚠ Que MadMapper accepte d'être piloté sur `output/x` en OSC n'est PAS
-        // vérifié (test T13 de docs/V2-TESTS-MADMAPPER.md). L'interface le dit.
+        // Vérifié sur MadMapper 6.0.9, le 2026-07-26 : `output/x`, `output/y`
+        // et `output/rot` sont écrivables en OSC et prennent la valeur exacte.
+        //
+        // ⚠ MAIS x et y sont en PIXELS de la composition, pas en 0..1. Envoyer
+        // 0,7 place la barre à sept dixièmes de pixel du bord — c'est-à-dire
+        // dans le coin. La conversion passe donc par la résolution de sortie,
+        // qui est un réglage : l'API OSC de MadMapper ne permet pas de la
+        // demander. `rot` est en degrés, dans le même sens que celui lu à
+        // l'import — aucun signe à retourner.
+        //
+        // On n'envoie ni `width` ni `height` : ce sont les dimensions de la
+        // barre dans MadMapper, pas sa place. Les toucher reviendrait à
+        // redimensionner le mapping du régisseur sous prétexte de le déplacer.
+        const { outW, outH } = state.settings;
         const envoyees = [];
         for (const f of state.fixtures) {
           if (!f.enabled) continue;
-          oscSend(`${f.address}/output/x`, [{ type: 'f', value: q255(f.x) }]);
-          oscSend(`${f.address}/output/y`, [{ type: 'f', value: q255(f.y) }]);
-          oscSend(`${f.address}/output/rot`, [{ type: 'f', value: f.rot || 0 }]);
+          oscSend(`${f.address}/output/x`, [{ type: 'f', value: Math.round(f.x * outW) }]);
+          oscSend(`${f.address}/output/y`, [{ type: 'f', value: Math.round(f.y * outH) }]);
+          oscSend(`${f.address}/output/rot`, [{ type: 'f', value: rot360(f.rot) }]);
           envoyees.push(f.name);
         }
         console.log('[cascade] disposition envoyée à MadMapper : '

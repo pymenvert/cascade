@@ -203,11 +203,80 @@ describe('Espace 3D', () => {
       const n = msgs.filter(m => m.address.endsWith(suffixe)).length;
       assert.equal(n, 3, 'attendu 3 messages ' + suffixe + ', vu ' + n);
     }
-    // La valeur envoyée doit être la projection 2D de la position 3D
-    const f = (await h.state()).fixtures.find(x => x.id === ids[0]);
+    // ⚠ MadMapper compte en PIXELS, pas en 0..1 — mesuré sur 6.0.9 : une barre
+    // au centre d'une sortie 1920×1080 lit output/x = 960. Envoyer la valeur
+    // normalisée entasserait toutes les barres dans le coin supérieur gauche.
+    const et = await h.state();
+    const f = et.fixtures.find(x => x.id === ids[0]);
+    const { outW, outH } = et.settings;
+    assert.equal(outW, 1920, 'résolution de sortie par défaut');
+    assert.equal(outH, 1080);
     const mx = msgs.find(m => m.address === f.address + '/output/x');
-    assert.ok(mx, 'pas de message output/x pour ' + f.address);
-    assert.ok(Math.abs(mx.args[0] - f.x) < 0.01, 'attendu ' + f.x + ', envoyé ' + mx.args[0]);
+    const my = msgs.find(m => m.address === f.address + '/output/y');
+    assert.ok(mx && my, 'pas de message output/x|y pour ' + f.address);
+    assert.equal(mx.args[0], Math.round(f.x * outW), 'x attendu en pixels');
+    assert.equal(my.args[0], Math.round(f.y * outH), 'y attendu en pixels');
+    assert.ok(mx.args[0] > 1.5, 'une valeur normalisée aurait été envoyée : ' + mx.args[0]);
+    // L'angle part en degrés, ramené dans [0, 360[ : hors de cet intervalle,
+    // MadMapper 6.0.9 ignore le message sans rien dire (mesuré).
+    const mr = msgs.find(m => m.address === f.address + '/output/rot');
+    assert.ok(mr.args[0] >= 0 && mr.args[0] < 360, 'angle hors plage : ' + mr.args[0]);
+    // Ni width ni height : déplacer une barre ne doit pas la redimensionner.
+    assert.deepEqual(msgs.filter(m => /\/output\/(width|height)$/.test(m.address)), [],
+      'la taille des barres ne doit jamais être écrite');
+  });
+
+  test('la résolution de sortie se règle, et la conversion suit', async () => {
+    await h.post('/api/settings', { outW: 3840, outH: 2160 });
+    const et = await h.state();
+    assert.equal(et.settings.outW, 3840);
+    const f = et.fixtures.find(x => x.enabled);
+    h.clearOsc();
+    await h.post('/api/geometrie', {});
+    await sleep(150);
+    const mx = h.osc().find(m => m.address === f.address + '/output/x');
+    assert.equal(mx.args[0], Math.round(f.x * 3840), 'la conversion doit suivre le réglage');
+
+    // Bornes : une résolution absurde ne doit pas passer
+    await h.post('/api/settings', { outW: 0, outH: 999999 });
+    const b = (await h.state()).settings;
+    assert.ok(b.outW >= 16, 'largeur non bornée : ' + b.outW);
+    assert.ok(b.outH <= 32768, 'hauteur non bornée : ' + b.outH);
+    await h.post('/api/settings', { outW: 1920, outH: 1080 });
+  });
+
+  test('les angles négatifs sont ramenés dans [0, 360[ avant l’envoi', async () => {
+    // MadMapper 6.0.9 n’accepte QUE [0, 360[ sur output/rot : hors plage il
+    // ignore le message SANS RIEN DIRE. Et le rot de Cascade vient d’un atan2,
+    // donc entre -180 et +180 — une barre sur deux gardait son ancien angle.
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    const ids = (await h.state()).fixtures.map(f => f.id);
+    // Une barre verticale montante donne rot = -90
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: ids[0], p3: [0, 0, 2], dir3: [0, 0, 1], len3: 1.2 },     // rot -90
+      { id: ids[1], p3: [1, 0, 2], dir3: [-1, 0, 0], len3: 1.2 },    // rot 180
+      { id: ids[2], p3: [2, 0, 2], dir3: [0, 0, -1], len3: 1.2 },    // rot +90
+      { id: ids[3], p3: [3, 0, 2], dir3: [1, 0, 0], len3: 1.2 },     // rot 0
+    ] });
+    const fx = (await h.state()).fixtures;
+    assert.ok(fx.some(f => f.rot < 0), 'le test perd son sens si aucun angle n’est négatif');
+
+    h.clearOsc();
+    await h.post('/api/geometrie', {});
+    await sleep(200);
+    const rots = h.osc().filter(m => /\/output\/rot$/.test(m.address));
+    assert.equal(rots.length, 4);
+    for (const m of rots) {
+      assert.ok(m.args[0] >= 0 && m.args[0] < 360,
+        m.address + ' : angle hors de [0,360[ → MadMapper l’ignorerait : ' + m.args[0]);
+    }
+    // Et l’angle reste le même modulo 360 : on n’a pas perdu l’orientation
+    for (const f of fx) {
+      const m = rots.find(x => x.address === f.address + '/output/rot');
+      const att = ((f.rot % 360) + 360) % 360;
+      assert.ok(Math.abs(m.args[0] - att) < 0.01,
+        f.name + ' : ' + f.rot + '° devait devenir ' + att + '°, envoyé ' + m.args[0]);
+    }
   });
 
   test('une barre désactivée n’est pas envoyée', async () => {

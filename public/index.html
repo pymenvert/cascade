@@ -615,14 +615,22 @@
       <p class="hint">Les barres s'allument en direct, comme sur scène. La vue de face
       montre exactement ce que montre la page Conduite — c'est le même plateau, vu autrement.
       <kbd>Ctrl</kbd>+<kbd>Z</kbd> défait le dernier déplacement.</p>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:10px; align-items:center; flex-wrap:wrap">
         <button id="btnGeom" class="ghost" title="Écrit la position des barres dans MadMapper. Rien n'est envoyé sans ce clic.">Renvoyer la disposition vers MadMapper</button>
+        <label class="coord" style="margin:0" title="Résolution de ta sortie MadMapper, en pixels. MadMapper place les barres en pixels, et son OSC ne permet pas de demander cette valeur — il faut donc la lui dire.">
+          <span style="width:auto">Sortie</span>
+          <input type="number" id="setOutW" min="16" max="32768" step="1" style="width:64px">
+          <span class="unite">×</span>
+          <input type="number" id="setOutH" min="16" max="32768" step="1" style="width:64px">
+          <span class="unite">px</span></label>
         <span id="geomEtat" class="hint" style="margin:0"></span>
       </div>
       <p class="hint">Cascade ne touche jamais à ta disposition MadMapper tout seul : il
       ne pilote que les niveaux et les couleurs. Ce bouton est le seul chemin dans l'autre
-      sens — et il est <strong>à confirmer</strong> : que MadMapper accepte d'être placé
-      par OSC reste à vérifier sur ton installation.</p>
+      sens. Il écrit la position et l'angle — jamais la taille des barres. Vérifié sur
+      MadMapper 6.0.9 : <code>output/x</code>, <code>output/y</code> et <code>output/rot</code>
+      prennent bien la valeur envoyée. <strong>Renseigne la résolution de sortie</strong> :
+      MadMapper compte en pixels, et son OSC ne sait pas la donner.</p>
     </div>
 
     <div class="panel">
@@ -2456,11 +2464,16 @@ function renderSel3d() {
 function renderScene() {
   if (!S) return;
   const sc = S.scene || { w: 10, d: 8, h: 6 };
-  for (const [id, v] of [['#scW', sc.w], ['#scD', sc.d], ['#scH', sc.h]]) {
+  const st = S.settings || {};
+  for (const [id, v] of [['#scW', sc.w], ['#scD', sc.d], ['#scH', sc.h],
+                         ['#setOutW', st.outW], ['#setOutH', st.outH]]) {
     const el = $(id);
-    if (el && document.activeElement !== el) el.value = v;
+    if (el && v != null && document.activeElement !== el) el.value = v;
   }
   renderSel3d();
+}
+for (const [id, cle] of [['#setOutW', 'outW'], ['#setOutH', 'outH']]) {
+  $(id).onchange = (e) => post('/api/settings', { [cle]: +e.target.value }).then(poll);
 }
 for (const [id, cle] of [['#scW', 'w'], ['#scD', 'd'], ['#scH', 'h']]) {
   $(id).onchange = (e) => {
