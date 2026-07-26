@@ -107,3 +107,39 @@ T7 (écriture de la disposition), T8 (blackout en un message), T9 (bundles OSC),
 T10 (mesures réelles du plateau).
 
 T3 et T11 se recouvrent en partie : faire T11 d'abord, il est plus simple.
+
+---
+
+## Relevé du 2026-07-26 — pourquoi ces tests n'ont pas pu être faits
+
+Tentative automatisée, en lecture seule, sur la machine de Pym :
+
+- **MadMapper 6.0.9 tourne**, avec un projet ouvert. Installés aussi : 5.6.3,
+  5.6.6, et Resolume Arena.
+- **Son entrée OSC ne répond pas.** Sondage de `/getControls?root=/surfaces`,
+  `/getControls?root=/`, `/getVersion` sur 10 ports candidats (8000, 8010, 8080,
+  8100, 7000, 9000, 1234, 8888, 6454, 10669), en écoutant simultanément 9 ports
+  de retour : **zéro réponse**. Les seules « réponses » observées étaient mes
+  propres paquets revenus en boucle locale — piège à connaître quand on sonde un
+  port sur lequel on écoute aussi.
+- **MadMapper ne tient aucun socket UDP sur 8000.** Il écoute sur **8010** (qui
+  ne répond pas à l'OSC) et sur une quarantaine de ports hauts, typiques de
+  l'Art-Net / sACN.
+- **La configuration de Cascade pointe sur 8000** (`chaser-config.json`) : elle
+  est donc périmée par rapport à cette installation. C'est exactement le cas que
+  le voyant « MadMapper ? » de la 1.3 est là pour signaler.
+- Le fichier de projet (`scenoled.madproject/scenoled.mad`, 92 ko) est un
+  **binaire propriétaire** (signature `0B AD BA BE`) : rien d'exploitable pour
+  en déduire la structure des fixtures.
+
+**Conclusion : ces tests ne sont pas automatisables en l'état.** Il faut d'abord
+activer l'entrée OSC dans MadMapper (Préférences → OSC), et T11/T12 demandent en
+plus de juger des couleurs à l'œil sur une texture — ce qui suppose de fabriquer
+une scène d'essai dans le projet ouvert. Je ne l'ai pas fait : le projet était
+chargé, avec peut-être du travail non enregistré.
+
+**Ce qu'il faut faire, dans l'ordre :**
+1. MadMapper → Préférences → OSC : activer l'entrée, noter le port, et le port
+   de feedback. Corriger ensuite les ports dans les réglages de Cascade (⚙).
+2. Vérifier que le voyant « MadMapper » de Cascade passe au vert.
+3. Puis T11 et T12 (dix minutes) — ce sont eux qui décident de l'architecture.
