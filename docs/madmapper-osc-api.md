@@ -129,3 +129,22 @@ il faut que la sortie DMX soit activée dans Préférences → Project → DMX. 
 mesure automatisable, choisir `DMX Output Device = ArtNet` et lire les paquets
 ArtDmx en UDP 6454 : on obtient les 512 canaux, chiffrés. Tant que ce réglage est
 sur `None`, MadMapper n'émet **rien** — ni ArtDmx, ni réponse à un ArtPoll.
+
+## Corrections apportées par une seconde passe
+
+- `/surfaces/<nom>/visual/name` donne le média réellement assigné.
+  `/surfaces/selected/visual/name` ne le donne **pas** — il renvoie une valeur de
+  gabarit. J'ai commis exactement cette erreur : lire la branche `selected` et
+  croire décrire la surface.
+- **La chaîne est linéaire de bout en bout.** Mesuré en fabriquant des demi-teintes
+  avec `/surfaces/<nom>/opacity` : opacité 1 / 0,75 / 0,5 / 0,25 / 0,1 donne un DMX
+  de 255 / 191 / 127 / 64 / 25, soit un exposant implicite de 1,00 à chaque point.
+  Et `luminosity` se compose multiplicativement par-dessus, y compris en demi-teinte.
+- **`output/width` et `output/height` ne changent PAS la zone échantillonnée.**
+  Testé à 0,25 · 0,5 · 1 · 2 · 4 : les 60 canaux d'une barre restent identiques.
+  Ces contrôles ne sont donc pas les cotes de l'empreinte de lecture.
+- **Déplacer une barre change ce qu'elle joue** : `output/x`, `output/y` et
+  `output/rot` modifient tous les trois les valeurs DMX des LED. Vérifié sur la
+  sortie Art-Net, pas seulement par relecture OSC.
+- **Débit de la sortie DMX : ~34 trames/s** avec `Maximum FPS = 40`. Cascade émet à
+  40 Hz ; MadMapper décime.

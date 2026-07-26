@@ -154,7 +154,8 @@ mesurable, et tout ce qui suit est **mesuré**, pas déduit.
 
 **Banc d'essai** (le projet « Untitled » qui était ouvert) : deux barres
 `SFX-01 W 1m (GarageCube)`, **60 LED × 1 canal** chacune, univers 0, canaux 1-60
-et 61-120. Une surface `Quad-1` portant `4x4.png` (un damier noir et blanc). Les
+et 61-120. Une surface `Quad-1` portant le générateur **`TestCard`** de MadMapper
+(un damier noir et blanc, carreaux d'environ la moitié de la barre). Les
 deux barres en mode **« FIXTURE IS SAMPLING THE OUTPUT »**.
 
 **Méthode** : toute écriture en lire → écrire → relire → **restituer** → vérifier
@@ -266,3 +267,103 @@ position de départ a été restituée et vérifiée.
   Saturation sur une surface entière.
 - **`/master/Global BPM/*`** : BPM, TAP, Resync, Ableton Link. Cascade et
   MadMapper pourraient partager le tempo dans les deux sens.
+
+---
+
+# Deuxième passe — ce qu'une relecture adversariale a exigé de mesurer
+
+Les conclusions ci-dessus ont été soumises à des relecteurs chargés de les
+**réfuter**. Trois objections étaient fondées, et ont mené à trois mesures de
+plus. C'est la partie la plus utile de la journée : les trois premières
+conclusions étaient vraies mais **sur-généralisées**.
+
+## Objection 1 — « tu t'es trompé sur la texture »
+
+Fondée. J'avais noté « 4x4.png » ; ce nom vient de `/surfaces/selected/visual/name`,
+donc du gabarit mort. La vraie valeur est `/surfaces/Quad-1/visual/name = "TestCard"`.
+**Ne jamais lire une propriété sur la branche `selected`** : elle n'est pas vivante.
+
+## Objection 2 — « ta texture était binaire : tu n'as mesuré aucune demi-teinte »
+
+Fondée, et importante : toutes les valeurs relevées étaient {0, 255}, {0, 127},
+{0, 64}. Deux points ne contraignent aucune courbe. Un gamma de 2,2 sur la texture
+serait resté totalement invisible, puisque 1^γ = 1.
+
+**Mesure faite** en fabriquant des demi-teintes avec `/surfaces/Quad-1/opacity` :
+
+| opacité surface | DMX mesuré | si linéaire | si gamma 2,2 | si 1/2,2 |
+|---|---|---|---|---|
+| 1 | 255 | 255 | 255 | 255 |
+| 0,75 | **191** | 191 | 135 | 224 |
+| 0,5 | **127** | 128 | 55 | 186 |
+| 0,25 | **64** | 64 | 12 | 136 |
+| 0,1 | **25** | 26 | 2 | 90 |
+
+Exposant implicite déduit de chaque point : **1,005 · 1,006 · 0,997 · 1,009**.
+La chaîne est donc **linéaire de bout en bout**, sans courbe de transfert.
+
+Et la multiplicativité tient aussi en demi-teinte : à opacité 0,5 (DMX 127),
+`luminosity` 0,5 donne **63** (attendu 64) et 0,25 donne **32** (attendu 32).
+
+## Objection 3 — « tu n'as jamais vu en DMX qu'une barre déplacée joue autre chose »
+
+Fondée, et c'était **le** trou : l'affirmation centrale de la v2 n'était étayée
+que par une relecture OSC. Mesuré en déplaçant la barre et en capturant les 60
+canaux à chaque position (`#` = 255, `+` = ~127, espace = 0) :
+
+```
+y=   0 |                                                            |  0/60
+y= 135 |##############################                              | 30/60
+y= 405 |                              ##############################| 30/60
+y= 540 |++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++| 60/60  max 127
+y= 810 |                              ##############################| 30/60
+y=1080 |                                                            |  0/60
+
+x= 720 |############################################################| 60/60
+x= 960 |##############################                              | 30/60
+x=1200 |                                                            |  0/60
+
+rot=  0 |##############################                              | 30/60
+rot= 90 |                                                            |  0/60
+rot=180 |                              ##############################| 30/60
+```
+
+**Le contenu échantillonné change avec x, avec y et avec la rotation.** C'est la
+preuve, en valeurs DMX, que « déplacer une barre change ce qu'elle joue ». L'objectif
+« on applique un visuel sur un axe et la bonne info arrive à la bonne barre » repose
+donc sur un mécanisme réel, pas sur une conjecture.
+
+**Et l'énigme du 30/60 est résolue** : les carreaux du damier font environ la moitié
+de la barre, donc à y=270 la moitié gauche est sur du blanc et la moitié droite sur
+du noir. Mieux : **à y=540, les 60 canaux lisent 127** — la barre est pile sur une
+frontière de carreaux et chaque LED moyenne noir et blanc. C'est le **filtrage DMX
+en boîte** de MadMapper pris en flagrant délit : il fabrique bien des demi-teintes
+par moyennage, et il le fait linéairement.
+
+## Deux découvertes de cette passe
+
+- **`output/width` et `output/height` ne changent RIEN à l'empreinte
+  d'échantillonnage.** Testé à 0,25 · 0,5 · 1 · 2 · 4 : le motif des 60 canaux est
+  identique à chaque fois. Ce ne sont donc pas les cotes de la zone lue. Conséquence
+  directe : **on ne peut pas mettre une barre à l'échelle métrique par ces
+  contrôles** — il faut passer par les positions, ou par l'éditeur de fixtures.
+- **Débit réel de la sortie DMX : 34,3 trames/s** (206 trames en 6 s, `Maximum FPS`
+  réglé à 40 dans MadMapper), avec 1 rupture de séquence. Cascade émet à 40 Hz :
+  MadMapper décime, ce qui est sans conséquence pour des chases, mais interdit de
+  promettre une précision meilleure que ~30 ms sur un strobe.
+
+## Ce qui reste honnêtement non mesuré
+
+- **Une fixture RVB.** Tout ce qui précède est mesuré sur une barre monochrome
+  (SFX-01 **W**, un canal par LED). Le comportement de `luminosity` et de `color/*`
+  sur une barre à trois canaux par LED n'est pas établi.
+- **Les poids de luma exacts.** Un seul point (rouge → 0,298) : compatible avec la
+  famille Rec.601/NTSC, mais le vert et le bleu n'ont pas été mesurés.
+- **Le noir garanti après STOP.** À `luminosity 0` les canaux tombent bien à 0, mais
+  la règle n°4 de Cascade veut que STOP n'envoie RIEN : en régime texture, MadMapper
+  garderait alors le dernier `luminosity` et la texture continuerait de jouer. Les
+  voies de secours (`/master/master_dmx_level`, `/master/freeze_dmx_output`) n'ont pas
+  été testées. **À traiter avant de livrer le régime texture.**
+- **Le réglage DMX Filtering** (None / Box / Anamorphic) n'a pas été relevé ni figé ;
+  la mesure à y=540 suggère fortement qu'il était en mode moyennant.
+- **Le recouvrement de deux barres**, l'export SVG (T19), et Spout depuis Resolume (T22).

@@ -831,6 +831,59 @@ function discover(timeoutMs = 1200) {
   });
 }
 
+/**
+ * Sur quel port MadMapper écoute-t-il vraiment ?
+ *
+ * Vécu le 2026-07-26 : le port d'entrée OSC de MadMapper est un réglage de
+ * PROJET (Préférences → onglet Project → OSC), et il valait 8010 alors que tout
+ * le monde croyait 8000. Résultat : Cascade muet, sans autre indice qu'un voyant
+ * rouge. Ce balayage remplace une demi-heure de tâtonnement par un bouton.
+ *
+ * On envoie une requête inoffensive sur chaque candidat et on regarde d'où vient
+ * la réponse — enfin, SI elle vient : MadMapper répond sur SON port de feedback
+ * configuré, qui doit être celui de Cascade. Sans réponse, c'est donc l'un ou
+ * l'autre, et l'interface le dit.
+ *
+ * ⚠ Un port candidat égal à notre port d'écoute nous renverrait nos propres
+ * paquets en boucle locale — et ça ressemble à s'y tromper à une réponse. D'où le
+ * filtre sur l'adresse : une vraie réponse n'a jamais l'adresse de la requête.
+ */
+const PORTS_CANDIDATS = [8000, 8010, 8080, 8100, 7000, 8888, 9010, 1234];
+
+function chercherMadMapper(parPortMs = 900) {
+  const requete = '/getControls?root=/&recursive=0';
+  const attendus = new Set(['/fixtures', '/surfaces', '/media', '/outputs',
+                            '/master', '/modules', '/application', '/timelines']);
+  const ports = [...new Set([state.settings.mmPort, ...PORTS_CANDIDATS])]
+    .filter(p => p !== state.settings.feedbackPort);
+
+  return new Promise((resolve) => {
+    const resultats = [];
+    let vus = 0;
+    const handler = (msgs) => {
+      for (const m of msgs) {
+        if (!m.address || m.address === requete) continue;   // pas notre écho
+        if (attendus.has(m.address) || m.address === '/replyMessageCount') vus++;
+      }
+    };
+    feedbackHandlers.push(handler);
+
+    const suivant = (i) => {
+      if (i >= ports.length) {
+        feedbackHandlers = feedbackHandlers.filter(h => h !== handler);
+        return resolve(resultats);
+      }
+      vus = 0;
+      sendSock.send(oscMessage(requete, []), ports[i], state.settings.mmHost);
+      setTimeout(() => {
+        resultats.push({ port: ports[i], reponses: vus });
+        suivant(i + 1);
+      }, parPortMs);
+    };
+    suivant(0);
+  });
+}
+
 function inspect(address, timeoutMs = 1500) {
   return new Promise((resolve) => {
     const found = new Map();
@@ -1661,6 +1714,14 @@ const server = http.createServer(async (req, res) => {
       case '/api/discover': {
         const found = await discover();
         return json(res, { ok: true, found });
+      }
+      case '/api/trouverport': {
+        // Balayage des ports d'entrée plausibles de MadMapper. Lecture seule :
+        // `/getControls` ne modifie rien.
+        const essais = await chercherMadMapper();
+        const gagnants = essais.filter(e => e.reponses > 0).map(e => e.port);
+        return json(res, { ok: true, essais, ports: gagnants,
+          feedbackPort: state.settings.feedbackPort, actuel: state.settings.mmPort });
       }
       case '/api/layout': {
         const layout = [];
