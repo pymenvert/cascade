@@ -192,7 +192,7 @@ Chaque étape produit quelque chose d'utilisable seul et testable. `npm test` do
 | **0** | **Vérifications sur le matériel de Pym** (section 7). Aucun code. | Décide si l'étape 6 existe et si un chantier v2.1 « per-pixel » est ouvert | 0,5 j |
 | **1** | **Repère 3D + migration.** Panneau « Scène », champs numériques X/Y/Z/azimut/élévation/longueur par barre. Pas encore de vue 3D. | Placer 24 barres au mètre plutôt qu'à la souris | 2–3 j |
 | **2** | **Vue 3D en lecture seule.** Caméra orbitale, grille, barres colorées par leur niveau réel (monitoring live), sélection liée à la 2D, vues Face/Dessus/3-4. | **Objectif 1 de Pym atteint** : voir son show en 3D pendant qu'il tourne | 3–4 j |
-| **3** | **Manipulation 3D.** Glisser au sol / Maj en hauteur, rotation, magnétisme, annuler. Bouton explicite « Renvoyer la disposition vers MadMapper » (`output/x|y|rot`), **jamais automatique** — sinon on écrase le réglage manuel du régisseur. | **Objectif 2 atteint** | 2–3 j |
+| **3** ✅ | **Manipulation 3D.** Glisser au sol / Maj en hauteur, rotation, magnétisme, annuler. Bouton explicite « Renvoyer la disposition vers MadMapper » (`output/x|y|rot`), **jamais automatique** — sinon on écrase le réglage manuel du régisseur. | **Objectif 2 atteint** — livré | 2–3 j |
 | **4** | **Moteur « Champ 3D ».** 4 formes (plan/axe libre, sphère, cylindre, boîte), axe réglable au gizmo + numériquement, formes d'onde et palettes. Option « ordre = projection sur l'axe » pour le pas-à-pas. | **Objectif 3 atteint**, version « une valeur par barre ». Livrer avec 3-4 presets de démonstration qui exploitent la profondeur | 4–5 j |
 | **5** | **Bruit 3D et sources mobiles.** Feu, nuages, scintillement organique, comètes. | Le « wow ». Indépendant du reste | 2–3 j |
 | **6** | **Segments** *(conditionnelle — dépend de T5/T6)*. `seg` par barre, adresses dérivées, **export CSV de définition de fixtures**, compteur de messages/s dans l'UI, garde-fou de débit. | Multiplie la résolution par 4 à 16 **sans toucher à un seul effet** | 4–6 j |
@@ -252,3 +252,27 @@ Les résultats de T1, T2, T3 et T4 sont à consigner dans `C:\Users\pymenvert\Cl
 - Le chantier a déjà sa branche : **`v2`** (locale et distante).
 
 Banc d'essai du rendu 3D, réutilisable : `C:\Users\PYMENV~1\AppData\Local\Temp\claude\C--Users-pymenvert-Claude-Projects-Cascade\7c3b1939-88d4-47ad-aff7-d9375b1d5648\scratchpad\bench3d.html` et `run-bench.js`.
+---
+
+## Avancement réel
+
+- **Étape 1** ✅ repère 3D, migration v1→v2, champs numériques en mètres.
+- **Étape 2** ✅ deuxième page « Scène », vue 3D en canvas 2D maison, caméra
+  orbitale, quatre vues (les trois vues de plan sont orthographiques, sinon la
+  vue de face ne coïncide plus avec la page Conduite), sélection commune.
+- **Étape 3** ✅ manipulation à la souris :
+  - glisser une barre = la déplacer, magnétisme 5 cm ;
+    Maj = hauteur seule, Alt = orienter (lacet + tangage, magnétisme 5°) ;
+  - glisser le vide = tourner la vue, molette = zoom ;
+  - `Ctrl+Z` défait le dernier déplacement (pile de 40) ;
+  - bouton **« Renvoyer la disposition vers MadMapper »**, avec confirmation.
+    `/api/geometrie` n'envoie `output/x|y|rot` que sur ce clic — un déplacement
+    de barre n'envoie **rien**, et un test le vérifie.
+  - Positions bornées à ±500 m côté serveur : un glissé emballé ou une requête
+    malveillante ne peut plus expédier une barre hors d'atteinte de la souris.
+  - Les axes du glissé sont dérivés de la caméra (`axesEcran()`) au lieu
+    d'inverser la projection : ça évite le cas dégénéré de la vue de face, où le
+    plan du sol est vu par la tranche.
+- **Étape 4** — à faire, et **conditionnée par T11/T12** (voir
+  `V2-TESTS-MADMAPPER.md`, section « Relevé du 2026-07-26 » : l'entrée OSC de
+  MadMapper est désactivée sur le poste, ces tests restent à faire à la main).

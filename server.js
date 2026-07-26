@@ -298,9 +298,15 @@ function derive2D(f, scene) {
   f.vert = Math.abs(((f.rot % 180) + 180) % 180 - 90) < 15;
   return f;
 }
+// Enveloppe des positions, en mètres. Aucun plateau ne fait 500 m, mais une
+// barre partie à 1e9 par un glissé emballé ou une requête malveillante rendrait
+// la vue 3D inutilisable et la position irrécupérable à la souris. On borne.
+const P3_MAX = 500;
+
 /** Pose une position 3D (mètres) et met la 2D à jour. */
 function set3D(f, p3, dir3, len3, scene) {
-  f.p3 = [fini(p3[0], 0), fini(p3[1], 0), fini(p3[2], 0)];
+  const borne = (v) => Math.min(P3_MAX, Math.max(-P3_MAX, v));
+  f.p3 = [borne(fini(p3[0], 0)), borne(fini(p3[1], 0)), borne(fini(p3[2], 0))];
   let d = [fini(dir3[0], 1), fini(dir3[1], 0), fini(dir3[2], 0)];
   const n = Math.hypot(d[0], d[1], d[2]);
   f.dir3 = n > 1e-6 ? [d[0] / n, d[1] / n, d[2] / n] : [1, 0, 0]; // jamais un vecteur nul
@@ -1477,14 +1483,45 @@ const server = http.createServer(async (req, res) => {
         return json(res, { ok: true, scene: state.scene, fixtures: state.fixtures });
       }
       case '/api/fixture3d': {
-        // Déplacement d'une barre dans l'espace, en mètres.
-        const f = state.fixtures.find(x => x.id === body.id);
-        if (!f) return json(res, { ok: false });
-        const p = Array.isArray(body.p3) && body.p3.length === 3 ? body.p3 : f.p3;
-        const d = Array.isArray(body.dir3) && body.dir3.length === 3 ? body.dir3 : f.dir3;
-        set3D(f, p, d, 'len3' in body ? body.len3 : f.len3);
+        // Déplacement de barres dans l'espace, en mètres. Une seule barre
+        // (`id`) ou un lot (`fixtures`) — le lot sert à défaire un déplacement
+        // d'un coup, sans état intermédiaire visible dans la vue.
+        const lot = Array.isArray(body.fixtures) ? body.fixtures.slice(0, MAX_FIXTURES)
+          : [{ id: body.id, p3: body.p3, dir3: body.dir3,
+               len3: 'len3' in body ? body.len3 : undefined }];
+        const touchees = [];
+        for (const item of lot) {
+          if (!item || typeof item !== 'object') continue;
+          const f = state.fixtures.find(x => x.id === item.id);
+          if (!f) continue;
+          const p = Array.isArray(item.p3) && item.p3.length === 3 ? item.p3 : f.p3;
+          const d = Array.isArray(item.dir3) && item.dir3.length === 3 ? item.dir3 : f.dir3;
+          set3D(f, p, d, item.len3 === undefined ? f.len3 : item.len3);
+          touchees.push(f);
+        }
+        if (!touchees.length) return json(res, { ok: false });
         saveConfig();
-        return json(res, { ok: true, fixture: f });
+        return json(res, { ok: true, fixture: touchees[0], fixtures: touchees });
+      }
+      case '/api/geometrie': {
+        // Renvoie la disposition vers MadMapper. JAMAIS automatique : c'est
+        // une écriture dans le projet de l'utilisateur, elle se déclenche
+        // uniquement sur un clic explicite. Le reste du temps, Cascade ne
+        // touche qu'aux niveaux et aux couleurs.
+        //
+        // ⚠ Que MadMapper accepte d'être piloté sur `output/x` en OSC n'est PAS
+        // vérifié (test T13 de docs/V2-TESTS-MADMAPPER.md). L'interface le dit.
+        const envoyees = [];
+        for (const f of state.fixtures) {
+          if (!f.enabled) continue;
+          oscSend(`${f.address}/output/x`, [{ type: 'f', value: q255(f.x) }]);
+          oscSend(`${f.address}/output/y`, [{ type: 'f', value: q255(f.y) }]);
+          oscSend(`${f.address}/output/rot`, [{ type: 'f', value: f.rot || 0 }]);
+          envoyees.push(f.name);
+        }
+        console.log('[cascade] disposition envoyée à MadMapper : '
+          + envoyees.length + ' barre(s)');
+        return json(res, { ok: true, count: envoyees.length, names: envoyees });
       }
       case '/api/groups': {
         const gid = String(body.id || '');

@@ -138,6 +138,93 @@ describe('Espace 3D', () => {
     await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
   });
 
+  // ── Déplacement à la souris : ce que le serveur doit garantir ──────────
+
+  test('les positions absurdes sont bornées, pas acceptées telles quelles', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(2) });
+    const id = (await h.state()).fixtures[0].id;
+    // Un glissé emballé, ou une requête malveillante : une barre à 1e9 rendrait
+    // la vue inutilisable et la position irrécupérable à la souris.
+    await h.post('/api/fixture3d', { id, p3: [1e9, -1e9, 1e12] });
+    const f = (await h.state()).fixtures.find(x => x.id === id);
+    for (const v of f.p3) assert.ok(Math.abs(v) <= 500, 'position non bornée : ' + f.p3);
+    assert.ok(f.x >= 0 && f.x <= 1 && f.y >= 0 && f.y <= 1, 'la 2D doit rester dans le cadre');
+    // Et rien de tordu : ni NaN, ni Infinity
+    for (const v of [...f.p3, ...f.dir3, f.len3, f.x, f.y, f.rot])
+      assert.ok(Number.isFinite(v), 'valeur non finie : ' + v);
+  });
+
+  test('un lot de barres se déplace d’un coup (c’est ce qui permet d’annuler)', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    const ids = (await h.state()).fixtures.map(f => f.id);
+    const lot = [
+      { id: ids[0], p3: [1, 2, 3], dir3: [1, 0, 0], len3: 1.5 },
+      { id: ids[1], p3: [-1, 0, 2], dir3: [0, 0, 1], len3: 2 },
+      { id: 'inexistante', p3: [9, 9, 9] },   // ignorée sans casser le reste
+    ];
+    const r = await h.post('/api/fixture3d', { fixtures: lot });
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.fixtures.length, 2, 'la barre inconnue doit être ignorée');
+    const fx = (await h.state()).fixtures;
+    assert.deepEqual(fx.find(f => f.id === ids[0]).p3, [1, 2, 3]);
+    assert.deepEqual(fx.find(f => f.id === ids[1]).p3, [-1, 0, 2]);
+    assert.ok(Math.abs(fx.find(f => f.id === ids[1]).dir3[2]) > 0.9, 'barre verticale attendue');
+  });
+
+  test('un lot entièrement inconnu échoue proprement', async () => {
+    const r = await h.post('/api/fixture3d', { fixtures: [{ id: 'nulle' }] });
+    assert.equal(r.body.ok, false);
+    assert.equal((await h.get('/api/ping')).body.app, 'Cascade');
+  });
+
+  // ── Renvoi de la disposition vers MadMapper ────────────────────────────
+
+  test('la disposition ne part vers MadMapper que sur demande explicite', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    const ids = (await h.state()).fixtures.map(f => f.id);
+    await h.post('/api/fixture3d', { id: ids[0], p3: [2, 1, 3], dir3: [1, 0, 0], len3: 1.2 });
+
+    // Déplacer une barre ne doit RIEN envoyer : Cascade ne réécrit jamais le
+    // projet MadMapper dans le dos de l'utilisateur.
+    h.clearOsc();
+    await h.post('/api/fixture3d', { id: ids[1], p3: [-2, 0, 1] });
+    await sleep(150);
+    const geo = h.osc().filter(m => /\/output\//.test(m.address));
+    assert.deepEqual(geo, [], 'un déplacement ne doit envoyer aucune géométrie');
+
+    // …et sur clic, oui.
+    h.clearOsc();
+    const r = await h.post('/api/geometrie', {});
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.count, 3);
+    await sleep(150);
+    const msgs = h.osc();
+    for (const suffixe of ['output/x', 'output/y', 'output/rot']) {
+      const n = msgs.filter(m => m.address.endsWith(suffixe)).length;
+      assert.equal(n, 3, 'attendu 3 messages ' + suffixe + ', vu ' + n);
+    }
+    // La valeur envoyée doit être la projection 2D de la position 3D
+    const f = (await h.state()).fixtures.find(x => x.id === ids[0]);
+    const mx = msgs.find(m => m.address === f.address + '/output/x');
+    assert.ok(mx, 'pas de message output/x pour ' + f.address);
+    assert.ok(Math.abs(mx.args[0] - f.x) < 0.01, 'attendu ' + f.x + ', envoyé ' + mx.args[0]);
+  });
+
+  test('une barre désactivée n’est pas envoyée', async () => {
+    const fx = fixtures(3);
+    fx[1].enabled = false;
+    await h.post('/api/fixtures', { fixtures: fx });
+    h.clearOsc();
+    const r = await h.post('/api/geometrie', {});
+    assert.equal(r.body.count, 2);
+    await sleep(150);
+    const adr = new Set(h.osc().filter(m => /\/output\/x$/.test(m.address)).map(m => m.address));
+    assert.equal(adr.size, 2);
+    assert.ok(!adr.has(fx[1].address + '/output/x'),
+      'la barre éteinte (' + fx[1].address + ') ne doit pas être placée');
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+  });
+
   test('le moteur continue de tourner normalement avec la 3D', async () => {
     await h.post('/api/fixtures', { fixtures: fixtures(4) });
     const id = (await h.state()).layers[0].id;

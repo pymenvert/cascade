@@ -400,6 +400,139 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await rafraichir();
   });
 
+  // ── Déplacer une barre à la souris, pour de vrai ───────────────────────
+  // Ces tests injectent de vrais événements de souris par CDP : c'est la seule
+  // façon de vérifier le geste complet, capture du pointeur comprise.
+
+  /** Position à l'écran du centre d'une barre, et la géométrie de la vue. */
+  const reperer = (id) => nav.evaluate(`
+    document.querySelector('#pages button[data-page="scene"]').click();
+    await new Promise(r => setTimeout(r, 250));
+    // ⚠ CDP place la souris en coordonnées de FENÊTRE. Si la page est restée
+    // défilée par un test précédent, le haut du canevas passe au-dessus du bord
+    // et le clic part dans le vide : aucun événement, aucune explication.
+    window.scrollTo(0, 0);
+    document.querySelector('#vue3d').scrollIntoView({ block: 'center' });
+    await new Promise(r => setTimeout(r, 150));
+    const f = S.fixtures.find(x => x.id === ${JSON.stringify(id)});
+    if (!f) return null;
+    const vue = vue3dGeom();
+    const p = projeter(f.p3, vue);
+    const r = document.querySelector('#cv3d').getBoundingClientRect();
+    return { x: r.left + p.x, y: r.top + p.y, p3: f.p3.slice(), dir3: f.dir3.slice(),
+             ech: p.ech, vue: { w: vue.w, h: vue.h } };`);
+
+  test('glisser une barre la déplace vraiment, et Ctrl+Z le défait', async () => {
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'd1', name: 'Sol jardin', address: '/fixtures/d1', enabled: true, x: 0.3, y: 0.5 },
+      { id: 'd2', name: 'Sol cour', address: '/fixtures/d2', enabled: true, x: 0.7, y: 0.5 },
+    ] });
+    // Vue de dessus : l'écran est le plan du sol, le geste est sans ambiguïté.
+    await nav.evaluate(`document.querySelector('#vue3dCam button[data-vue="dessus"]').click();
+                        await new Promise(r => setTimeout(r, 150)); return 1`);
+    const av = await reperer('d1');
+    assert.ok(av, 'la barre d1 doit être visible');
+
+    await nav.glisser(av.x, av.y, av.x + 90, av.y - 60);
+    await sleep(300);
+    const f = (await h.state()).fixtures.find(x => x.id === 'd1');
+
+    // Vue de dessus : droite = jardin→cour (X croît), haut = vers le lointain
+    // (Y croît). La hauteur, elle, ne doit pas bouger d'un millimètre.
+    assert.ok(f.p3[0] > av.p3[0] + 0.2,
+      'la barre devait partir vers la cour : ' + av.p3 + ' → ' + f.p3);
+    assert.ok(f.p3[1] > av.p3[1] + 0.2,
+      'la barre devait partir vers le lointain : ' + av.p3 + ' → ' + f.p3);
+    assert.ok(Math.abs(f.p3[2] - av.p3[2]) < 0.001,
+      'un glissé simple ne doit pas changer la hauteur : ' + f.p3[2]);
+    // Le déplacement tombe sur la grille de 5 cm
+    for (const v of f.p3) assert.ok(Math.abs(v * 20 - Math.round(v * 20)) < 1e-6,
+      'position hors grille de 5 cm : ' + f.p3);
+    // L'autre barre n'a pas bougé
+    const autre = (await h.state()).fixtures.find(x => x.id === 'd2');
+    assert.deepEqual(autre.p3, [(0.7 - 0.5) * 10, 0, (1 - 0.5) * 6],
+      'seule la barre saisie doit bouger');
+
+    // Ctrl+Z remet la barre où elle était
+    await nav.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',
+      { code: 'KeyZ', key: 'z', ctrlKey: true, bubbles: true })); return 1`);
+    await sleep(400);
+    const apres = (await h.state()).fixtures.find(x => x.id === 'd1');
+    assert.deepEqual(apres.p3, av.p3, 'Ctrl+Z doit rendre la position d’avant');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('Maj+glisser ne change que la hauteur', async () => {
+    const av = await reperer('d1');
+    await nav.glisser(av.x, av.y, av.x + 80, av.y - 70, { modifiers: 8 });  // 8 = Maj
+    await sleep(300);
+    const f = (await h.state()).fixtures.find(x => x.id === 'd1');
+    assert.ok(f.p3[2] > av.p3[2] + 0.2, 'la barre devait monter : ' + av.p3 + ' → ' + f.p3);
+    assert.ok(Math.abs(f.p3[0] - av.p3[0]) < 0.001 && Math.abs(f.p3[1] - av.p3[1]) < 0.001,
+      'Maj ne doit pas déplacer au sol : ' + av.p3 + ' → ' + f.p3);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('Alt+glisser oriente la barre sans la déplacer', async () => {
+    const av = await reperer('d1');
+    await nav.glisser(av.x, av.y, av.x + 100, av.y, { modifiers: 1 });      // 1 = Alt
+    await sleep(300);
+    const f = (await h.state()).fixtures.find(x => x.id === 'd1');
+    assert.deepEqual(f.p3, av.p3, 'Alt ne doit pas déplacer la barre');
+    const ecart = Math.hypot(f.dir3[0] - av.dir3[0], f.dir3[1] - av.dir3[1], f.dir3[2] - av.dir3[2]);
+    assert.ok(ecart > 0.05, 'la direction devait changer : ' + av.dir3 + ' → ' + f.dir3);
+    // Toujours un vecteur unitaire — sinon la longueur de la barre dérive
+    assert.ok(Math.abs(Math.hypot(...f.dir3) - 1) < 1e-6, 'direction non normalisée : ' + f.dir3);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('glisser le vide tourne la vue au lieu de déplacer quoi que ce soit', async () => {
+    const av = await reperer('d1');
+    const avant = (await h.state()).fixtures.map(f => f.p3.slice());
+    // Un coin de la vue, loin de toute barre
+    const coin = await nav.evaluate(`
+      window.scrollTo(0, 0);
+      document.querySelector('#vue3d').scrollIntoView({ block: 'center' });
+      await new Promise(r => setTimeout(r, 150));
+      const r = document.querySelector('#cv3d').getBoundingClientRect();
+      return { x: r.left + 18, y: r.top + 18, az: cam.az, haut: r.top };`);
+    assert.ok(coin.haut >= 0 && coin.y > 0,
+      'le canevas doit être visible pour qu’un clic l’atteigne, haut = ' + coin.haut);
+    await nav.glisser(coin.x, coin.y, coin.x + 120, coin.y + 20);
+    await sleep(250);
+    const apres = (await h.state()).fixtures.map(f => f.p3.slice());
+    assert.deepEqual(apres, avant, 'aucune barre ne doit bouger');
+    const az = await nav.evaluate('return cam.az');
+    assert.notEqual(az, coin.az, 'la caméra devait tourner');
+    assert.ok(av, 'garde-fou');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le bouton d’envoi vers MadMapper demande confirmation, et n’envoie rien si on refuse', async () => {
+    h.clearOsc();
+    // Refus
+    await nav.evaluate(`window.confirm = () => false;
+      document.querySelector('#btnGeom').click();
+      await new Promise(r => setTimeout(r, 250)); return 1`);
+    await sleep(200);
+    assert.deepEqual(h.osc().filter(m => /\/output\//.test(m.address)), [],
+      'un refus ne doit rien envoyer');
+
+    // Acceptation
+    h.clearOsc();
+    const etat = await nav.evaluate(`window.confirm = () => true;
+      document.querySelector('#btnGeom').click();
+      await new Promise(r => setTimeout(r, 400));
+      return document.querySelector('#geomEtat').textContent;`);
+    await sleep(200);
+    const geo = h.osc().filter(m => /\/output\//.test(m.address));
+    assert.ok(geo.length >= 6, 'attendu 3 messages × 2 barres, vu ' + geo.length);
+    assert.match(etat, /barre/, 'l’interface doit confirmer l’envoi, vu : ' + etat);
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/fixtures', { fixtures: fixtures(6) });
+    await rafraichir();
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

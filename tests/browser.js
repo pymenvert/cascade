@@ -185,6 +185,42 @@ async function launch() {
       await dormir(250); // laisse le premier poll s'exécuter
     },
 
+    /**
+     * Vrais événements de souris, injectés par le navigateur lui-même.
+     *
+     * On pourrait fabriquer des `PointerEvent` en JavaScript, mais ils ne
+     * passent pas par le test de collision du navigateur et surtout
+     * `setPointerCapture()` les refuse : il n'y a aucun pointeur réel derrière.
+     * Passer par CDP donne un vrai geste, capture comprise — donc on teste le
+     * code tel qu'il tournera sous la main de l'utilisateur.
+     *
+     * Modificateurs (masque de bits CDP) : Alt 1 · Ctrl 2 · Cmd 4 · Maj 8.
+     */
+    async souris(type, x, y, opts = {}) {
+      await cdp.envoyer('Input.dispatchMouseEvent', {
+        type, x, y, button: type === 'mouseMoved' && !opts.enfonce ? 'none' : 'left',
+        buttons: (type === 'mousePressed' || opts.enfonce) ? 1 : 0,
+        clickCount: type === 'mousePressed' || type === 'mouseReleased' ? 1 : 0,
+        modifiers: opts.modifiers || 0,
+        pointerType: 'mouse',
+      }, sessionId);
+    },
+
+    /** Glisse de (x0,y0) à (x1,y1) en plusieurs pas, comme une vraie main. */
+    async glisser(x0, y0, x1, y1, opts = {}) {
+      const n = opts.pas || 6;
+      const m = opts.modifiers || 0;
+      await this.souris('mouseMoved', x0, y0, { modifiers: m });
+      await this.souris('mousePressed', x0, y0, { modifiers: m });
+      for (let i = 1; i <= n; i++) {
+        await this.souris('mouseMoved', x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n,
+          { enfonce: true, modifiers: m });
+        await dormir(16);
+      }
+      await this.souris('mouseReleased', x1, y1, { modifiers: m });
+      await dormir(120);
+    },
+
     /** Évalue une expression dans la page et renvoie sa valeur. */
     async evaluate(expr) {
       const r = await cdp.envoyer('Runtime.evaluate', {
