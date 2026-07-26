@@ -47,8 +47,14 @@ describe('Moteur', () => {
     await h.post('/api/stop');
     await sleep(60);
     h.clearOsc();
-    await sleep(600); // largement plus que le keep-alive de 1 s ? non : on vérifie le silence
-    assert.equal(h.osc().length, 0, 'aucun message OSC ne doit sortir à l’arrêt');
+    await sleep(1200);
+    // ⚠ Cascade interroge MadMapper toutes les 3 s pour savoir s'il répond,
+    // même à l'arrêt : c'est voulu, et ça n'allume rien. On ne juge donc que
+    // ce qui pilote les fixtures. Compter TOUS les messages faisait échouer ce
+    // test environ une fois sur cinq, au hasard du sondage.
+    const versFixtures = h.osc().filter(m => /^\/fixtures\//.test(m.address));
+    assert.deepEqual(versFixtures, [],
+      'aucune valeur ne doit être envoyée aux barres à l’arrêt');
   });
 
   test('BLACKOUT force des zéros sur toutes les barres', async () => {

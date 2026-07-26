@@ -164,6 +164,31 @@
   .badge { font-size: 9px; letter-spacing: .5px; text-transform: none; color: #000;
     background: var(--accent); border-radius: 10px; padding: 2px 7px; font-weight: 700; }
   .badge:empty { display: none; }
+  /* Bascule entre les deux pages. La barre de transport, elle, reste commune :
+     START, STOP et BLACKOUT doivent être là quelle que soit la page. */
+  #pages { display: flex; gap: 3px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 3px; }
+  #pages button { border: none; background: none; font-size: 12px; padding: 6px 14px;
+    border-radius: 7px; color: var(--dim); font-weight: 600; letter-spacing: .3px; }
+  #pages button:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  #pages button.active { background: var(--accent); color: #000; box-shadow: 0 0 10px var(--glow); }
+  /* ── Page Scène 3D ── */
+  #vue3d { position: relative; height: min(72vh, 760px); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; touch-action: none; cursor: grab;
+    background: radial-gradient(ellipse at 50% 110%, #141926 0%, #090b0f 70%); }
+  #vue3d.attrape { cursor: grabbing; }
+  #vue3d canvas { display: block; width: 100%; height: 100%; }
+  #vue3dInfo { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--dim);
+    pointer-events: none; line-height: 1.6; text-shadow: 0 1px 3px #000; }
+  #vue3dCam { position: absolute; right: 10px; top: 10px; display: flex; gap: 5px; }
+  #vue3dCam button { font-size: 11px; padding: 5px 10px; background: rgba(19,21,28,.85);
+    backdrop-filter: blur(6px); }
+  .scene-grid { display: grid; grid-template-columns: 1fr 320px; gap: 14px; align-items: start; }
+  @media (max-width: 980px) { .scene-grid { grid-template-columns: 1fr; } }
+  .coord { display: flex; gap: 6px; align-items: center; margin: 7px 0; font-size: 12px; }
+  .coord > span:first-child { width: 78px; color: var(--dim); flex-shrink: 0; }
+  .coord input[type=number] { width: 68px; }
+  .coord .unite { color: var(--dim); font-size: 11px; }
   /* Premier lancement : un vrai accueil plutôt qu'une page vide */
   #accueil { background: linear-gradient(180deg, #15181f 0%, #12141b 100%);
     border: 1px solid var(--border); border-left: 3px solid var(--accent);
@@ -259,6 +284,8 @@
   .bar.excl { border-style: dashed; opacity: .45; }
   /* Barre appartenant au groupe en cours d'édition */
   .bar.grp { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  /* Barre sélectionnée — le même liseré blanc que dans la vue 3D */
+  .bar.sel3d { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.75); }
   .bar .lbl { position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
     margin-top: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; pointer-events: none; }
   .bar .num { position: absolute; inset: 0; display: flex; align-items: center;
@@ -274,6 +301,10 @@
   <span id="netInfo" style="font-size:12px; color:var(--dim); cursor:pointer; border:1px dashed var(--border); border-radius:6px; padding:5px 10px;"
         title="Adresse pour tablette / téléphone sur le même Wi-Fi — cliquer pour copier"></span>
   <button id="btnQR" style="padding:5px 10px; font-size:12px" title="Afficher le QR code — connexion iPad / téléphone (même Wi-Fi)">QR</button>
+  <div id="pages">
+    <button data-page="conduite" class="active" title="Chasers, couches, presets — la page de conduite">Conduite</button>
+    <button data-page="scene" title="Placer les barres dans l'espace réel et voir le show en 3D">Scène 3D</button>
+  </div>
   <div class="spacer"></div>
   <button id="btnStart" class="big start" title="Lance tous les chasers actifs">▶ START</button>
   <button id="btnStop" class="big" title="Arrête les chasers et relâche le contrôle : MadMapper garde le dernier état (ce n'est PAS un noir)">■ STOP</button>
@@ -351,6 +382,8 @@
 
 <!-- Premier lancement : sans barre, l'interface n'a rien à montrer. Plutôt
      qu'un écran vide, on dit quoi faire, dans l'ordre. -->
+<div id="pageConduite">
+
 <div id="accueil" style="display:none">
   <h2>Premiers pas</h2>
   <ol>
@@ -551,6 +584,49 @@
     <button id="btnSortY">Ordre = H→B</button>
     <button id="btnMirH">↔ Miroir H</button>
     <button id="btnMirV">↕ Miroir V</button>
+  </div>
+</div>
+
+</div><!-- fin page Conduite -->
+
+<!-- ══════════ PAGE SCÈNE 3D ══════════ -->
+<div id="pageScene" style="display:none">
+  <div class="scene-grid">
+
+    <div class="panel">
+      <h2>Scène — <span id="sceneHint" style="color:var(--accent2); text-transform:none; letter-spacing:0">glisser = tourner · molette = zoom · clic sur une barre = la sélectionner</span></h2>
+      <div id="vue3d">
+        <canvas id="cv3d"></canvas>
+        <div id="vue3dCam">
+          <button data-vue="face" title="Vue de face — équivalente à la vue 2D">Face</button>
+          <button data-vue="dessus" title="Vue de dessus — montre la profondeur">Dessus</button>
+          <button data-vue="cote" title="Vue de côté">Côté</button>
+          <button data-vue="troisquart" class="active" title="Vue de trois quarts">3/4</button>
+        </div>
+        <div id="vue3dInfo"></div>
+      </div>
+      <p class="hint">Les barres s'allument en direct, comme sur scène. La vue de face
+      montre exactement ce que montre la page Conduite — c'est le même plateau, vu autrement.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Plateau</h2>
+      <label class="coord" title="Largeur du plateau, de jardin à cour"><span>Largeur</span>
+        <input type="number" id="scW" min="0.5" max="200" step="0.5"><span class="unite">m</span></label>
+      <label class="coord" title="Profondeur, de la face au lointain"><span>Profondeur</span>
+        <input type="number" id="scD" min="0.5" max="200" step="0.5"><span class="unite">m</span></label>
+      <label class="coord" title="Hauteur sous perche"><span>Hauteur</span>
+        <input type="number" id="scH" min="0.5" max="200" step="0.5"><span class="unite">m</span></label>
+      <p class="hint">Mesure ces trois cotes une fois : tout le reste en découle.
+      Changer le plateau ne déplace aucune barre — ça change seulement le cadre.</p>
+
+      <h2 style="margin-top:16px">Barre sélectionnée</h2>
+      <div id="sel3d">
+        <p class="hint" style="margin:0">Clique une barre dans la vue, ou une barre de la
+        page Conduite : la sélection est commune aux deux pages.</p>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -920,6 +996,8 @@ function render() {
   renderFixtures();
   renderPreviewCells();
   renderSpatial();
+  renderScene();      // page Scène 3D : plateau + barre sélectionnée
+  besoinRedessin = true;
 }
 /** Témoin de mesure Link : un point par temps, allumé sur le temps courant. */
 function renderBeats(lk) {
@@ -1117,6 +1195,9 @@ function renderSpatial() {
         dragging = null;
         if (assignMode && !dragMoved) toggleAssign(fid);
         else if (dragMoved) pushFixtures();
+        // Sélection commune aux deux pages : cliquer une barre ici la
+        // sélectionne aussi dans la vue 3D, et réciproquement.
+        else { selBar = fid; renderSel3d(); besoinRedessin = true; renderSpatial(); }
       });
       onDblTap(el, () => {
         if (assignMode || dragMoved) return;
@@ -1160,6 +1241,7 @@ function renderSpatial() {
     }
     el.classList.toggle('excl', !dedans);
     el.classList.toggle('grp', !!(assignMode && assignMode.type === 'group' && dedans));
+    el.classList.toggle('sel3d', f.id === selBar);   // sélection partagée avec la vue 3D
     el.querySelector('.num').textContent = i + 1;
     el.querySelector('.lbl').textContent = f.name;
     el.querySelector('.lbl').style.transform = `translateX(-50%) rotate(${-rot}deg)`;
@@ -1881,6 +1963,345 @@ $('#setSave').onclick = async () => {
   await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
   $('#dlgSettings').close(); poll();
 };
+
+// ═══════════════════════════════════════════════════════════════════════
+// PAGE SCÈNE 3D
+//
+// Rendu en canvas 2D avec une projection écrite à la main — pas de WebGL,
+// pas de bibliothèque. Mesuré : ~5 ms par image pour 128 barres avec halos
+// et étiquettes, sans accélération matérielle. WebGL coûterait 300 lignes de
+// shaders pour gagner un temps que personne ne voit, et il ne sait même pas
+// dessiner un trait épais (gl.lineWidth ne fait rien sous DirectX).
+//
+// Repère : X = jardin↔cour, Y = profondeur, Z = hauteur, en mètres,
+// origine au centre du plateau au sol. Même convention que les plans de feu.
+// ═══════════════════════════════════════════════════════════════════════
+let page = 'conduite';
+const cam = { az: -0.6, el: 0.42, dist: 18, cx: 0, cy: 0, cz: 1.6, ortho: false };
+let besoinRedessin = true;
+let survol3d = null;
+
+// Les trois vues de plan sont orthographiques (comme un plan de feu) ;
+// seule la 3/4 est en perspective, pour donner le volume.
+const VUES = {
+  face:       { az: 0,            el: 0,     ortho: true },
+  dessus:     { az: 0,            el: Math.PI / 2, ortho: true },
+  cote:       { az: -Math.PI / 2, el: 0,     ortho: true },
+  troisquart: { az: -0.6,         el: 0.42,  ortho: false },
+};
+
+/** Projette un point de la scène (mètres) vers l'écran (pixels). */
+function projeter(p, vue) {
+  // Translation vers la caméra, puis deux rotations (azimut, élévation)
+  const dx = p[0] - cam.cx, dy = p[1] - cam.cy, dz = p[2] - cam.cz;
+  const ca = Math.cos(cam.az), sa = Math.sin(cam.az);
+  const x1 = dx * ca - dy * sa;
+  const y1 = dx * sa + dy * ca;
+  const ce = Math.cos(cam.el), se = Math.sin(cam.el);
+  const y2 = y1 * ce - dz * se;
+  const z2 = y1 * se + dz * ce;   // profondeur vue depuis la caméra
+  const prof = y2 + cam.dist;
+  // Vues de plan (face, dessus, côté) : projection ORTHOGRAPHIQUE, comme sur
+  // un plan de feu. Sinon la profondeur décalerait les barres et la vue de
+  // face ne coïnciderait plus avec la page Conduite — or c'est tout l'intérêt
+  // d'avoir une vue « Face » : servir de pont entre les deux pages.
+  if (cam.ortho) {
+    const f = vue.foc / cam.dist;
+    return { x: vue.cx + x1 * f, y: vue.cy - z2 * f, prof, ech: f };
+  }
+  if (prof < 0.15) return null;   // derrière la caméra : on ne dessine pas
+  const f = vue.foc / prof;
+  return { x: vue.cx + x1 * f, y: vue.cy - z2 * f, prof, ech: f };
+}
+
+function vue3dGeom() {
+  const cv = $('#cv3d');
+  const r = cv.getBoundingClientRect();
+  return { cx: r.width / 2, cy: r.height / 2, foc: Math.min(r.width, r.height) * 0.9,
+           w: r.width, h: r.height };
+}
+
+/** Les deux extrémités d'une barre, en mètres. */
+function boutsDe(f) {
+  const d = f.dir3 || [1, 0, 0], L = (f.len3 || 1.2) / 2, p = f.p3 || [0, 0, 0];
+  return [[p[0] - d[0] * L, p[1] - d[1] * L, p[2] - d[2] * L],
+          [p[0] + d[0] * L, p[1] + d[1] * L, p[2] + d[2] * L]];
+}
+
+function dessiner3d() {
+  const cv = $('#cv3d');
+  if (!cv || !S) return;
+  const ctx = cv.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const r = cv.getBoundingClientRect();
+  if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) {
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  const vue = vue3dGeom();
+  const sc = S.scene || { w: 10, d: 8, h: 6 };
+
+  // ── Sol : une grille au mètre, plus dense au centre ──
+  const hw = sc.w / 2, hd = sc.d / 2;
+  ctx.lineWidth = 1;
+  for (let i = -Math.floor(hw); i <= Math.floor(hw); i++) {
+    const a = projeter([i, -hd, 0], vue), b = projeter([i, hd, 0], vue);
+    if (!a || !b) continue;
+    ctx.strokeStyle = i === 0 ? 'rgba(148,161,186,.45)' : 'rgba(38,43,56,.85)';
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (let j = -Math.floor(hd); j <= Math.floor(hd); j++) {
+    const a = projeter([-hw, j, 0], vue), b = projeter([hw, j, 0], vue);
+    if (!a || !b) continue;
+    ctx.strokeStyle = j === 0 ? 'rgba(148,161,186,.45)' : 'rgba(38,43,56,.85)';
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  // Repère d'axes au centre, pour ne jamais perdre le nord
+  const O = projeter([0, 0, 0], vue);
+  if (O) {
+    for (const [v, coul, nom] of [[[1.2, 0, 0], '#f2900f', 'X'], [[0, 1.2, 0], '#3ddc84', 'Y'], [[0, 0, 1.2], '#5aa9ff', 'Z']]) {
+      const e = projeter(v, vue);
+      if (!e) continue;
+      ctx.strokeStyle = coul; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(O.x, O.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+      ctx.fillStyle = coul; ctx.font = '600 10px system-ui';
+      ctx.fillText(nom, e.x + 3, e.y - 3);
+    }
+  }
+
+  // ── Barres, triées du plus lointain au plus proche (peintre) ──
+  const L = sel();
+  const dessins = [];
+  (S.fixtures || []).forEach((f, i) => {
+    const [A, B] = boutsDe(f);
+    const a = projeter(A, vue), b = projeter(B, vue);
+    if (!a || !b) return;
+    dessins.push({ f, i, a, b, prof: (a.prof + b.prof) / 2 });
+  });
+  dessins.sort((u, v) => v.prof - u.prof);
+
+  for (const d of dessins) {
+    const { f, i, a, b } = d;
+    const niv = (S.levels && S.levels[i]) || 0;
+    const coul = S.colors && S.colors[i];
+    const eteinte = f.enabled === false;
+    const choisie = L && ((L.groupId && (S.groups || []).find(g => g.id === L.groupId)?.bars.includes(f.id))
+      || (!L.groupId && Array.isArray(L.bars) && L.bars.includes(f.id)));
+    const active = selBar === f.id;
+
+    // Épaisseur en pixels, atténuée avec l'éloignement mais jamais filiforme
+    const ep = Math.max(3, Math.min(16, 0.09 * d.a.ech));
+    const rgb = coul ? `${coul[0]},${coul[1]},${coul[2]}` : '255,176,32';
+
+    if (niv > 0.03 && !eteinte) {           // halo : on « voit » la lumière
+      ctx.strokeStyle = `rgba(${rgb},${(0.10 + niv * 0.22).toFixed(3)})`;
+      ctx.lineWidth = ep * (2.6 + niv * 2.6);
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.strokeStyle = eteinte ? 'rgba(90,98,116,.35)'
+      : `rgba(${rgb},${(0.22 + niv * 0.78).toFixed(3)})`;
+    ctx.lineWidth = ep;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+
+    if (active || survol3d === f.id) {      // liseré de sélection
+      ctx.strokeStyle = active ? '#fff' : 'rgba(255,255,255,.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    if (choisie && !active) {               // barre pilotée par la couche courante
+      ctx.strokeStyle = 'rgba(242,144,15,.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    if (active || d.a.ech > 40) {           // étiquette si assez proche
+      ctx.fillStyle = active ? '#fff' : 'rgba(139,147,165,.9)';
+      ctx.font = (active ? '600 ' : '') + '10px system-ui';
+      ctx.fillText(f.name, (a.x + b.x) / 2 + 6, (a.y + b.y) / 2 - 6);
+    }
+  }
+
+  const nb = (S.fixtures || []).length;
+  $('#vue3dInfo').textContent =
+    `plateau ${sc.w} × ${sc.d} × ${sc.h} m · ${nb} barre${nb > 1 ? 's' : ''} · `
+    + `caméra ${cam.dist.toFixed(1)} m`;
+}
+
+/** Barre la plus proche du curseur, ou null. */
+function barreSous(mx, my) {
+  const vue = vue3dGeom();
+  let best = null, bd = 14;
+  for (const f of (S.fixtures || [])) {
+    const [A, B] = boutsDe(f);
+    const a = projeter(A, vue), b = projeter(B, vue);
+    if (!a || !b) continue;
+    // distance point ↔ segment
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const l2 = vx * vx + vy * vy;
+    const t = l2 ? Math.max(0, Math.min(1, ((mx - a.x) * vx + (my - a.y) * vy) / l2)) : 0;
+    const dx = mx - (a.x + t * vx), dy = my - (a.y + t * vy);
+    const dist = Math.hypot(dx, dy);
+    if (dist < bd) { bd = dist; best = f; }
+  }
+  return best;
+}
+
+let selBar = null;   // barre sélectionnée, commune aux deux pages
+
+function montrerPage(p) {
+  page = p;
+  $('#pageConduite').style.display = p === 'conduite' ? '' : 'none';
+  $('#pageScene').style.display = p === 'scene' ? '' : 'none';
+  $$('#pages button').forEach(b => b.classList.toggle('active', b.dataset.page === p));
+  if (p === 'scene') { besoinRedessin = true; renderScene(); }
+}
+$$('#pages button').forEach(b => b.onclick = () => montrerPage(b.dataset.page));
+
+$$('#vue3dCam button').forEach(b => b.onclick = () => {
+  const v = VUES[b.dataset.vue];
+  cam.az = v.az; cam.el = v.el; cam.ortho = v.ortho;
+  $$('#vue3dCam button').forEach(x => x.classList.toggle('active', x === b));
+  besoinRedessin = true;
+});
+
+// Caméra : glisser = orbite, molette = zoom. Marche aussi au doigt.
+{
+  const el = $('#vue3d');
+  let attrape = null;
+  el.addEventListener('pointerdown', (e) => {
+    const r = el.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    attrape = { x: e.clientX, y: e.clientY, bouge: false, cible: barreSous(mx, my) };
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('attrape');
+  });
+  el.addEventListener('pointermove', (e) => {
+    const r = el.getBoundingClientRect();
+    if (!attrape) {
+      const s = barreSous(e.clientX - r.left, e.clientY - r.top);
+      const id = s ? s.id : null;
+      if (id !== survol3d) { survol3d = id; besoinRedessin = true; }
+      el.style.cursor = s ? 'pointer' : '';
+      return;
+    }
+    const dx = e.clientX - attrape.x, dy = e.clientY - attrape.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) attrape.bouge = true;
+    if (attrape.bouge) {
+      cam.az -= dx * 0.008;
+      cam.el = Math.max(-1.45, Math.min(1.45, cam.el + dy * 0.006));
+      attrape.x = e.clientX; attrape.y = e.clientY;
+      cam.ortho = false;   // dès qu'on tourne, on quitte la vue de plan
+      $$('#vue3dCam button').forEach(x => x.classList.remove('active'));
+      besoinRedessin = true;
+    }
+  });
+  el.addEventListener('pointerup', () => {
+    if (attrape && !attrape.bouge) {
+      // Clic net sur une barre : sélection partagée avec la page Conduite
+      selBar = attrape.cible ? attrape.cible.id : null;
+      renderSel3d();
+      besoinRedessin = true;
+    }
+    attrape = null;
+    el.classList.remove('attrape');
+  });
+  el.addEventListener('pointercancel', () => { attrape = null; el.classList.remove('attrape'); });
+  el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cam.dist = Math.max(1.5, Math.min(120, cam.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+    besoinRedessin = true;
+  }, { passive: false });
+}
+
+/** Panneau de la barre sélectionnée : coordonnées en mètres, modifiables. */
+function renderSel3d() {
+  const box = $('#sel3d');
+  const f = (S && S.fixtures || []).find(x => x.id === selBar);
+  if (!f) {
+    if (box.dataset.vide !== '1') {
+      box.dataset.vide = '1';
+      box.innerHTML = '<p class="hint" style="margin:0">Clique une barre dans la vue, ou une barre de la page Conduite : la sélection est commune aux deux pages.</p>';
+    }
+    return;
+  }
+  const sig = f.id + JSON.stringify(f.p3) + JSON.stringify(f.dir3) + f.len3;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig; box.dataset.vide = '0';
+  box.innerHTML = '';
+
+  const titre = document.createElement('div');
+  titre.style.cssText = 'font-weight:600; margin-bottom:8px; color:var(--accent)';
+  titre.textContent = f.name;                    // jamais innerHTML : nom externe
+  box.appendChild(titre);
+
+  const champ = (lib, val, pas, sur, aide) => {
+    const l = document.createElement('label');
+    l.className = 'coord'; l.title = aide || '';
+    const s1 = document.createElement('span'); s1.textContent = lib;
+    const i = document.createElement('input');
+    i.type = 'number'; i.step = pas; i.value = (Math.round(val * 100) / 100);
+    const u = document.createElement('span'); u.className = 'unite'; u.textContent = 'm';
+    i.onchange = () => sur(+i.value);
+    l.append(s1, i, u);
+    box.appendChild(l);
+    return i;
+  };
+  const pousser = (p3, dir3, len3) => post('/api/fixture3d',
+    { id: f.id, p3: p3 || f.p3, dir3: dir3 || f.dir3, len3: len3 == null ? f.len3 : len3 })
+    .then(() => { besoinRedessin = true; poll(); });
+
+  champ('Jardin↔cour', f.p3[0], 0.05, v => pousser([v, f.p3[1], f.p3[2]]), 'Position sur la largeur du plateau');
+  champ('Profondeur', f.p3[1], 0.05, v => pousser([f.p3[0], v, f.p3[2]]), 'Distance vers le lointain');
+  champ('Hauteur', f.p3[2], 0.05, v => pousser([f.p3[0], f.p3[1], v]), 'Hauteur au-dessus du sol');
+  champ('Longueur', f.len3, 0.05, v => pousser(null, null, v), 'Longueur réelle de la barre');
+
+  const rot = document.createElement('label');
+  rot.className = 'coord';
+  rot.title = 'Angle dans le plan de face, comme dans la vue 2D';
+  const rs = document.createElement('span'); rs.textContent = 'Angle';
+  const ri = document.createElement('input');
+  ri.type = 'number'; ri.step = 5; ri.value = Math.round(f.rot || 0);
+  const ru = document.createElement('span'); ru.className = 'unite'; ru.textContent = '°';
+  ri.onchange = () => {
+    const a = (+ri.value) * Math.PI / 180;
+    pousser(null, [Math.cos(a), 0, -Math.sin(a)]);
+  };
+  rot.append(rs, ri, ru);
+  box.appendChild(rot);
+
+  const aide = document.createElement('p');
+  aide.className = 'hint';
+  aide.textContent = 'La page Conduite montre cette même barre à sa place dans le plan de face.';
+  box.appendChild(aide);
+}
+
+function renderScene() {
+  if (!S) return;
+  const sc = S.scene || { w: 10, d: 8, h: 6 };
+  for (const [id, v] of [['#scW', sc.w], ['#scD', sc.d], ['#scH', sc.h]]) {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = v;
+  }
+  renderSel3d();
+}
+for (const [id, cle] of [['#scW', 'w'], ['#scD', 'd'], ['#scH', 'h']]) {
+  $(id).onchange = (e) => {
+    const sc = { ...(S.scene || {}), [cle]: +e.target.value };
+    post('/api/scene', { scene: sc }).then(() => { besoinRedessin = true; poll(); });
+  };
+}
+
+// Boucle de rendu : on ne redessine que si quelque chose a bougé — sauf
+// pendant un show, où les niveaux changent en permanence.
+(function boucle3d() {
+  requestAnimationFrame(boucle3d);
+  if (page !== 'scene') return;
+  if (!besoinRedessin && !(S && S.global && S.global.running)) return;
+  besoinRedessin = false;
+  try { dessiner3d(); } catch (e) { console.error('vue 3d:', e); }
+})();
 
 // ── Boucle d'état ────────────────────────────────────────────────────
 async function poll() {

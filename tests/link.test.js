@@ -125,19 +125,22 @@ describe('Ableton Link', () => {
     await sleep(2600); // ~5 beats
     await h.post('/api/stop');
 
-    // On garde les TRANSITIONS éteint → allumé. Le keep-alive réémet la valeur
-    // courante toutes les secondes : compter tous les messages « à 1 » ferait
-    // passer ces rappels pour des allumages, à des instants quelconques.
+    // On garde les TRANSITIONS éteint → allumé, sur TOUTES les barres. Le
+    // keep-alive réémet la valeur courante toutes les secondes : compter tous
+    // les messages « à 1 » ferait passer ces rappels pour des allumages, à des
+    // instants quelconques. Et prendre les quatre barres plutôt qu'une seule
+    // quadruple l'échantillon — la médiane devient robuste au bruit de charge
+    // quand la suite tourne en parallèle.
     const allumages = [];
-    let n = 0, precedent = 0;
-    for (const m of h.osc()) {
-      if (/bar0\/luminosity$/.test(m.address)) {
-        if (m.args[0] > 0.5 && precedent <= 0.5) allumages.push(horodatages[n]);
-        precedent = m.args[0];
-      }
-      n++;
-    }
-    assert.ok(allumages.length >= 1, 'bar0 ne s’est jamais allumée');
+    const precedent = {};
+    h.osc().forEach((m, n) => {
+      const b = /^\/fixtures\/(bar\d+)\/luminosity$/.exec(m.address);
+      if (!b) return;
+      if (m.args[0] > 0.5 && !(precedent[b[1]] > 0.5)) allumages.push(horodatages[n]);
+      precedent[b[1]] = m.args[0];
+    });
+    allumages.sort((x, y) => x - y);
+    assert.ok(allumages.length >= 3, 'trop peu d’allumages mesurés : ' + allumages.length);
 
     // Le PREMIER allumage a lieu au START, pas au beat suivant : le show doit
     // partir quand on appuie, sinon on croirait à une panne. C'est à partir du

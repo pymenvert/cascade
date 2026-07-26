@@ -129,7 +129,7 @@ async function launch() {
     '--disable-features=Translate,MediaRouter',
     '--window-size=1400,1000',
     'about:blank',
-  ], { stdio: 'ignore' });
+  ], { stdio: 'ignore', detached: process.platform !== 'win32' });
 
   // On interroge le point d'entrée HTTP de DevTools plutôt que de lire stderr :
   // Edge n'y annonce rien, contrairement à Chrome.
@@ -199,9 +199,33 @@ async function launch() {
     },
 
     async close() {
+      // ⚠ Un navigateur lance des dizaines de processus, et il les RÉ-ATTACHE
+      // hors de l'arbre du processus lancé : ni `child.kill()` ni même
+      // `taskkill /T` ne suffisent. Mesuré : une dizaine de survivants par
+      // exécution, qui s'accumulent jusqu'à saturer la machine — et alors des
+      // tests sans aucun rapport se mettent à échouer au hasard.
+      //
+      // La seule méthode fiable : demander au navigateur de se fermer lui-même
+      // (il sait, lui, où sont ses enfants), puis balayer les retardataires en
+      // les reconnaissant à leur dossier de profil, qui est unique à ce
+      // lancement — jamais par nom de programme, sous peine de fermer le
+      // navigateur de l'utilisateur.
+      try { await cdp.envoyer('Browser.close'); } catch (e) {}
+      await dormir(300);
       try { ws.close(); } catch (e) {}
-      try { child.kill(); } catch (e) {}
-      await dormir(120);
+      try {
+        if (process.platform === 'win32') {
+          require('child_process').execFileSync('powershell', ['-NoProfile', '-Command',
+            `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${profil.replace(/\\/g, '\\\\')}*' } `
+            + `| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
+            { stdio: 'ignore', timeout: 15000 });
+        } else {
+          try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { child.kill('SIGKILL'); }
+        }
+      } catch (e) {
+        try { child.kill(); } catch (_) {}
+      }
+      await dormir(200);
       try { fs.rmSync(profil, { recursive: true, force: true }); } catch (e) {}
     },
   };

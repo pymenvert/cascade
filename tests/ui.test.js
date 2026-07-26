@@ -272,6 +272,134 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await nav.evaluate('await poll(); return 1'); // on rend la main au vrai état
   });
 
+  // ── Page Scène 3D ──────────────────────────────────────────────────────
+  test('la bascule entre les deux pages fonctionne', async () => {
+    const etat = await nav.evaluate(`
+      const lire = () => ({
+        conduite: getComputedStyle(document.querySelector('#pageConduite')).display !== 'none',
+        scene: getComputedStyle(document.querySelector('#pageScene')).display !== 'none',
+      });
+      const depart = lire();
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      const surScene = lire();
+      document.querySelector('#pages button[data-page="conduite"]').click();
+      await new Promise(r => setTimeout(r, 150));
+      return { depart, surScene, retour: lire(),
+               transportVisible: !!document.querySelector('#btnStart').offsetParent };`);
+    assert.deepEqual(etat.depart, { conduite: true, scene: false }, 'on démarre sur la conduite');
+    assert.deepEqual(etat.surScene, { conduite: false, scene: true });
+    assert.deepEqual(etat.retour, { conduite: true, scene: false });
+    assert.equal(etat.transportVisible, true, 'START doit rester atteignable sur les deux pages');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('la vue 3D dessine les barres et sait dire laquelle est sous le curseur', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 350));
+      const cv = document.querySelector('#cv3d');
+      const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let peints = 0;
+      for (let i = 3; i < px.length; i += 4) if (px[i] > 8) peints++;
+      // On vise le milieu d'une barre connue
+      const v = vue3dGeom();
+      const f = S.fixtures[2];
+      const [A, B] = boutsDe(f);
+      const a = projeter(A, v), b = projeter(B, v);
+      const sous = barreSous((a.x + b.x) / 2, (a.y + b.y) / 2);
+      return { peints, largeur: cv.width, attendue: f.name, trouvee: sous ? sous.name : null,
+               info: document.querySelector('#vue3dInfo').textContent };`);
+    assert.ok(r.largeur > 100, 'le canvas doit être dimensionné');
+    assert.ok(r.peints > 500, 'la vue semble vide : ' + r.peints + ' pixels peints');
+    assert.equal(r.trouvee, r.attendue, 'le pointage doit retrouver la barre visée');
+    assert.match(r.info, /plateau .* m · \d+ barres?/);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('la vue de face est orthographique — elle coïncide avec la page Conduite', async () => {
+    // Deux barres au même endroit en largeur, à des profondeurs différentes :
+    // de face elles doivent se superposer exactement, de dessus se séparer.
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'p1', name: 'Proche', address: '/fixtures/p1', enabled: true, x: 0.5, y: 0.5, rot: 0 },
+      { id: 'p2', name: 'Loin', address: '/fixtures/p2', enabled: true, x: 0.5, y: 0.5, rot: 0 },
+    ] });
+    await h.post('/api/fixture3d', { id: 'p2', p3: [0, 3, 3] });
+    await rafraichir();
+    const r = await nav.evaluate(`
+      const pos = (vue) => {
+        document.querySelector('#vue3dCam button[data-vue="' + vue + '"]').click();
+        const v = vue3dGeom();
+        return S.fixtures.map(f => { const p = projeter(f.p3, v); return [Math.round(p.x), Math.round(p.y)]; });
+      };
+      const face = pos('face'), dessus = pos('dessus');
+      document.querySelector('#vue3dCam button[data-vue="troisquart"]').click();
+      return { faceMemeX: face[0][0] === face[1][0],
+               dessusSepare: Math.abs(dessus[0][1] - dessus[1][1]) > 20 };`);
+    assert.equal(r.faceMemeX, true,
+      'de face, la profondeur ne doit rien décaler — sinon la vue ne vaut plus la page Conduite');
+    assert.equal(r.dessusSepare, true, 'de dessus, la profondeur doit se voir');
+    await h.post('/api/fixtures', { fixtures: fixtures(6) });
+    await rafraichir();
+  });
+
+  test('la sélection est commune aux deux pages', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 250));
+      const cible = S.fixtures[3];
+      selBar = cible.id; renderSel3d();
+      await new Promise(r => setTimeout(r, 150));
+      const panneau = document.querySelector('#sel3d').textContent;
+      const champs = [...document.querySelectorAll('#sel3d input')].length;
+      document.querySelector('#pages button[data-page="conduite"]').click();
+      for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      const marquee = document.querySelector('#stage .bar.sel3d');
+      return { nom: cible.name, panneauNomme: panneau.startsWith(cible.name),
+               champs, marqueeEn2D: marquee ? marquee.dataset.id : null, attendu: cible.id };`);
+    assert.equal(r.panneauNomme, true, 'le panneau doit nommer la barre sélectionnée');
+    assert.equal(r.champs, 5, 'X, profondeur, hauteur, longueur, angle');
+    assert.equal(r.marqueeEn2D, r.attendu, 'la vue 2D doit marquer la même barre');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('modifier une coordonnée en mètres déplace la barre dans les deux vues', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      const id = S.fixtures[3].id;
+      selBar = id; renderSel3d();
+      await new Promise(r => setTimeout(r, 150));
+      const champHauteur = [...document.querySelectorAll('#sel3d input')][2];
+      champHauteur.value = '4.5';
+      champHauteur.dispatchEvent(new Event('change'));
+      await new Promise(r => setTimeout(r, 500));
+      for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      const f = S.fixtures.find(x => x.id === id);
+      return { z: f.p3[2], y2d: f.y, h: S.scene.h };`);
+    assert.ok(Math.abs(r.z - 4.5) < 0.01, 'la hauteur en mètres doit être posée, vue ' + r.z);
+    assert.ok(Math.abs(r.y2d - (1 - 4.5 / r.h)) < 0.01,
+      'la position 2D doit être recalculée depuis la 3D, vue ' + r.y2d);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('changer les cotes du plateau ne déplace aucune barre en mètres', async () => {
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      const avant = S.fixtures.map(f => f.p3.slice());
+      const champ = document.querySelector('#scW');
+      champ.value = '20'; champ.dispatchEvent(new Event('change'));
+      await new Promise(r => setTimeout(r, 500));
+      for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      const apres = S.fixtures.map(f => f.p3.slice());
+      return { identiques: JSON.stringify(avant) === JSON.stringify(apres), largeur: S.scene.w };`);
+    assert.equal(r.largeur, 20);
+    assert.equal(r.identiques, true, 'élargir le plateau ne doit pas déplacer les barres');
+    await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
+    await rafraichir();
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });
