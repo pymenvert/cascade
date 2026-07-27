@@ -315,3 +315,97 @@ Banc d'essai du rendu 3D, réutilisable : `C:\Users\PYMENV~1\AppData\Local\Temp\
 - **Reste de la spécification, non fait** : les sources mobiles (comètes,
   étape 5), la palette à N arrêts, et l'option « ordre = projection sur l'axe »
   pour le moteur pas-à-pas.
+
+---
+
+## Dispositions par axe — conception, 2026-07-28
+
+> Trois approches ont été conçues indépendamment puis confrontées aux mesures.
+> Ce qui suit est la synthèse, et **elle est plus modeste que la demande** —
+> parce que trois limites de MadMapper ont été mesurées entre-temps.
+
+### La demande
+
+Pym : « envoyer certains visuels sur X, d'autres sur Z, d'autres sur Y en même
+temps » — 1 à 3 axes, mémorisables en presets activables d'un bouton, avec deux
+boutons : « ranger » et « créer les surfaces ».
+
+### Ce que les mesures autorisent, et ce qu'elles interdisent
+
+| | verdict |
+|---|---|
+| Déplacer et tourner une barre (`output/x|y|rot`) | **oui**, exact — pixels et degrés dans [0 ; 360[ |
+| Placer et dimensionner une surface (`output/x|y|width|height|rot`) | **oui**, exact |
+| Déformer une surface (`output/handles/*`) | **INTERDIT** — lecture morte, écriture irréversible (incident du 27/07) |
+| Créer une surface | **non** — aucune commande OSC, sur 14 203 nœuds |
+| Choisir quelle surface reçoit quel visuel | **non** — `assign` va à la surface sélectionnée dans l'interface, et `select` ne marche pas en OSC |
+| Changer l'empreinte d'échantillonnage d'une barre | **non** — `output/width|height` d'une fixture n'ont aucun effet (testé de 0,25 à 4) |
+| Lire cette empreinte | **non** — aucun contrôle ne l'expose |
+| Toucher à l'adressage DMX | **non** — rien n'est exposé. Le patch Art-Net est intouchable par cette voie |
+
+**La conséquence la plus dure** : Cascade ne peut que **déplacer et tourner** des
+barres dont la taille est fixée par MadMapper. Il ne peut donc pas les faire
+tenir dans une zone arbitraire. Mesuré sur le banc du 27/07 : une barre de
+10 LED occupait environ **1 600 pixels**, soit 160 px par LED — presque toute la
+largeur d'une sortie 1920. Une seule estimation, faiblement déterminée (un seul
+déplacement sur cinq a donné une corrélation franche), mais l'ordre de grandeur
+suffit à trancher : **l'échelle de la composition est imposée par le mapping, pas
+par Cascade.**
+
+### Ce que le bouton « créer les surfaces » devient
+
+Il n'existe pas. À la place, une **liste de contrôle** dans Cascade : les noms
+de surfaces attendus, avec un bouton pour copier chaque nom, et un voyant par
+zone qui dit si la surface existe côté MadMapper (vérifiable par
+`/getControls?root=/surfaces`). Pym crée, nomme, assigne son visuel ; Cascade
+vérifie et le dit. C'est trois clics de sa part, une fois par spectacle.
+
+### Ce que le bouton « ranger » fait, exactement
+
+1. **Relève l'état d'avant** (`readGeometry` sur toutes les barres) et le
+   mémorise. **Si le relevé est incomplet, il REFUSE d'écrire** et dit pourquoi —
+   sans état d'avant, il n'y a pas de retour en arrière.
+2. Pour chaque zone : trie les barres de son groupe selon l'axe choisi, puis
+   écrit `output/rot` (replié dans [0 ; 360[), `output/x`, `output/y`.
+3. **Relit et vérifie.** L'UDP n'accuse rien : 40 barres = 120 messages, et une
+   barre peut atterrir à côté sans que rien ne le signale. Les barres non
+   conformes sont nommées.
+4. Un bouton **« Remettre comme avant »**, armé par l'étape 1.
+
+Jamais automatique, jamais pendant un show : c'est une opération froide.
+
+### Le piège à traiter en priorité
+
+**Une barre hors de toute zone joue du NOIR, sans que rien ne le dise.**
+`luminosity` multiplie ce que la barre lit ; sur une composition vide, il
+multiplie zéro. Les trois approches l'ont identifié comme la panne la plus
+probable — et elle ressemble à une panne de Cascade alors que c'en est une de
+placement. Parade : après rangement, Cascade signale toute barre dont le centre
+tombe hors des zones déclarées.
+
+### Ce que les presets deviennent
+
+Une **disposition** = { pour chaque zone : rectangle en pixels, groupe de barres,
+axe, sens }. Les dispositions se mémorisent comme les presets actuels et
+s'appliquent d'un bouton. Elles ne changent que la géométrie MadMapper : le show
+lui-même (couches, niveaux, couleurs) reste dans les presets existants.
+
+### Ce qui reste à mesurer avant de coder
+
+1. **L'empreinte d'une barre**, proprement : la mesure du 27/07 tient sur un seul
+   point. Méthode : un dégradé fin sur toute la sortie, déplacements de 5 px, et
+   corrélation du profil. C'est le chiffre qui décide si « ranger » peut éviter
+   les chevauchements.
+2. **Le pivot de `output/rot`** : autour du centre de la barre, ou d'une
+   extrémité ? Le calcul de placement en dépend directement (T14, jamais fait).
+3. **Le DMX Filtering** de chaque fixture : c'est lui qui fabrique les
+   demi-teintes, et Cascade ne peut ni le lire ni le garantir.
+
+### Découpage proposé
+
+| # | Livrable | Valeur seule |
+|---|---|---|
+| **1** | Les deux mesures ci-dessus (empreinte, pivot). Aucun code. | Décide si la suite est faisable telle quelle |
+| **2** | Panneau « Zones » : 1 à 3 rectangles en pixels, un groupe par zone, voyant d'existence de la surface, liste de contrôle avec noms à copier | Pym voit et prépare, sans rien écrire dans MadMapper |
+| **3** | Bouton « Ranger » avec relevé d'avant obligatoire, vérification par relecture, « Remettre comme avant », et alerte des barres hors zone | **La fonction demandée** |
+| **4** | Dispositions mémorisables, rappelables d'un bouton | Les presets demandés |
