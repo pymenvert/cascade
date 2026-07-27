@@ -148,3 +148,40 @@ sur `None`, MadMapper n'émet **rien** — ni ArtDmx, ni réponse à un ArtPoll.
   sortie Art-Net, pas seulement par relecture OSC.
 - **Débit de la sortie DMX : ~34 trames/s** avec `Maximum FPS = 40`. Cascade émet à
   40 Hz ; MadMapper décime.
+
+## Le noir de secours — mesuré le 2026-07-27
+
+| adresse | effet mesuré |
+|---|---|
+| `/master/master_dmx_level` = 0 | **tous** les canaux DMX à zéro, toutes fixtures confondues |
+| `/master/master_dmx_level` = 0,5 | tous les canaux à 127 — c'est **linéaire**, donc utilisable en fondu |
+| `/master/freeze_dmx_output` = 1 | **plus aucune trame émise** : ce n'est PAS un noir, les projecteurs gardent leur dernière valeur |
+
+C'est la seule voie qui coupe vraiment quand une texture joue : Cascade ne
+pilote que le `luminosity` des barres qu'il connaît, `master_dmx_level` coupe
+tout le reste avec.
+
+## Couleur sur une fixture monochrome : Rec.601, additif et linéaire
+
+Mesuré sur `SFX-01 W`, blanc de référence à 255 :
+
+| | mesuré | Rec.601 | Rec.709 |
+|---|---|---|---|
+| rouge pur | **0,298** | 0,299 | 0,213 |
+| vert pur | **0,588** | 0,587 | 0,715 |
+| bleu pur | **0,114** | 0,114 | 0,072 |
+
+Rec.709 est exclu sur les trois composantes. La loi est **additive** (rouge +
+vert = 0,886, et le jaune mesuré vaut 0,886) et **linéaire** (un demi-rouge
+donne exactement la moitié d'un rouge). Conséquence pratique : sur une barre
+blanche, un bleu pur ne sort qu'à 11 % de l'intensité.
+
+## Deux pièges de méthode
+
+- **Les mires ne sont pas du contenu.** Ni `/outputs/…/show_test_pattern`, ni
+  `/master/test_pattern`, ni `/master/video_color` ne remontent jusqu'aux
+  fixtures : elles sont dessinées **après** la composition. Sans surface, les
+  fixtures échantillonnent du noir et rien n'est mesurable.
+- **Le port d'entrée ET l'IP de feedback sont des réglages de PROJET.** Ils se
+  réinitialisent à chaque nouveau projet. Un feedback envoyé à la mauvaise IP
+  donne exactement le même symptôme qu'une entrée éteinte : silence total.

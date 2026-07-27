@@ -362,6 +362,81 @@ describe('Défauts corrigés — ils ne doivent jamais revenir', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
+  // ── Coupure générale : le noir de secours du régime texture ───────────────
+
+  test('la coupure générale met la sortie DMX de MadMapper à zéro', async () => {
+    // Mesuré sur MadMapper 6.0.9 : /master/master_dmx_level à 0 met les 240
+    // canaux à zéro, y compris ceux des fixtures que Cascade ne connaît pas.
+    // C'est la seule voie qui coupe VRAIMENT quand une texture joue.
+    h.clearOsc();
+    const r = await h.post('/api/coupure', { on: true });
+    await sleep(150);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.coupure, true);
+    const m = h.osc().find(x => x.address === '/master/master_dmx_level');
+    assert.ok(m, 'aucun message /master/master_dmx_level envoyé');
+    assert.equal(m.args[0], 0, 'la coupure doit envoyer zéro');
+    assert.equal((await h.state()).global.coupure, true, 'l’état doit être visible dans l’interface');
+
+    h.clearOsc();
+    await h.post('/api/coupure', { on: false });
+    await sleep(150);
+    const m2 = h.osc().find(x => x.address === '/master/master_dmx_level');
+    assert.ok(m2 && m2.args[0] === 1, 'le rétablissement doit renvoyer 1');
+    assert.equal((await h.state()).global.coupure, false);
+  });
+
+  test('la coupure ne se confond PAS avec BLACKOUT ni avec STOP', async () => {
+    // Règle n°4 du projet : STOP relâche le contrôle (aucun envoi), seul
+    // BLACKOUT envoie des zéros AUX BARRES. La coupure touche un réglage GLOBAL
+    // de MadMapper — la mélanger aux deux autres casserait la confiance qu'un
+    // régisseur met dans ces boutons.
+    await h.post('/api/coupure', { on: false });
+    await sleep(100);
+
+    // BLACKOUT ne doit pas toucher au master de MadMapper
+    await h.post('/api/fixtures', { fixtures: enLigne(4) });
+    await h.post('/api/start');
+    await sleep(150);
+    h.clearOsc();
+    await h.post('/api/blackout');
+    await sleep(200);
+    assert.deepEqual(h.osc().filter(x => /^\/master\//.test(x.address)), [],
+      'BLACKOUT ne doit rien envoyer au master de MadMapper');
+    assert.equal((await h.state()).global.coupure, false, 'BLACKOUT ne doit pas engager la coupure');
+
+    // STOP non plus, évidemment
+    await h.post('/api/start');
+    await sleep(120);
+    h.clearOsc();
+    await h.post('/api/stop');
+    await sleep(200);
+    assert.deepEqual(h.osc().filter(x => /^\/master\//.test(x.address)), [],
+      'STOP ne doit rien envoyer du tout');
+
+    // …et inversement : la coupure ne doit pas arrêter le moteur.
+    await h.post('/api/start');
+    await h.post('/api/coupure', { on: true });
+    await sleep(150);
+    assert.equal((await h.state()).global.running, true,
+      'la coupure est une sécurité de sortie, elle n’arrête pas le show');
+    await h.post('/api/coupure', { on: false });
+    await h.post('/api/stop');
+  });
+
+  test('la coupure survit à un redémarrage, pour que l’interface puisse le dire', async () => {
+    // Si Cascade redémarre alors que la coupure est engagée, MadMapper reste
+    // noir. Oublier l'état laisserait le régisseur chercher pourquoi rien ne
+    // s'allume — c'est exactement le genre de mystère qui coûte un spectacle.
+    await h.post('/api/coupure', { on: true });
+    await sleep(150);
+    const exp = await h.get('/api/export');
+    assert.equal(exp.body.global.coupure, true, 'l’état doit être exporté');
+    await h.post('/api/coupure', { on: false });
+    await sleep(100);
+    assert.equal((await h.state()).global.coupure, false);
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

@@ -115,7 +115,13 @@ const state = {
   groups: [],
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
-            presetFade: 0 }, // durée du fondu entre presets, en ms (0 = rappel sec)
+            presetFade: 0, // durée du fondu entre presets, en ms (0 = rappel sec)
+            // Coupure générale de la sortie DMX de MadMapper. Persistée
+            // volontairement : si Cascade redémarre alors que la coupure est
+            // engagée, MadMapper reste noir — mieux vaut que l'interface le
+            // dise que de laisser le régisseur chercher pourquoi rien ne
+            // s'allume.
+            coupure: false },
   presets: Array(PRESET_SLOTS).fill(null),
   midiMap: {},  // 'cc:ch:num' | 'note:ch:num' -> cible (géré par l'UI, persisté ici)
 };
@@ -1896,6 +1902,33 @@ const server = http.createServer(async (req, res) => {
         if (!touchees.length) return json(res, { ok: false });
         saveConfig();
         return json(res, { ok: true, fixture: touchees[0], fixtures: touchees });
+      }
+      case '/api/coupure': {
+        // COUPURE GÉNÉRALE — le noir de secours du régime texture.
+        //
+        // Quand une texture joue dans MadMapper, Cascade ne pilote que le
+        // `luminosity` des barres qu'il connaît : il ne peut couper que
+        // celles-là. `master_dmx_level` coupe TOUT, y compris les fixtures que
+        // Cascade n'a jamais vues. Mesuré sur MadMapper 6.0.9 : à 0, les 240
+        // canaux tombent à zéro ; à 0,5, tout est à 127 — c'est linéaire, donc
+        // utilisable en fondu.
+        //
+        // ⚠ Délibérément SÉPARÉ de BLACKOUT. La règle n°4 du projet définit
+        // précisément ce que font STOP et BLACKOUT ; les faire grossir en
+        // douce serait le meilleur moyen de casser la confiance qu'un régisseur
+        // met dans ces deux boutons. Et surtout : ceci touche un réglage GLOBAL
+        // de MadMapper, qui affecte des projecteurs dont Cascade n'est pas
+        // responsable. Ça se déclenche à la main, et ça se voit.
+        //
+        // ⚠ Ne pas confondre avec `/master/freeze_dmx_output`, qui n'est PAS un
+        // noir : il arrête l'émission, donc les projecteurs gardent leur
+        // dernière valeur. Mesuré : plus aucune trame en 1,2 s.
+        const on = !!body.on;
+        oscSend('/master/master_dmx_level', [{ type: 'f', value: on ? 0 : 1 }]);
+        state.global.coupure = on;
+        saveConfig();
+        console.log('[cascade] coupure générale MadMapper : ' + (on ? 'ENGAGÉE' : 'levée'));
+        return json(res, { ok: true, coupure: on });
       }
       case '/api/geometrie': {
         // Renvoie la disposition vers MadMapper. JAMAIS automatique : c'est

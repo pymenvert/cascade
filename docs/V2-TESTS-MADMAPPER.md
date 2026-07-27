@@ -367,3 +367,86 @@ par moyennage, et il le fait linéairement.
 - **Le réglage DMX Filtering** (None / Box / Anamorphic) n'a pas été relevé ni figé ;
   la mesure à y=540 suggère fortement qu'il était en mode moyennant.
 - **Le recouvrement de deux barres**, l'export SVG (T19), et Spout depuis Resolume (T22).
+
+---
+
+# Troisième passe — 2026-07-27, quatre barres et une mire
+
+Pym avait corrigé le réglage : MadMapper envoyait son feedback à la mauvaise IP.
+Banc d'essai renouvelé : **quatre** `SFX-01 W 1m`, 60 LED × 1 canal, univers 0,
+canaux 1-60, 61-120, 121-180, 181-240 — avec des positions et des rotations
+variées, donc bien plus représentatif qu'avant.
+
+Le projet n'avait **aucune surface** : la composition étant vide, les barres
+échantillonnaient du noir et rien n'était mesurable. Ni la mire de sortie
+(`/outputs/…/show_test_pattern`), ni celle du master, ni `video_color` ne
+remontent jusqu'aux barres — elles sont dessinées **après** la composition.
+J'ai donc ajouté une surface le temps des mesures, puis **je l'ai supprimée et
+vérifié par OSC** que le projet était revenu à quatre barres, zéro surface, et
+toutes les valeurs à leur position d'origine au chiffre près.
+
+## Le noir de secours existe — et c'est `master_dmx_level`
+
+| | résultat |
+|---|---|
+| `/master/master_dmx_level` = 0,5 | tous les canaux à **127** |
+| `/master/master_dmx_level` = 0 | tous les canaux à **0**, 0/60 allumés |
+| `/master/freeze_dmx_output` = 1 | **plus aucune trame émise** en 1,2 s |
+
+**C'est la réponse au trou de sécurité du régime texture.** Quand une texture
+joue, Cascade ne pilote que `luminosity` par barre : il ne peut couper que ce
+qu'il connaît. `master_dmx_level` coupe **tout**, y compris les fixtures que
+Cascade n'a jamais vues, et il est linéaire — donc utilisable en fondu.
+
+⚠ **`freeze_dmx_output` n'est PAS un noir** : il arrête l'émission. Les
+projecteurs gardent la dernière valeur reçue. À ne jamais confondre avec une
+coupure — c'est même l'inverse de ce qu'on veut en cas d'urgence.
+
+## Les poids de luma : Rec.601, additifs et linéaires
+
+Sur une barre monochrome (`SFX-01 **W**`), avec un blanc de référence à 255 :
+
+| couleur envoyée | DMX | fraction du blanc | Rec.601 | Rec.709 |
+|---|---|---|---|---|
+| rouge pur | 76 | **0,298** | 0,299 | 0,213 |
+| vert pur | 150 | **0,588** | 0,587 | 0,715 |
+| bleu pur | 29 | **0,114** | 0,114 | 0,072 |
+
+**Rec.601, sans ambiguïté** — Rec.709 est exclu sur les trois composantes.
+Et la loi est propre :
+- **additive** : rouge + vert = 0,886, et le jaune mesuré vaut 0,886 ;
+- **linéaire** : un demi-rouge donne 0,1490, exactement la moitié de 0,2980.
+
+Conséquence pour le manuel : sur une barre blanche, un bleu pur ne sort qu'à
+**11 %**, un rouge pur à **30 %**, un vert pur à **59 %**. Ce n'est pas un
+défaut de Cascade — c'est la conversion en luminance de MadMapper. Un
+éclairagiste qui « passe en bleu » sur du monochrome doit s'attendre à perdre
+neuf dixièmes de son intensité.
+
+## Recouvrement : aucune fixture n'en écrase une autre
+
+En déplaçant une barre sur une autre, **la première n'a pas bougé d'un canal**
+et la seconde a produit ses propres valeurs. Chaque fixture échantillonne la
+composition pour son compte ; il n'y a pas de « celle du dessus gagne » entre
+fixtures.
+
+⚠ Nuance à ne pas franchir : les deux barres n'ont pas les mêmes dimensions, je
+n'ai donc pas pu les superposer *exactement*. Ce qui est établi, c'est
+**l'absence d'écrasement mutuel** — pas que deux barres parfaitement confondues
+rendraient des canaux identiques au bit près.
+
+## Débit
+
+**35,7 trames/s** mesurées sur 6 s (214 trames), pour un `Maximum FPS` réglé à
+40, avec 1 rupture de séquence. Cohérent avec les 34,3 de la première passe.
+Cascade émet à 40 Hz : MadMapper décime. Pas de promesse de précision meilleure
+que ~30 ms sur un strobe.
+
+## Ce qui reste, et pourquoi
+
+- **Une fixture RVB** : il faudrait patcher une nouvelle fixture dans le projet
+  de Pym. Plus invasif que d'ajouter une surface — à faire quand il sera là.
+- **DMX Filtering / Definition du canvas** : demandent un dégradé continu, donc
+  un média à importer.
+- **Export SVG (T19)**, **Spout depuis Resolume (T22)**, **réversibilité de
+  l'écriture** (il faut fermer MadMapper sans enregistrer).

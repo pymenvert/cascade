@@ -183,6 +183,14 @@
   #vue3dCam { position: absolute; right: 10px; top: 10px; display: flex; gap: 5px; }
   #vue3dCam button { font-size: 11px; padding: 5px 10px; background: rgba(19,21,28,.85);
     backdrop-filter: blur(6px); }
+  /* Coupure générale : impossible à manquer. Le pire défaut serait de la
+     laisser engagée sans que personne comprenne pourquoi la salle est noire. */
+  #bandeauCoupure { display: none; position: sticky; top: 0; z-index: 95;
+    background: #c1121f; color: #fff; padding: 10px 16px; font-size: 13px;
+    text-align: center; letter-spacing: .3px; box-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  body.coupee #bandeauCoupure { display: block; }
+  #bandeauCoupure button { margin-left: 14px; background: #fff; color: #c1121f;
+    font-weight: 700; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; }
   /* Message passager. `alert()` bloque la page — inacceptable pendant un show. */
   #toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 14px);
     background: rgba(19,21,28,.96); border: 1px solid var(--line); border-radius: 8px;
@@ -707,6 +715,16 @@
       <p class="hint">Mesure ces trois cotes une fois : tout le reste en découle.
       Changer le plateau ne déplace aucune barre — ça change seulement le cadre.</p>
 
+      <h2 style="margin-top:16px">Coupure de secours</h2>
+      <div class="row" style="align-items:center">
+        <button id="btnCoupure" class="ghost" title="Met la sortie DMX de MadMapper à zéro. Coupe TOUT, y compris les projecteurs que Cascade ne pilote pas.">Couper toute la sortie MadMapper</button>
+      </div>
+      <p class="hint">Quand une texture joue dans MadMapper, Cascade ne peut éteindre
+      que les barres qu'il connaît. Ceci coupe <strong>tout</strong>, d'un message.
+      Mesuré sur MadMapper 6.0.9 : les 240 canaux tombent à zéro.
+      C'est volontairement séparé de BLACKOUT — qui, lui, garde sa règle : seul lui
+      envoie des zéros aux barres, et STOP relâche simplement le contrôle.</p>
+
       <h2 style="margin-top:16px">Barre sélectionnée</h2>
       <div id="sel3d">
         <p class="hint" style="margin:0">Clique une barre dans la vue, ou une barre de la
@@ -717,6 +735,11 @@
   </div>
 </div>
 
+<div id="bandeauCoupure" role="alert">
+  <strong>COUPURE GÉNÉRALE ENGAGÉE</strong> — la sortie DMX de MadMapper est à zéro.
+  Aucun projecteur ne s'allumera, même piloté par autre chose que Cascade.
+  <button id="btnLeverCoupure">Rétablir la sortie</button>
+</div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <!-- ══════════ RÉGLAGES ══════════ -->
@@ -1141,6 +1164,7 @@ function render() {
   renderPreviewCells();
   renderSpatial();
   renderScene();      // page Scène 3D : plateau + barre sélectionnée
+  renderCoupure();    // bandeau rouge, visible depuis les deux pages
   besoinRedessin = true;
 }
 /** Témoin de mesure Link : un point par temps, allumé sur le temps courant. */
@@ -2624,6 +2648,26 @@ function renderScene() {
   }
   renderSel3d();
 }
+/** Reflète la coupure générale partout où elle doit se voir. */
+function renderCoupure() {
+  const on = !!(S && S.global && S.global.coupure);
+  document.body.classList.toggle('coupee', on);
+  const b = $('#btnCoupure');
+  if (b) {
+    b.textContent = on ? 'Rétablir la sortie MadMapper' : 'Couper toute la sortie MadMapper';
+    b.classList.toggle('active', on);
+  }
+}
+const basculerCoupure = async (on) => {
+  if (on && !confirm('Mettre à ZÉRO la sortie DMX de MadMapper ?\n\n'
+    + 'Cela éteint TOUT, y compris les projecteurs que Cascade ne pilote pas.')) return;
+  await post('/api/coupure', { on });
+  await poll();
+  toast(on ? 'Sortie MadMapper coupée' : 'Sortie MadMapper rétablie');
+};
+$('#btnCoupure').onclick = () => basculerCoupure(!(S && S.global && S.global.coupure));
+$('#btnLeverCoupure').onclick = () => basculerCoupure(false);
+
 for (const [id, cle] of [['#setOutW', 'outW'], ['#setOutH', 'outH']]) {
   $(id).onchange = (e) => post('/api/settings', { [cle]: +e.target.value }).then(poll);
 }
