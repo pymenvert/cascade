@@ -58,6 +58,14 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 2. **Capture ou GIF dans le README** — nécessite une vraie session MadMapper.
 3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt)
    (code d'accès 4 chiffres, repli « avancé » du panneau Couches, tests d'UI).
+4. **`../Cascade-RELECTURES.md` (hors dépôt) — à lire avant de reprendre la v2.**
+   État des deux campagnes de relecture par agents : ce qui a été mesuré et
+   exploité, ce qui reste à mesurer sur MadMapper, et **32 trouvailles sur le
+   moteur de champ 3D dont trois bloquantes** — la relecture s'est arrêtée avant
+   la phase de vérification, donc rien n'y est confirmé contradictoirement.
+   Deux de ces défauts sont **déjà en v1** (couche couleur qui allume les barres
+   qu'elle ne pilote pas ; phase non préservée au changement de tempo pour le
+   moteur vague).
 
 Le chantier v1.3 « spectacle » (features de chase, UI premium, tests, audit,
 exécutables, manuel, CHANGELOG) est **livré** — voir `CHANGELOG.md`.
