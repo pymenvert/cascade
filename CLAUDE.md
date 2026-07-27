@@ -6,6 +6,10 @@ Link. v1.6.0 · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **fran�
 
 ## À lire EN PREMIER
 
+**`docs/V2-AXES-PISTES.md`** — comment projeter une texture sur l'axe qu'on veut.
+Toutes les pistes explorées, celles retenues comme celles écartées, avec les
+mesures qui les tranchent. **À lire avant de reparler d'axes ou de dispositions.**
+
 **`docs/ETAT-DU-PROJET.md`** — architecture complète, sémantique des paramètres,
 API MadMapper et Carabiner/Link déjà établies (ne pas re-chercher), pièges
 connus, historique des décisions, TODO. Sans ça, tu vas redécouvrir des choses
