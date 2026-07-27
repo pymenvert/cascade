@@ -1360,6 +1360,23 @@ function fieldValues(L, list, now) {
   const cx = 0, cy = sc.d / 2, cz = sc.h / 2;
   const src = [fini(L.srcX, 0), fini(L.srcY, 0), fini(L.srcZ, 2)];
   const diag = Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2);
+
+  // Base orthonormée perpendiculaire à l'axe, pour mesurer l'angle du cylindre.
+  // Calculée UNE fois : elle ne dépend que de l'axe, pas de la barre. La laisser
+  // dans la boucle coûtait une vingtaine d'opérations par barre et par image —
+  // 128 barres à 40 Hz, c'est cent mille opérations par seconde pour rien.
+  //
+  // ⚠ Le vecteur de départ est choisi selon la plus petite composante de l'axe :
+  // en prendre un colinéaire annulerait le produit vectoriel et l'angle
+  // deviendrait n'importe quoi. C'est le piège des pôles.
+  let u1 = null, u2 = null;
+  if (forme === 'cylindre') {
+    const t0 = Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const e1 = [a[1] * t0[2] - a[2] * t0[1], a[2] * t0[0] - a[0] * t0[2], a[0] * t0[1] - a[1] * t0[0]];
+    const n1 = Math.hypot(e1[0], e1[1], e1[2]) || 1;
+    u1 = [e1[0] / n1, e1[1] / n1, e1[2] / n1];
+    u2 = [a[1] * u1[2] - a[2] * u1[1], a[2] * u1[0] - a[0] * u1[2], a[0] * u1[1] - a[1] * u1[0]];
+  }
   const out = new Map();
 
   for (const f of list) {
@@ -1377,15 +1394,6 @@ function fieldValues(L, list, now) {
         const long = d0[0] * a[0] + d0[1] * a[1] + d0[2] * a[2];
         // composante perpendiculaire à l'axe
         const q = [d0[0] - long * a[0], d0[1] - long * a[1], d0[2] - long * a[2]];
-        // Deux vecteurs perpendiculaires à l'axe, pour mesurer un angle stable.
-        // On part d'un vecteur non colinéaire à l'axe, choisi selon sa plus
-        // petite composante — sinon le produit vectoriel s'annule et l'angle
-        // devient n'importe quoi près des pôles.
-        const t0 = Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
-        const e1 = [a[1] * t0[2] - a[2] * t0[1], a[2] * t0[0] - a[0] * t0[2], a[0] * t0[1] - a[1] * t0[0]];
-        const n1 = Math.hypot(e1[0], e1[1], e1[2]) || 1;
-        const u1 = [e1[0] / n1, e1[1] / n1, e1[2] / n1];
-        const u2 = [a[1] * u1[2] - a[2] * u1[1], a[2] * u1[0] - a[0] * u1[2], a[0] * u1[1] - a[1] * u1[0]];
         const ang = Math.atan2(q[0] * u2[0] + q[1] * u2[1] + q[2] * u2[2],
                                q[0] * u1[0] + q[1] * u1[1] + q[2] * u1[2]);
         u = (ang / (2 * Math.PI) + 1) % 1;

@@ -600,6 +600,71 @@ describe('Champ 3D', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
+  test('128 barres × 5 champs tiennent la charge sans dériver', async () => {
+    // Le plan estimait ce coût « négligeable » sans l'avoir mesuré. On mesure.
+    // Configuration volontairement pire que tout show réel : chaque couche
+    // exploite une forme différente, sur 128 barres réparties en VOLUME.
+    const FORMES = ['plan', 'sphere', 'cylindre', 'boite', 'bruit'];
+    const fx = Array.from({ length: 128 }, (_, i) => ({
+      id: 'ch' + i, name: 'B' + i, address: '/fixtures/bar' + i, enabled: true, x: 0.5, y: 0.5,
+    }));
+    await h.post('/api/fixtures', { fixtures: fx });
+    // Réparties dans tout le volume : aucune symétrie qui simplifierait le calcul
+    await h.post('/api/fixture3d', { fixtures: fx.map((f, i) => ({
+      id: f.id,
+      p3: [((i * 37) % 100) / 10 - 5, ((i * 53) % 80) / 10, ((i * 29) % 60) / 10],
+      dir3: [1, 0, 0], len3: 1,
+    })) });
+
+    const etat = await h.state();
+    for (let i = etat.layers.length; i < 5; i++) await h.post('/api/layers', { action: 'add' });
+    const ids = (await h.state()).layers.map(l => l.id);
+    for (let i = 0; i < Math.min(5, ids.length); i++) {
+      await h.post('/api/layer', { id: ids[i], set: {
+        engine: 'field', field: FORMES[i], enabled: true, target: i === 4 ? 'color' : 'intensity',
+        stepMs: 60 + i * 40, speed: 1, group: 1, width: 1 + i, mode: 'fade',
+        axAz: i * 60, axEl: i * 15 - 30, srcX: i - 2, srcY: 2 + i, srcZ: 1 + i * 0.5,
+        level: 0.6, floor: 0, invert: false, mirrorH: i % 2 === 0, axisX: 0.5,
+      } });
+    }
+
+    h.clearOsc();
+    await h.post('/api/start');
+    // Réactivité pendant que les cinq champs tournent
+    const mesures = [];
+    for (let i = 0; i < 20; i++) {
+      const t = Date.now();
+      await h.get('/api/state');
+      mesures.push(Date.now() - t);
+      await sleep(50);
+    }
+    await sleep(1500);
+    const msgs = h.osc();
+    await h.post('/api/stop');
+
+    assert.ok(msgs.length > 500, 'flux OSC trop maigre : ' + msgs.length);
+    const mauvais = msgs.filter(m => typeof m.args[0] === 'number'
+      && (!Number.isFinite(m.args[0]) || m.args[0] < 0 || m.args[0] > 1));
+    assert.equal(mauvais.length, 0, 'valeurs hors [0,1] : ' + JSON.stringify(mauvais.slice(0, 3)));
+    const barres = new Set(msgs.map(m => m.address.split('/')[2]));
+    assert.ok(barres.size > 100, 'seulement ' + barres.size + ' barres touchées sur 128');
+
+    // On juge sur la MÉDIANE : la suite lance une dizaine de serveurs et un
+    // navigateur en parallèle, un pic isolé mesure la machine, pas Cascade.
+    const tri = [...mesures].sort((a, b) => a - b);
+    assert.ok(tri[Math.floor(tri.length / 2)] < 120,
+      'réponse médiane ' + tri[Math.floor(tri.length / 2)] + ' ms — ' + JSON.stringify(tri));
+    assert.ok(tri[tri.length - 1] < 3000, 'blocage : ' + tri[tri.length - 1] + ' ms');
+
+    // Rien de cassé dans le journal
+    const erreurs = h.logs.join('').split('\n').filter(l => /Error:|TypeError|RangeError/.test(l));
+    assert.equal(erreurs.length, 0, erreurs.join('\n'));
+
+    // On remet une configuration légère pour les tests suivants
+    for (const id of ids.slice(1)) await h.post('/api/layers', { action: 'remove', id });
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
