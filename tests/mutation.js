@@ -33,6 +33,42 @@ const SRC = path.join(RACINE, 'server.js');
 
 const MUTATIONS = [
   {
+    nom: 'les vues n eteignent plus les autres dossiers',
+    cible: 'tests/vues.test.js',
+    de: "    const vers = (cible && v.id === cible.id) ? 1 : 0;",
+    vers: "    const vers = (cible && v.id === cible.id) ? 1 : 1;",
+  },
+  {
+    nom: 'le fondu ne masque plus la vue sortante a la fin',
+    cible: 'tests/vues.test.js',
+    de: "      for (const p of fonduVue.plan) if (p.vers === 0) envoyerVue(p.dossier, 0, false);",
+    vers: "      for (const p of fonduVue.plan) if (p.vers === 0) envoyerVue(p.dossier, 0, null);",
+  },
+  {
+    nom: 'stopFonduVue neutralise : un fondu en cours n est plus interrompu',
+    cible: 'tests/vues.test.js',
+    de: 'function stopFonduVue() {',
+    vers: 'function stopFonduVue() { return;',
+  },
+  {
+    nom: 'Cascade touche aussi aux dossiers NON declares',
+    cible: 'tests/vues.test.js',
+    de: "    if (!v.dossier) continue;",
+    vers: "    if (!v.dossier) { plan.push({ dossier: 'INCONNU', de: 1, vers: 0 }); continue; }",
+  },
+  {
+    nom: 'l incertitude d une vue memorisee est effacee',
+    cible: 'tests/vues.test.js',
+    de: "  if ('vueActive' in g) o.vueIncertaine = !!g.vueActive;",
+    vers: "  if ('vueActive' in g) o.vueIncertaine = false;",
+  },
+  {
+    nom: 'l inversion de LED est ignoree',
+    cible: 'tests/vues.test.js',
+    de: "          if ('inverse' in item) f.inverse = !!item.inverse;",
+    vers: "          if (false) f.inverse = !!item.inverse;",
+  },
+  {
     nom: 'le champ rend 5 au lieu de sa valeur (hors bornes)',
     cible: 'tests/champ3d.test.js',
     remplaceDerniere: true,

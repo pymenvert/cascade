@@ -131,3 +131,49 @@ mesure de ce que MadMapper émet, pas sur un essai avec le boîtier.
    extrémité ? Le calcul de placement en dépend (T14, jamais fait).
 3. **Le DMX Filtering** de chaque fixture : c'est lui qui fabrique les
    demi-teintes, et Cascade ne peut ni le lire ni le garantir.
+
+---
+
+## Dessiner les fixtures depuis la 3D — où ça en est (2026-07-28)
+
+**La demande** : Pym donne la scéno en 3D, Cascade dessine les fixtures dans
+MadMapper. Il a lui-même vu la difficulté : « ça va demander que tu puisses
+savoir quel type de fixture ».
+
+### La seule voie possible, et son inconnue
+
+Aucune commande OSC ne crée une fixture (vérifié sur 14 203 nœuds). La voie est
+donc le **fichier** : le menu `File` de MadMapper 6.0.9 contient
+
+- **`Import Fixtures…`** ← c'est par là que ça passe ;
+- `Import SVG Lines…` ;
+- `Import Fixture Definitions…` / **`Export Fixture Definitions…`**.
+
+⚠ **Il n'y a AUCUN « Export Fixtures ».** On ne peut donc pas apprendre le format
+attendu en exportant un patch existant — ce qui était le plan. Le format doit
+venir de la documentation MadMapper, ou d'essais successifs.
+
+En revanche `Export Fixture Definitions…` donne les **définitions de types** de
+fixtures (`SFX-01 RGB 0.5m`, `Pixel RGBW(Generic)`…). C'est exactement ce qui
+répond à l'inquiétude de Pym : de quoi savoir quel type utiliser, combien de LED,
+combien de canaux, dans quel ordre.
+
+### Ce qu'il faut faire, dans cet ordre
+
+1. **Exporter les définitions de fixtures** depuis MadMapper et lire le fichier.
+   Ça donne le vocabulaire des types disponibles. *Pas encore fait.*
+2. **Trouver le format de `Import Fixtures…`** : soit dans la doc MadMapper, soit
+   en fabriquant un fichier minimal et en observant ce qui est accepté. Prévoir
+   des essais sur un **projet jetable**, jamais sur celui d'un spectacle.
+3. Alors seulement, générer depuis la 3D : une fixture par barre et par vue,
+   positionnée selon la projection, en tenant compte du drapeau
+   **« inverser la LED »** de chaque barre — sinon un dégradé part à l'envers sur
+   une barre sur deux, et ça ne se voit qu'en spectacle.
+
+### Ce qui est déjà en place et qui servira
+
+- Le drapeau `inverse` par barre, mémorisé, exporté, testé.
+- Les **vues** : déclarées, activables avec fondu, avec un voyant d'existence du
+  dossier. Un fichier généré n'aurait plus qu'à remplir ces dossiers.
+- Le calcul de projection : Cascade connaît `p3` de chaque barre, donc sait où
+  elle doit aller pour une vue de face, de dessus ou de côté.

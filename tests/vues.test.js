@@ -267,6 +267,83 @@ describe('Vues — un axe de projection à la fois', () => {
     assert.equal(barres.size, 4, 'les 4 barres doivent toujours s’allumer');
   });
 
+  test('après un redémarrage, Cascade avoue qu’il ne sait pas', async () => {
+    // Cascade se souvient de la vue active, mais il n'a RIEN envoyé depuis son
+    // démarrage : il ne sait donc pas ce que MadMapper affiche. Afficher une vue
+    // « allumée » sans l'avoir vérifié serait mentir — et l'inverse est pire :
+    // le régisseur croirait qu'aucune vue ne joue alors qu'un dossier est allumé.
+    const v = await troisVues();
+    await h.post('/api/vue', { id: v[0].id, fadeMs: 0 });
+    await sleep(150);
+    let et = await h.state();
+    assert.equal(et.global.vueActive, v[0].id);
+    assert.equal(et.global.vueIncertaine, false, 'on vient d’envoyer : Cascade SAIT');
+
+    // Un import se comporte comme un redémarrage : rien n'a été envoyé.
+    const exp = await h.get('/api/export');
+    await h.post('/api/import', exp.body);
+    et = await h.state();
+    assert.equal(et.global.vueActive, v[0].id, 'la vue mémorisée doit survivre');
+    assert.equal(et.global.vueIncertaine, true,
+      'après un import, Cascade n’a rien envoyé : il doit le dire');
+
+    // Et un clic lève le doute
+    h.clearOsc();
+    await h.post('/api/vue', { id: et.global.vueActive, fadeMs: 0 });
+    await sleep(180);
+    assert.equal((await h.state()).global.vueIncertaine, false, 'un envoi lève le doute');
+    assert.ok(h.osc().length > 0, 'et il envoie vraiment quelque chose');
+  });
+
+  test('Cascade n’envoie RIEN au démarrage, même avec une vue mémorisée', async () => {
+    // Écrire au démarrage écraserait ce que le régisseur a réglé à la main dans
+    // MadMapper. Un outil de spectacle ne prend pas la main sans qu'on le lui
+    // demande. Vérifié sur un serveur NEUF qui hérite d'une config.
+    const v = await troisVues();
+    await h.post('/api/vue', { id: v[1].id, fadeMs: 0 });
+    await sleep(150);
+    const exp = await h.get('/api/export');
+
+    // Deuxième serveur, config importée, on écoute ce qu'il envoie tout seul
+    const h2 = await start();
+    try {
+      await h2.post('/api/import', exp.body);
+      h2.clearOsc();
+      await sleep(1200);   // largement de quoi voir un envoi spontané
+      const versDossiers = h2.osc().filter(m =>
+        /^\/fixtures\/CASCADE-|^\/fixtures\/MonDeplie/.test(m.address));
+      assert.deepEqual(versDossiers, [],
+        'un serveur qui démarre ne doit toucher à aucun dossier de vue');
+      assert.equal((await h2.state()).global.vueIncertaine, true);
+    } finally { await h2.stop(); }
+  });
+
+  test('au CHARGEMENT d’un fichier de config, la vue mémorisée est incertaine', async () => {
+    // ⚠ Ce test passe par le vrai chemin de démarrage, avec un fichier de config
+    // sur le disque — pas par /api/import. Un test de mutation a montré que les
+    // deux chemins sont DISTINCTS : casser loadConfig ne faisait échouer aucun
+    // test tant qu'on ne testait que l'import.
+    const cfg = {
+      vues: [{ id: 'vv1', name: 'Face', dossier: 'CASCADE-Face' },
+             { id: 'vv2', name: 'Dessus', dossier: 'CASCADE-Dessus' }],
+      global: { vueActive: 'vv1', speed: 1, master: 1 },
+      layers: [], fixtures: [],
+    };
+    const h3 = await start(cfg);
+    try {
+      const et = await h3.state();
+      assert.equal(et.vues.length, 2, 'les vues du fichier doivent être chargées');
+      assert.equal(et.global.vueActive, 'vv1', 'la vue active doit être relue');
+      assert.equal(et.global.vueIncertaine, true,
+        'au démarrage, Cascade n’a rien envoyé : la vue DOIT être marquée incertaine');
+      // Et il ne doit toujours rien avoir envoyé aux dossiers
+      h3.clearOsc();
+      await sleep(1000);
+      assert.deepEqual(h3.osc().filter(m => /^\/fixtures\/CASCADE-/.test(m.address)), [],
+        'un démarrage ne doit toucher à aucun dossier');
+    } finally { await h3.stop(); }
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

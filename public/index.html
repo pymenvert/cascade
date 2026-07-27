@@ -2710,7 +2710,8 @@ function renderVues() {
   const box = $('#vuesListe');
   if (!box || !S) return;
   const vues = S.vues || [];
-  const sig = JSON.stringify(vues) + '|' + (S.global && S.global.vueActive) + '|' + JSON.stringify(vuesExiste);
+  const sig = JSON.stringify(vues) + '|' + (S.global && S.global.vueActive)
+    + '|' + (S.global && S.global.vueIncertaine) + '|' + JSON.stringify(vuesExiste);
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   box.innerHTML = '';
@@ -2734,7 +2735,18 @@ function renderVues() {
     b.textContent = v.name;                       // texte : jamais innerHTML
     b.title = 'Allume cette vue et éteint les autres';
     b.style.minWidth = '92px';
-    if (S.global && S.global.vueActive === v.id) b.classList.add('active');
+    const estActive = S.global && S.global.vueActive === v.id;
+    const incertain = estActive && S.global.vueIncertaine;
+    if (estActive) b.classList.add('active');
+    if (incertain) {
+      // Cascade se souvient de cette vue mais n'a rien envoyé depuis son
+      // démarrage : il ne sait pas ce que MadMapper a vraiment. On le dit
+      // plutôt que d'afficher un état qu'on n'a pas vérifié.
+      b.textContent = v.name + ' ?';
+      b.title = 'Cascade se souvient de cette vue, mais n’a rien envoyé depuis son '
+        + 'démarrage : il ne sait pas ce que MadMapper affiche réellement. Clique pour l’appliquer.';
+      b.style.borderStyle = 'dashed';
+    }
     b.onclick = () => activerVue(v.id);
     l.appendChild(b);
 

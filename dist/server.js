@@ -129,6 +129,13 @@ const state = {
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
             vueActive: null,   // identifiant de la vue allumée, ou null
+            // ⚠ Au démarrage, Cascade se SOUVIENT de la vue active mais n'a
+            // rien envoyé : il ne sait donc pas ce que MadMapper a réellement.
+            // Prétendre le contraire afficherait une vue « allumée » alors que
+            // le dossier est peut-être éteint — et l'inverse est pire encore.
+            // Cascade n'envoie RIEN au démarrage : ce serait écraser ce que le
+            // régisseur a réglé à la main. Il le dit, et un clic confirme.
+            vueIncertaine: false,
             presetFade: 0, // durée du fondu entre presets, en ms (0 = rappel sec)
             // Coupure générale de la sortie DMX de MadMapper. Persistée
             // volontairement : si Cascade redémarre alors que la coupure est
@@ -292,6 +299,10 @@ function sanitizeGlobal(g) {
   if ('param' in g) o.param = safeParam(g.param, 'luminosity');
   if ('dimmer' in g && ENUMS.dimmer.includes(g.dimmer)) o.dimmer = g.dimmer;
   if ('presetFade' in g) o.presetFade = Math.round(cnum(g.presetFade, 0, MAX_FADE_MS, 0));
+  if ('coupure' in g) o.coupure = !!g.coupure;
+  if ('vueActive' in g) o.vueActive = g.vueActive == null ? null : String(g.vueActive).slice(0, 40);
+  // Une vue importée n'a jamais été envoyée : elle est incertaine par nature.
+  if ('vueActive' in g) o.vueIncertaine = !!g.vueActive;
   return o;
 }
 function sanitizeSettings(s) {
@@ -435,6 +446,7 @@ function activerVue(id, fadeMs) {
     plan.push({ dossier: v.dossier, de, vers });
   }
   state.global.vueActive = cible ? cible.id : null;
+  state.global.vueIncertaine = false;   // on vient d'envoyer : on sait
 
   // Ce qui monte devient visible tout de suite ; ce qui descend le reste
   // jusqu'à la fin, sinon la coupure serait sèche au lieu d'être fondue.
