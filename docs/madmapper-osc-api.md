@@ -277,3 +277,45 @@ commande ne crée une surface, une fixture ou un groupe.**
 Aucun contrôle d'univers, de canal de départ ou d'adresse n'apparaît dans
 l'espace de noms OSC. Cascade **ne peut pas** modifier l'adressage d'une
 fixture, même par erreur. Le patch Art-Net est donc intouchable par cette voie.
+
+---
+
+## Plusieurs fixtures à la MÊME adresse DMX — mesuré le 2026-07-28
+
+Question posée par Pym : « ça marche pas en DMX d'avoir la même adresse si ? »
+Mesuré, et la réponse est nette.
+
+**MadMapper accepte des adresses en doublon**, sans avertissement ni refus. Deux
+fixtures dupliquées réglées toutes les deux sur les canaux 1-30 coexistent dans
+la liste. (À la duplication, `Ctrl+D` auto-incrémente l'adresse ; il faut la
+remettre à la main.)
+
+Les deux copies placées à des endroits **différents** de la composition, donc
+lisant des contenus différents :
+
+| état | ce qui sort sur les canaux 1-30 |
+|---|---|
+| seule la copie A visible | **exactement ce que A lit** |
+| seule la copie B visible | **exactement ce que B lit** |
+| les deux visibles | le contenu de **la dernière de la liste** — pas un mélange, pas du HTP |
+| aucune visible | **tout à zéro** |
+
+Et `visible` est un contrôle **sûr** : écrivable en OSC par un float 0/1, avec
+une relecture qui suit. `visible = false` fait bien tomber les canaux de la
+fixture à zéro (comme `luminosity = 0`, mais sans toucher au niveau).
+
+### Ce que ça autorise
+
+**Empiler plusieurs dispositions dans un même projet MadMapper, une par axe de
+projection, et n'en montrer qu'une à la fois.** Chaque barre physique existe en N
+copies, toutes à la même adresse, chacune placée selon une projection
+différente ; on bascule d'un axe à l'autre en écrivant `visible`.
+
+Aucune géométrie n'est écrite pendant le spectacle — c'est le gros avantage sur
+un « rangement » à chaud : pas de relevé d'avant à sauvegarder, pas de datagramme
+perdu qui laisse une barre à côté, pas de risque d'écraser le mapping.
+
+⚠ **L'arbitrage étant « la dernière de la liste gagne »**, deux jeux visibles en
+même temps ne donnent pas de la bouillie mais un résultat déterministe. C'est un
+mode de défaillance bénin — utile à savoir, mais Cascade doit quand même
+garantir qu'un seul jeu est visible, et le vérifier par relecture.
