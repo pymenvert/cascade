@@ -351,14 +351,18 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
       selBar = cible.id; renderSel3d();
       await new Promise(r => setTimeout(r, 150));
       const panneau = document.querySelector('#sel3d').textContent;
-      const champs = [...document.querySelectorAll('#sel3d input')].length;
+      const champs = [...document.querySelectorAll('#sel3d input[type=number]')].length;
+      const inverse = !!document.querySelector('#sel3d input[type=checkbox]');
       document.querySelector('#pages button[data-page="conduite"]').click();
       for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
       const marquee = document.querySelector('#stage .bar.sel3d');
       return { nom: cible.name, panneauNomme: panneau.startsWith(cible.name),
-               champs, marqueeEn2D: marquee ? marquee.dataset.id : null, attendu: cible.id };`);
+               champs, inverse, marqueeEn2D: marquee ? marquee.dataset.id : null, attendu: cible.id };`);
     assert.equal(r.panneauNomme, true, 'le panneau doit nommer la barre sélectionnée');
+    // On compte les champs NUMÉRIQUES : X, profondeur, hauteur, longueur, angle.
+    // Compter tous les `input` cassait dès qu'on ajoutait une case à cocher.
     assert.equal(r.champs, 5, 'X, profondeur, hauteur, longueur, angle');
+    assert.equal(r.inverse, true, 'la case « inverser la LED » doit être là');
     assert.equal(r.marqueeEn2D, r.attendu, 'la vue 2D doit marquer la même barre');
     assert.deepEqual(nav.erreurs(), []);
   });
@@ -633,6 +637,102 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await nav.evaluate(`document.querySelector('.seg button[data-eng="steps"]').click();
                         await new Promise(r => setTimeout(r, 200)); return 1`);
     assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le panneau Vues : créer, nommer un dossier, activer, marquer « à moi »', async () => {
+    await h.post('/api/vues', { vues: [] });
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      const vide = document.querySelector('#vuesListe').textContent;
+
+      document.querySelector('#btnVueAdd').click();
+      await new Promise(r => setTimeout(r, 350));
+      document.querySelector('#btnVueAdd').click();
+      await new Promise(r => setTimeout(r, 350));
+      await poll();
+      const lignes = document.querySelectorAll('#vuesListe .row').length;
+
+      // On nomme le dossier de la première vue
+      const champ = document.querySelector('#vuesListe .row input[type=text]');
+      champ.value = 'CASCADE-Face';
+      champ.dispatchEvent(new Event('change'));
+      await new Promise(r => setTimeout(r, 400));
+      await poll();
+
+      // On coche « à moi » sur la deuxième
+      const cases = document.querySelectorAll('#vuesListe input[type=checkbox]');
+      cases[1].click();
+      await new Promise(r => setTimeout(r, 400));
+      await poll();
+
+      // Et on active la première
+      document.querySelector('#vueFade').value = '0';
+      document.querySelectorAll('#vuesListe .row button')[0].click();
+      await new Promise(r => setTimeout(r, 400));
+      await poll();
+      const actif = [...document.querySelectorAll('#vuesListe .row button')]
+        .filter(b => b.classList.contains('active')).length;
+      return { vide, lignes, actif };`);
+
+    assert.match(r.vide, /Aucune vue/, 'sans vue, le panneau doit expliquer quoi faire');
+    assert.equal(r.lignes, 2, 'deux vues déclarées doivent donner deux lignes');
+    assert.equal(r.actif, 1, 'une seule vue doit apparaître active');
+
+    const et = await h.state();
+    assert.equal(et.vues.length, 2);
+    assert.equal(et.vues[0].dossier, 'CASCADE-Face', 'le nom du dossier doit être enregistré');
+    assert.equal(et.vues[1].manuelle, true, '« à moi » doit être enregistré');
+    assert.equal(et.global.vueActive, et.vues[0].id, 'la première vue doit être active');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('un nom de dossier hostile ne peut pas injecter de HTML', async () => {
+    await h.post('/api/vues', { vues: [] });
+    await h.post('/api/vues', { action: 'add', name: '<img src=q onerror="window.__pwnv=1">',
+      dossier: '"><svg onload="window.__pwnv=2">' });
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      document.querySelector('#vuesListe').dataset.sig = '';
+      await poll();
+      await new Promise(r => setTimeout(r, 300));
+      return { pwn: window.__pwnv || null,
+               balises: document.querySelectorAll('#vuesListe img, #vuesListe svg').length,
+               texte: (document.querySelector('#vuesListe .row button') || {}).textContent || '' };`);
+    assert.equal(r.pwn, null, 'du code injecté s’est exécuté');
+    assert.equal(r.balises, 0, 'des balises ont été injectées');
+    assert.match(r.texte, /^<img/, 'le nom doit s’afficher comme du texte');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/vues', { vues: [] });
+  });
+
+  test('« Vérifier les dossiers » rend la main et dit quelque chose', async () => {
+    await h.post('/api/vues', { vues: [] });
+    await h.post('/api/vues', { action: 'add', name: 'Face', dossier: 'PasLa' });
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 200));
+      await poll();
+      const b = document.querySelector('#btnVueCheck');
+      b.click();
+      const pendant = b.textContent;
+      for (let i = 0; i < 40 && b.disabled; i++) await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 300));
+      const voyant = document.querySelector('#vuesListe .row span');
+      return { pendant, apres: b.textContent, bloque: b.disabled,
+               couleur: voyant ? voyant.style.color : null,
+               titre: voyant ? voyant.title : null };`);
+    assert.match(r.pendant, /vérification/, 'le bouton doit dire qu’il travaille');
+    assert.equal(r.bloque, false, 'le bouton doit se réactiver');
+    assert.match(r.apres, /Vérifier/, 'le libellé doit revenir');
+    // Le faux MadMapper des tests ne répond pas : le voyant doit donc être rouge
+    // et le dire — pas rester ambigu.
+    assert.ok(r.titre && /AUCUN dossier/.test(r.titre),
+      'le voyant doit annoncer un dossier introuvable, vu : ' + r.titre);
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/vues', { vues: [] });
   });
 
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {

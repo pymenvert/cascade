@@ -120,6 +120,10 @@ describe('Espace 3D', () => {
 
     const exp = await h.get('/api/export');
     await h.post('/api/new', { keepFixtures: false });
+    // ⚠ On change VOLONTAIREMENT le plateau entre l'export et l'import. Sans ça,
+    // il resterait à 14/11/5 et le test passerait sans que la scène ait voyagé —
+    // c'est exactement le faux positif qui masquait son absence de l'export.
+    await h.post('/api/scene', { scene: { w: 7, d: 7, h: 7 } });
     await h.post('/api/import', exp.body);
 
     const s = (await h.state()).scene;

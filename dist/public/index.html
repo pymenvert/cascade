@@ -396,6 +396,20 @@
       « Étendue du motif » règle la taille des taches.</td></tr>
     <tr><td>Ordre = axe 3D</td><td>En pas-à-pas : le chase suit la géométrie réelle au lieu de
       l'ordre de la liste. À cocher si tes barres ont été ajoutées dans le désordre.</td></tr>
+    <tr><th colspan="2">Vues — choisir l'axe de projection d'une texture</th></tr>
+    <tr><td>Le principe</td><td>Une vue = un <strong>dossier de fixtures</strong> dans MadMapper.
+      Chaque barre y existe en une copie, toutes à la <strong>même adresse DMX</strong>. On change
+      d'axe en n'allumant qu'un dossier — rien ne se déplace.</td></tr>
+    <tr><td>Ton PixLite</td><td>Il ne voit jamais deux barres sur une adresse : MadMapper résout le
+      conflit avant d'émettre, et ne sort qu'une valeur par canal. Sa configuration ne change pas.</td></tr>
+    <tr><td>« à moi »</td><td>Coche-la sur la vue que tu as dessinée toi-même : Cascade ne
+      recalculera jamais ses positions.</td></tr>
+    <tr><td>Le voyant</td><td>Vert = le dossier existe dans MadMapper. Rouge = le nom ne correspond
+      à rien, et cette vue ne pilotera rien. Gris = pas encore vérifié.</td></tr>
+    <tr><td>Fondu entre vues</td><td>Passe par l'opacité du dossier, mesurée proportionnelle. 0 =
+      bascule sèche.</td></tr>
+    <tr><td>Inverser la LED</td><td>Sur une barre câblée à l'envers. Sert quand Cascade dessine une
+      vue : sans ça, un dégradé part à l'envers sur une barre sur deux.</td></tr>
   </table>
   <p class="hint">Sur iPad, un double-tap remplace le double-clic.
   Les raccourcis sont ignorés pendant une saisie de texte.</p>
@@ -714,6 +728,22 @@
         <input type="number" id="scH" min="0.5" max="200" step="0.5"><span class="unite">m</span></label>
       <p class="hint">Mesure ces trois cotes une fois : tout le reste en découle.
       Changer le plateau ne déplace aucune barre — ça change seulement le cadre.</p>
+
+      <h2 style="margin-top:16px">Vues — l'axe de projection</h2>
+      <div id="vuesListe"></div>
+      <div class="mini" style="margin-top:8px; flex-wrap:wrap">
+        <button id="btnVueAdd" class="ghost" title="Déclare une vue : un dossier de fixtures dans MadMapper">+ Ajouter une vue</button>
+        <button id="btnVueOff" class="ghost" title="Éteint toutes les vues déclarées">Tout éteindre</button>
+        <button id="btnVueCheck" class="ghost" title="Vérifie que chaque dossier existe bien dans MadMapper. Ne modifie rien.">🔎 Vérifier les dossiers</button>
+      </div>
+      <label class="row" title="Durée du fondu quand on passe d'une vue à l'autre. 0 = bascule sèche."><span>Fondu entre vues</span>
+        <input type="range" id="vueFade" min="0" max="5000" step="100"><output></output></label>
+      <p class="hint">Une vue = un <strong>dossier de fixtures</strong> dans MadMapper. Chaque barre
+      physique y existe en une copie, toutes à la <strong>même adresse DMX</strong> — c'est ce qui
+      permet de changer d'axe de projection sans rien déplacer. Cascade n'allume qu'un dossier à la
+      fois et le vérifie par relecture.</p>
+      <p class="hint">Coche <strong>« à moi »</strong> sur ta vue dépliée : Cascade ne recalculera
+      jamais ses positions, il se contentera de l'allumer et de l'éteindre.</p>
 
       <h2 style="margin-top:16px">Coupure de secours</h2>
       <div class="row" style="align-items:center">
@@ -1165,6 +1195,7 @@ function render() {
   renderSpatial();
   renderScene();      // page Scène 3D : plateau + barre sélectionnée
   renderCoupure();    // bandeau rouge, visible depuis les deux pages
+  renderVues();       // page Scène : une ligne par vue
   besoinRedessin = true;
 }
 /** Témoin de mesure Link : un point par temps, allumé sur le temps courant. */
@@ -2586,7 +2617,7 @@ function renderSel3d() {
     }
     return;
   }
-  const sig = f.id + JSON.stringify(f.p3) + JSON.stringify(f.dir3) + f.len3;
+  const sig = f.id + JSON.stringify(f.p3) + JSON.stringify(f.dir3) + f.len3 + '|' + !!f.inverse;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig; box.dataset.vide = '0';
   box.innerHTML = '';
@@ -2631,6 +2662,23 @@ function renderSel3d() {
   rot.append(rs, ri, ru);
   box.appendChild(rot);
 
+  // « Inverser la LED » : la barre est branchée à l'envers. Sert à Cascade quand
+  // il DESSINE une vue — sans ça, un dégradé part à l'envers sur une barre sur deux.
+  const inv = document.createElement('label');
+  inv.className = 'row';
+  inv.style.cssText = 'margin:8px 0 0';
+  inv.title = 'La barre est câblée dans l’autre sens : sa LED 1 est du côté opposé. '
+    + 'Cascade en tient compte quand il dessine une vue.';
+  const isp = document.createElement('span');
+  isp.textContent = 'Inverser la LED';
+  const ich = document.createElement('input');
+  ich.type = 'checkbox';
+  ich.checked = !!f.inverse;
+  ich.onchange = () => post('/api/fixture3d', { id: f.id, inverse: ich.checked })
+    .then(() => { besoinRedessin = true; poll(); });
+  inv.append(isp, ich);
+  box.appendChild(inv);
+
   const aide = document.createElement('p');
   aide.className = 'hint';
   aide.textContent = 'La page Conduite montre cette même barre à sa place dans le plan de face.';
@@ -2641,6 +2689,7 @@ function renderScene() {
   if (!S) return;
   const sc = S.scene || { w: 10, d: 8, h: 6 };
   const st = S.settings || {};
+  setSlider('#vueFade', +($('#vueFade').value || 0), v => v ? v + ' ms' : 'sec');
   for (const [id, v] of [['#scW', sc.w], ['#scD', sc.d], ['#scH', sc.h],
                          ['#setOutW', st.outW], ['#setOutH', st.outH]]) {
     const el = $(id);
@@ -2648,6 +2697,119 @@ function renderScene() {
   }
   renderSel3d();
 }
+/**
+ * Le panneau des vues. Une ligne par vue : bouton d'activation, nom du dossier
+ * MadMapper, case « à moi » (vue dessinée à la main, que Cascade ne recalcule
+ * jamais), et voyant d'existence du dossier.
+ *
+ * ⚠ Jamais d'innerHTML avec des données : le nom du dossier vient de MadMapper
+ * et le nom de la vue de l'utilisateur.
+ */
+let vuesExiste = {};      // dossier -> booléen, rempli par « Vérifier »
+function renderVues() {
+  const box = $('#vuesListe');
+  if (!box || !S) return;
+  const vues = S.vues || [];
+  const sig = JSON.stringify(vues) + '|' + (S.global && S.global.vueActive) + '|' + JSON.stringify(vuesExiste);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = '';
+
+  if (!vues.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.style.margin = '0';
+    p.textContent = 'Aucune vue déclarée. Crée d’abord tes dossiers de fixtures dans '
+      + 'MadMapper (Project → Add Fixture Group), puis ajoute-les ici.';
+    box.appendChild(p);
+    return;
+  }
+
+  for (const v of vues) {
+    const l = document.createElement('div');
+    l.className = 'row';
+    l.style.cssText = 'align-items:center; gap:6px; margin:5px 0';
+
+    const b = document.createElement('button');
+    b.textContent = v.name;                       // texte : jamais innerHTML
+    b.title = 'Allume cette vue et éteint les autres';
+    b.style.minWidth = '92px';
+    if (S.global && S.global.vueActive === v.id) b.classList.add('active');
+    b.onclick = () => activerVue(v.id);
+    l.appendChild(b);
+
+    const dos = document.createElement('input');
+    dos.type = 'text';
+    dos.value = v.dossier || '';
+    dos.placeholder = 'nom du dossier MadMapper';
+    dos.style.cssText = 'flex:1; min-width:120px; font-size:11px';
+    dos.title = 'Le nom EXACT du dossier de fixtures dans MadMapper';
+    dos.onchange = () => post('/api/vues', { action: 'set', id: v.id, set: { dossier: dos.value } }).then(poll);
+    l.appendChild(dos);
+
+    // Voyant : le dossier existe-t-il ? Gris = pas encore vérifié.
+    const voy = document.createElement('span');
+    voy.textContent = '●';
+    const su = v.dossier ? vuesExiste[v.dossier] : undefined;
+    voy.style.color = su === true ? '#3ddc84' : su === false ? '#c1121f' : 'var(--dim)';
+    voy.title = su === true ? 'dossier trouvé dans MadMapper'
+      : su === false ? 'AUCUN dossier de ce nom dans MadMapper — cette vue ne pilotera rien'
+      : 'non vérifié';
+    l.appendChild(voy);
+
+    const mien = document.createElement('label');
+    mien.style.cssText = 'display:flex; align-items:center; gap:3px; font-size:11px; color:var(--dim)';
+    mien.title = 'Vue dessinée à la main dans MadMapper : Cascade ne recalculera jamais ses positions';
+    const c = document.createElement('input');
+    c.type = 'checkbox';
+    c.checked = !!v.manuelle;
+    c.onchange = () => post('/api/vues', { action: 'set', id: v.id, set: { manuelle: c.checked } }).then(poll);
+    const t = document.createElement('span');
+    t.textContent = 'à moi';
+    mien.append(c, t);
+    l.appendChild(mien);
+
+    const sup = document.createElement('button');
+    sup.textContent = '✕';
+    sup.className = 'ghost';
+    sup.style.cssText = 'padding:3px 8px; font-size:11px';
+    sup.title = 'Retirer cette vue de Cascade (ne touche pas à MadMapper)';
+    sup.onclick = () => post('/api/vues', { action: 'remove', id: v.id }).then(poll);
+    l.appendChild(sup);
+
+    box.appendChild(l);
+  }
+}
+
+const activerVue = async (id) => {
+  const r = await post('/api/vue', { id, fadeMs: +$('#vueFade').value });
+  await poll();
+  const v = (S.vues || []).find(x => x.id === id);
+  toast(v ? ('Vue « ' + v.name + ' »' + (r.fondu ? ' (fondu ' + r.fondu + ' ms)' : '')) : 'Vues éteintes');
+};
+
+$('#btnVueAdd').onclick = async () => {
+  const n = (S.vues || []).length + 1;
+  await post('/api/vues', { action: 'add', name: 'Vue ' + n, dossier: '' });
+  await poll();
+};
+$('#btnVueOff').onclick = () => activerVue(null);
+$('#btnVueCheck').onclick = async () => {
+  const b = $('#btnVueCheck');
+  b.disabled = true; b.textContent = '… vérification';
+  const r = await post('/api/vuecheck');
+  vuesExiste = {};
+  for (const v of (r.vues || [])) if (v.dossier) vuesExiste[v.dossier] = v.existe;
+  $('#vuesListe').dataset.sig = '';
+  b.disabled = false; b.textContent = '🔎 Vérifier les dossiers';
+  renderVues();
+  const manquants = (r.vues || []).filter(v => v.dossier && !v.existe).map(v => v.dossier);
+  if (!r.repond) toast('MadMapper ne répond pas — vérifie le port (⚙)');
+  else if (manquants.length) toast('Introuvable dans MadMapper : ' + manquants.join(', '));
+  else toast('Tous les dossiers sont là');
+};
+$('#vueFade').oninput = () => setSlider('#vueFade', +$('#vueFade').value, v => v ? v + ' ms' : 'sec');
+
 /** Reflète la coupure générale partout où elle doit se voir. */
 function renderCoupure() {
   const on = !!(S && S.global && S.global.coupure);

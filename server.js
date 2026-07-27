@@ -108,6 +108,19 @@ const state = {
   // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
   // Z = hauteur. C'est la convention des plans de feu (MVR/GDTF).
   scene: { w: 10, d: 8, h: 6 },
+  // ── v2 : les VUES ──────────────────────────────────────────────────────
+  // Une vue = une disposition des barres dans la composition MadMapper, rangée
+  // dans un DOSSIER de fixtures portant son nom. Chaque barre physique existe
+  // en une copie par vue, toutes à la MÊME adresse DMX : on bascule d'un axe de
+  // projection à l'autre en n'allumant qu'un dossier.
+  //
+  // Mesuré sur MadMapper 6.0.9 (docs/V2-AXES-PISTES.md) :
+  //  - deux fixtures à la même adresse coexistent sans avertissement ;
+  //  - une seule visible rend exactement SON contenu ;
+  //  - deux visibles → la DERNIÈRE de la liste gagne (défaillance déterministe) ;
+  //  - un dossier expose `visible` ET `luminosity` en OSC, et son `luminosity`
+  //    atténue ses membres proportionnellement — d'où les fondus entre vues.
+  vues: [],
   // Groupes de barres nommés (« sol », « contres »…). Une couche peut suivre un
   // groupe : modifier le groupe met à jour toutes les couches qui l'utilisent.
   // Ils appartiennent à la scéno, pas au look — ils ne sont donc PAS mémorisés
@@ -115,6 +128,7 @@ const state = {
   groups: [],
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
+            vueActive: null,   // identifiant de la vue allumée, ou null
             presetFade: 0, // durée du fondu entre presets, en ms (0 = rappel sec)
             // Coupure générale de la sortie DMX de MadMapper. Persistée
             // volontairement : si Cascade redémarre alors que la coupure est
@@ -149,6 +163,7 @@ function loadConfig() {
     if (saved.scene) state.scene = sanitizeScene(saved.scene);
     if (saved.fixtures) state.fixtures = sanitizeFixtures(saved.fixtures);
     if (saved.groups) state.groups = sanitizeGroups(saved.groups);
+    if (saved.vues) state.vues = sanitizeVues(saved.vues);
     if (saved.global) Object.assign(state.global, sanitizeGlobal(saved.global), { running: false });
     if (Array.isArray(saved.layers) && saved.layers.length) {
       state.layers = saved.layers.slice(0, MAX_LAYERS).map(sanitizeLayer);
@@ -178,7 +193,7 @@ function writeConfigNow() {
     const { running, ...global } = state.global;
     const data = JSON.stringify({
       app: APP_NAME, version: VERSION, projectName: state.projectName,
-      settings: state.settings, scene: state.scene,
+      settings: state.settings, scene: state.scene, vues: state.vues,
       scene: state.scene, fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global, presets: state.presets, midiMap: state.midiMap,
     }, null, 2);
@@ -373,6 +388,80 @@ function migre3D(f, scene, lenMax) {
     [Math.cos(r), 0, -Math.sin(r)], l, s);
 }
 
+// ---------------------------------------------------------------------------
+// Bascule de vue — allumer un dossier de fixtures, éteindre les autres.
+//
+// Le fondu passe par le `luminosity` du dossier, mesuré proportionnel. La
+// visibilité, elle, ne sert qu'aux extrémités : on l'allume AVANT de monter et
+// on l'éteint APRÈS être descendu à zéro, ce qui évite qu'une vue apparaisse
+// d'un coup à pleine intensité pendant un fondu.
+// ---------------------------------------------------------------------------
+let fonduVue = null;   // { debut, duree, cibles: Map<dossier, {de, vers}> }
+
+function stopFonduVue() {
+  if (fonduVue && fonduVue.minuteur) clearInterval(fonduVue.minuteur);
+  fonduVue = null;
+}
+
+/** Niveau courant envoyé à un dossier, pour l'interface. */
+const niveauVue = new Map();
+
+function envoyerVue(dossier, lum, visible) {
+  if (!dossier) return;
+  const d = '/fixtures/' + dossier;
+  if (visible != null) oscSend(d + '/visible', [{ type: 'f', value: visible ? 1 : 0 }]);
+  if (lum != null) {
+    oscSend(d + '/luminosity', [{ type: 'f', value: Math.max(0, Math.min(1, lum)) }]);
+    niveauVue.set(dossier, Math.max(0, Math.min(1, lum)));
+  }
+}
+
+/**
+ * Active une vue et éteint les autres.
+ *
+ * ⚠ On n'éteint QUE les dossiers déclarés dans Cascade. Toucher à un dossier
+ * inconnu serait toucher au projet du régisseur en dehors de ce qu'il a confié
+ * à Cascade — et il peut très bien avoir des fixtures qui ne nous concernent pas.
+ */
+function activerVue(id, fadeMs) {
+  stopFonduVue();
+  const cible = state.vues.find(v => v.id === id) || null;
+  const duree = Math.round(cnum(fadeMs, 0, MAX_FADE_MS, 0));
+  const plan = [];
+  for (const v of state.vues) {
+    if (!v.dossier) continue;
+    const vers = (cible && v.id === cible.id) ? 1 : 0;
+    const de = niveauVue.has(v.dossier) ? niveauVue.get(v.dossier) : (vers === 1 ? 0 : 1);
+    plan.push({ dossier: v.dossier, de, vers });
+  }
+  state.global.vueActive = cible ? cible.id : null;
+
+  // Ce qui monte devient visible tout de suite ; ce qui descend le reste
+  // jusqu'à la fin, sinon la coupure serait sèche au lieu d'être fondue.
+  for (const p of plan) if (p.vers === 1) envoyerVue(p.dossier, duree ? p.de : 1, true);
+
+  if (!duree) {
+    for (const p of plan) envoyerVue(p.dossier, p.vers, p.vers === 1);
+    saveConfig();
+    return { fondu: 0, dossiers: plan.map(p => p.dossier) };
+  }
+
+  const debut = Date.now();
+  fonduVue = { debut, duree, plan };
+  fonduVue.minuteur = setInterval(() => {
+    const k = Math.min(1, (Date.now() - debut) / duree);
+    for (const p of fonduVue.plan) envoyerVue(p.dossier, p.de + (p.vers - p.de) * k, null);
+    if (k >= 1) {
+      // Arrivé à zéro, on masque : deux dossiers visibles laisseraient le
+      // dernier de la liste gagner, et l'ordre de cette liste n'est pas stable.
+      for (const p of fonduVue.plan) if (p.vers === 0) envoyerVue(p.dossier, 0, false);
+      stopFonduVue();
+      saveConfig();
+    }
+  }, 25);
+  return { fondu: duree, dossiers: plan.map(p => p.dossier) };
+}
+
 /**
  * Angle ramené dans [0, 360[, pour MadMapper.
  *
@@ -421,6 +510,43 @@ function sanitizePresets(list) {
       : null
   ).concat(Array(PRESET_SLOTS).fill(null)).slice(0, PRESET_SLOTS);
 }
+const MAX_VUES = 8;
+
+/**
+ * Une vue = un dossier de fixtures dans MadMapper + comment Cascade le remplit.
+ *
+ * `manuelle` est le point important : une vue manuelle est celle que le
+ * régisseur a dessinée LUI-MÊME dans MadMapper (son « déplié »). Cascade ne doit
+ * JAMAIS recalculer ses positions — il ne fait que l'allumer et l'éteindre.
+ * Sans ce drapeau, la première fonction de rangement écraserait son travail.
+ */
+function sanitizeVues(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const vus = new Set();
+  for (const v of list.slice(0, MAX_VUES)) {
+    if (!v || typeof v !== 'object') continue;
+    const id = (typeof v.id === 'string' ? v.id.slice(0, 40) : '')
+      || 'v' + Date.now().toString(36) + Math.floor(Math.random() * 1e4);
+    if (vus.has(id)) continue;
+    vus.add(id);
+    out.push({
+      id,
+      name: String(v.name || '').trim().slice(0, 20) || 'Vue ' + (out.length + 1),
+      // Le nom EXACT du dossier de fixtures dans MadMapper. C'est la seule
+      // chose qui relie Cascade au projet : une faute de frappe et la vue ne
+      // pilote rien. D'où le voyant d'existence côté interface.
+      dossier: String(v.dossier || '').trim().slice(0, 64),
+      manuelle: !!v.manuelle,
+      // Projection utilisée pour REMPLIR la vue (ignorée si manuelle).
+      projection: ['face', 'dessus', 'cote', 'libre'].includes(v.projection) ? v.projection : 'face',
+      axAz: Math.round(cnum(v.axAz, -100000, 100000, 0)) % 360,
+      axEl: Math.round(cnum(v.axEl, -90, 90, 0)),
+    });
+  }
+  return out;
+}
+
 function sanitizeFixtures(list, scene) {
   if (!Array.isArray(list)) return [];
   const s = scene || state.scene;
@@ -439,6 +565,13 @@ function sanitizeFixtures(list, scene) {
       rot: f && typeof f.rot === 'number' && Number.isFinite(f.rot) ? f.rot % 360 : null,
       len: f && typeof f.len === 'number' && Number.isFinite(f.len) && f.len > 0 ? f.len : null,
       vert: !!(f && f.vert),
+      // « Inverser la LED » : la barre est branchée à l'envers par rapport au
+      // sens de son vecteur. Cascade ne s'en sert PAS pour piloter les niveaux
+      // (une barre n'a qu'une valeur), mais pour savoir dans quel sens la
+      // DESSINER quand il génère une vue : sans ça, un dégradé qui doit courir
+      // de jardin à cour part à l'envers sur une barre sur deux, et ça ne se
+      // voit qu'une fois sur scène.
+      inverse: !!(f && f.inverse),
     };
     // Espace 3D : on reprend celui du fichier s'il est valide, sinon on migre
     // depuis la 2D. Une barre sans position 2D non plus reste au centre.
@@ -911,6 +1044,33 @@ function chercherMadMapper(parPortMs = 500) {
       }, parPortMs);
     };
     suivant(0);
+  });
+}
+
+/**
+ * Les noms des enfants directs de /fixtures dans MadMapper.
+ *
+ * Un dossier de fixtures y apparaît comme un nœud ordinaire — impossible de le
+ * distinguer d'une fixture par l'espace de noms seul. On renvoie donc tout, et
+ * c'est la comparaison avec les noms de dossiers déclarés dans Cascade qui
+ * tranche. Lecture seule.
+ */
+function listerDossiers(timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const vus = new Set();
+    const handler = (msgs) => {
+      for (const m of msgs) {
+        if (!m.address || m.address.includes('getControl')) continue;
+        const mm = /^\/fixtures\/([^/]+)$/.exec(m.address);
+        if (mm && mm[1] !== 'selected') vus.add(mm[1]);
+      }
+    };
+    feedbackHandlers.push(handler);
+    oscSend('/getControls?root=/fixtures&recursive=0', []);
+    setTimeout(() => {
+      feedbackHandlers = feedbackHandlers.filter(h => h !== handler);
+      resolve([...vus]);
+    }, timeoutMs);
   });
 }
 
@@ -1805,6 +1965,12 @@ const server = http.createServer(async (req, res) => {
       app: 'cascade', version: 3, date: new Date().toISOString(),
       projectName: state.projectName,
       fixtures: state.fixtures, groups: state.groups,
+      // ⚠ `scene` et `vues` DOIVENT voyager : la scène porte les cotes du
+      // plateau dont toute la 3D dérive, les vues portent les noms des dossiers
+      // MadMapper. Leur absence de l'export était invisible parce que
+      // `/api/new` ne les réinitialisait pas — un test passait donc pour de
+      // mauvaises raisons.
+      scene: state.scene, vues: state.vues,
       layers: state.layers, global, presets: state.presets,
     }, null, 2));
   }
@@ -1813,7 +1979,7 @@ const server = http.createServer(async (req, res) => {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
     return json(res, {
       app: APP_NAME, version: VERSION, net: lanUrls(),
-      settings: state.settings, scene: state.scene,
+      settings: state.settings, scene: state.scene, vues: state.vues,
       fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
       presets: presetNames(),
@@ -1888,7 +2054,8 @@ const server = http.createServer(async (req, res) => {
         // d'un coup, sans état intermédiaire visible dans la vue.
         const lot = Array.isArray(body.fixtures) ? body.fixtures.slice(0, MAX_FIXTURES)
           : [{ id: body.id, p3: body.p3, dir3: body.dir3,
-               len3: 'len3' in body ? body.len3 : undefined }];
+               len3: 'len3' in body ? body.len3 : undefined,
+               ...('inverse' in body ? { inverse: body.inverse } : {}) }];
         const touchees = [];
         for (const item of lot) {
           if (!item || typeof item !== 'object') continue;
@@ -1897,11 +2064,48 @@ const server = http.createServer(async (req, res) => {
           const p = Array.isArray(item.p3) && item.p3.length === 3 ? item.p3 : f.p3;
           const d = Array.isArray(item.dir3) && item.dir3.length === 3 ? item.dir3 : f.dir3;
           set3D(f, p, d, item.len3 === undefined ? f.len3 : item.len3);
+          if ('inverse' in item) f.inverse = !!item.inverse;
           touchees.push(f);
         }
         if (!touchees.length) return json(res, { ok: false });
         saveConfig();
         return json(res, { ok: true, fixture: touchees[0], fixtures: touchees });
+      }
+      case '/api/vues': {
+        // Créer, renommer, supprimer une vue. Rien n'est envoyé à MadMapper ici.
+        if (body.action === 'add' && state.vues.length < MAX_VUES) {
+          state.vues = sanitizeVues([...state.vues, {
+            name: body.name, dossier: body.dossier, manuelle: body.manuelle,
+            projection: body.projection, axAz: body.axAz, axEl: body.axEl }]);
+        } else if (body.action === 'remove') {
+          state.vues = state.vues.filter(v => v.id !== String(body.id || ''));
+          if (state.global.vueActive === body.id) state.global.vueActive = null;
+        } else if (body.action === 'set') {
+          state.vues = sanitizeVues(state.vues.map(v =>
+            v.id === String(body.id || '') ? { ...v, ...(body.set || {}), id: v.id } : v));
+        } else if (Array.isArray(body.vues)) {
+          state.vues = sanitizeVues(body.vues);
+        }
+        saveConfig();
+        return json(res, { ok: true, vues: state.vues });
+      }
+      case '/api/vue': {
+        // Bascule. `id` null ou inconnu = tout éteindre.
+        const r = activerVue(body.id == null ? null : String(body.id),
+          body.fadeMs == null ? state.global.presetFade : body.fadeMs);
+        return json(res, { ok: true, vueActive: state.global.vueActive, ...r });
+      }
+      case '/api/vuecheck': {
+        // Les dossiers déclarés existent-ils vraiment dans MadMapper ?
+        // Lecture seule : rien n'est écrit. C'est le voyant qui évite la panne
+        // fantôme « la vue ne pilote rien parce que le nom ne correspond pas ».
+        const trouves = await listerDossiers(2000);
+        const etat = state.vues.map(v => ({
+          id: v.id, name: v.name, dossier: v.dossier,
+          existe: v.dossier ? trouves.includes(v.dossier) : false,
+        }));
+        return json(res, { ok: true, vues: etat, trouves,
+          repond: trouves.length > 0 || mmAlive() });
       }
       case '/api/coupure': {
         // COUPURE GÉNÉRALE — le noir de secours du régime texture.
@@ -2025,6 +2229,7 @@ const server = http.createServer(async (req, res) => {
         if (body.scene) state.scene = sanitizeScene(body.scene);
         if (Array.isArray(body.fixtures)) state.fixtures = sanitizeFixtures(body.fixtures);
         if (Array.isArray(body.groups)) state.groups = sanitizeGroups(body.groups);
+        if (Array.isArray(body.vues)) state.vues = sanitizeVues(body.vues);
         if (body.global) Object.assign(state.global, sanitizeGlobal(body.global));
         if (Array.isArray(body.presets)) state.presets = sanitizePresets(body.presets);
         pruneCaches();
@@ -2042,6 +2247,11 @@ const server = http.createServer(async (req, res) => {
         layerSeq = 2;
         state.presets = Array(PRESET_SLOTS).fill(null);
         if (!body.keepFixtures) { state.fixtures = []; state.groups = []; pruneCaches(); }
+        // Les vues portent les noms des dossiers d'un AUTRE spectacle : les
+        // garder ferait pointer Cascade sur des dossiers qui n'existent pas.
+        state.vues = [];
+        state.global.vueActive = null;
+        stopFonduVue();
         state.projectName = 'Sans titre';
         saveConfig();
         dirtySinceExport = false; // projet vierge : rien à exporter encore
