@@ -71,10 +71,31 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   au lieu de mouvement organique. Ramené à 3,8 % en mesurant sa distribution
   réelle plutôt qu'en la devinant.
 
+- **Vues** — choisir l'axe sur lequel une texture est projetée. Une vue = un
+  dossier de fixtures MadMapper ; chaque barre y existe en une copie, toutes à la
+  **même adresse DMX**. On bascule d'un axe à l'autre en n'allumant qu'un
+  dossier : rien ne se déplace pendant le spectacle. Fondu réglable entre vues,
+  voyant d'existence du dossier, et une case « à moi » pour la vue dessinée à la
+  main que Cascade ne recalculera jamais.
+- **Coupure de secours** — met la sortie DMX de MadMapper à zéro d'un message.
+  C'est la seule voie qui coupe vraiment quand une texture joue. Volontairement
+  séparée de BLACKOUT, avec un bandeau rouge impossible à manquer.
+- **Netteté du motif** (5–100 %) — sans elle, le motif occupait toujours 100 % de
+  sa longueur d'onde : la moitié du plateau était allumée en permanence, et une
+  comète était impossible.
+- **Source mobile** — elle balaie un segment le long de l'axe. Sphère + course +
+  netteté serrée = comète.
+- **« Inverser la LED »** par barre, pour les barres câblées à l'envers.
+- **Quatre démos** — Profondeur, Comète, Phare, Feu.
+- **Repère du champ dans la vue 3D** : l'axe en flèche, la source en croix, sa
+  course en trait épais.
+
 ### Tests
 
-162 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
-véritables événements de souris injectés par CDP.
+211 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+véritables événements de souris injectés par CDP, et un **outil de mutation**
+(`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
+s'en aperçoit — 12 mutations, 12 détectées.
 
 ## [1.6.0] — 2026-07-25
 

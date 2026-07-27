@@ -742,6 +742,58 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     await h.post('/api/vues', { vues: [] });
   });
 
+  test('la vue 3D dessine le repère du champ, et seulement quand il sert', async () => {
+    // Sans ce repère, régler un azimut ou une source se fait à l'aveugle : les
+    // réglages vivent sur la page Conduite alors qu'ils décrivent l'espace.
+    // On ne peut pas inspecter un canvas facilement : on compte donc les pixels
+    // NON NOIRS d'une bande de l'image, ce qui suffit à voir apparaître le repère.
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    const r = await nav.evaluate(`
+      document.querySelector('#pages button[data-page="scene"]').click();
+      await new Promise(r => setTimeout(r, 250));
+      const cv = document.querySelector('#cv3d');
+      const ctx = cv.getContext('2d');
+      const encre = () => {
+        const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] + d[i+1] + d[i+2] > 90) n++;
+        return n;
+      };
+      const dessine = async () => {
+        besoinRedessin = true;
+        await new Promise(r => requestAnimationFrame(r));
+        await new Promise(r => requestAnimationFrame(r));
+        await new Promise(r => setTimeout(r, 120));
+        return encre();
+      };
+      // Pas-à-pas : aucun repère
+      await setL({ engine: 'steps' });
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      const sansChamp = await dessine();
+      // Champ en plan : la flèche d'axe apparaît
+      await setL({ engine: 'field', field: 'plan', axAz: 45, axEl: 20 });
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      const avecAxe = await dessine();
+      // Sphère avec une course : la croix de source et sa course apparaissent
+      await setL({ field: 'sphere', srcX: 1, srcY: 1, srcZ: 3, course: 8 });
+      await new Promise(r => setTimeout(r, 250));
+      await poll();
+      const avecSource = await dessine();
+      await setL({ engine: 'steps', course: 0 });
+      await new Promise(r => setTimeout(r, 200));
+      await poll();
+      return { sansChamp, avecAxe, avecSource, largeur: cv.width };`);
+
+    assert.ok(r.largeur > 0, 'le canevas doit avoir une taille');
+    assert.ok(r.avecAxe > r.sansChamp,
+      'le repère d’axe doit ajouter de l’encre : ' + r.sansChamp + ' → ' + r.avecAxe);
+    assert.ok(r.avecSource > r.sansChamp,
+      'la source et sa course doivent se voir : ' + r.sansChamp + ' → ' + r.avecSource);
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

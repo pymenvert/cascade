@@ -909,17 +909,21 @@ describe('Champ 3D', () => {
     ] });
     await base({ engine: 'field', field: 'sphere', axAz: 0, axEl: 0,
                  srcX: 0, srcY: 0, srcZ: 2, course: 10, duty: 30,
-                 stepMs: 900, speed: 1, group: 1, width: 8 });
+                 stepMs: 3000, speed: 1, group: 1, width: 8 });
     await h.post('/api/start');
+    // ⚠ Cycle LENT et échantillonnage dense : la suite tourne une dizaine de
+    // serveurs en parallèle, et avec un cycle de 900 ms les relevés étaient trop
+    // espacés pour attraper les deux crêtes — le test échouait une fois sur
+    // trois sans que rien ne soit cassé. Ici on couvre ~80 % du cycle.
     const serie = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 20; i++) {
       h.clearOsc();
-      await sleep(90);
+      await sleep(120);
       const n = niveaux(h.osc());
       if (n.has('bar0') || n.has('bar1')) serie.push([n.get('bar0'), n.get('bar1')]);
     }
     await h.post('/api/stop');
-    assert.ok(serie.length >= 6, 'trop peu de releves : ' + serie.length);
+    assert.ok(serie.length >= 10, 'trop peu de releves : ' + serie.length);
     const iMax = (k) => serie.reduce((best, v, i) =>
       (v[k] != null && (best.v == null || v[k] > best.v)) ? { i, v: v[k] } : best, { i: -1, v: null });
     const a = iMax(0), b = iMax(1);
@@ -968,10 +972,16 @@ describe('Champ 3D', () => {
     await sleep(80);
     h.clearOsc();
     await h.post('/api/start');
-    await sleep(400);
+    await sleep(900);
     const msgs = h.osc();
     await h.post('/api/stop');
-    assert.ok(msgs.length > 10, 'les démos doivent produire de la lumière, vu ' + msgs.length);
+    // On juge sur le nombre de BARRES touchées, pas sur un compte de messages :
+    // le cache anti-répétition fait varier ce compte d'une exécution à l'autre,
+    // alors que « la démo éclaire le plateau » est une propriété stable.
+    const touchees = new Set(msgs.filter(m => /^\/fixtures\/bar\d+\//.test(m.address))
+      .map(m => m.address.split('/')[2]));
+    assert.ok(touchees.size >= 4,
+      'les démos doivent éclairer le plateau : ' + touchees.size + ' barre(s) touchée(s)');
     const mauvais = msgs.filter(m => typeof m.args[0] === 'number'
       && (!Number.isFinite(m.args[0]) || m.args[0] < 0 || m.args[0] > 1));
     assert.equal(mauvais.length, 0);

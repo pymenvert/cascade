@@ -2420,6 +2420,76 @@ function dessiner3d() {
     }
   }
 
+  // ── Repère du champ : l'axe et la source de la couche sélectionnée ──
+  // Sans ça, régler un azimut ou une source se fait à l'aveugle : les réglages
+  // vivent sur la page Conduite alors qu'ils décrivent l'espace. Dessiné en
+  // DERNIER pour rester lisible par-dessus les barres.
+  const Lsel = sel();
+  if (Lsel && Lsel.engine === 'field') {
+    const forme = Lsel.field || 'plan';
+    const az = (Lsel.axAz || 0) * Math.PI / 180, el = (Lsel.axEl || 0) * Math.PI / 180;
+    const ce = Math.cos(el);
+    const ax = [ce * Math.cos(az), ce * Math.sin(az), Math.sin(el)];
+    const centre = [0, 0, sc.h / 2];
+    const srcFixe = ['sphere', 'cylindre', 'boite'].includes(forme);
+    const src = srcFixe ? [Lsel.srcX || 0, Lsel.srcY || 0, Lsel.srcZ ?? 2] : centre;
+    const L2 = Math.max(sc.w, sc.d, sc.h) * 0.45;
+
+    ctx.save();
+    // L'axe : une flèche depuis la source (ou le centre) dans la direction du champ
+    if (['plan', 'cylindre', 'bruit'].includes(forme)) {
+      const A = projeter(src, vue);
+      const B = projeter([src[0] + ax[0] * L2, src[1] + ax[1] * L2, src[2] + ax[2] * L2], vue);
+      if (A && B) {
+        ctx.strokeStyle = 'rgba(61,220,132,.85)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7, 5]);
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        ctx.setLineDash([]);
+        // Pointe de flèche, dans le plan de l'écran
+        const ang = Math.atan2(B.y - A.y, B.x - A.x);
+        ctx.fillStyle = 'rgba(61,220,132,.95)';
+        ctx.beginPath();
+        ctx.moveTo(B.x, B.y);
+        ctx.lineTo(B.x - 11 * Math.cos(ang - 0.4), B.y - 11 * Math.sin(ang - 0.4));
+        ctx.lineTo(B.x - 11 * Math.cos(ang + 0.4), B.y - 11 * Math.sin(ang + 0.4));
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(61,220,132,.9)';
+        ctx.font = '10px system-ui';
+        ctx.fillText(forme === 'bruit' ? 'dérive' : 'axe', B.x + 8, B.y - 8);
+      }
+    }
+    // La source : une croix. Et sa COURSE, si elle est mobile.
+    if (srcFixe) {
+      const S0 = projeter(src, vue);
+      if (S0) {
+        const r = 7;
+        ctx.strokeStyle = 'rgba(242,144,15,.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(S0.x - r, S0.y); ctx.lineTo(S0.x + r, S0.y);
+        ctx.moveTo(S0.x, S0.y - r); ctx.lineTo(S0.x, S0.y + r);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(S0.x, S0.y, r - 2, 0, 2 * Math.PI); ctx.stroke();
+        const c = +Lsel.course || 0;
+        if (c > 0) {
+          const P = projeter([src[0] - ax[0] * c / 2, src[1] - ax[1] * c / 2, src[2] - ax[2] * c / 2], vue);
+          const Q = projeter([src[0] + ax[0] * c / 2, src[1] + ax[1] * c / 2, src[2] + ax[2] * c / 2], vue);
+          if (P && Q) {
+            ctx.strokeStyle = 'rgba(242,144,15,.55)';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(P.x, P.y); ctx.lineTo(Q.x, Q.y); ctx.stroke();
+          }
+        }
+        ctx.fillStyle = 'rgba(242,144,15,.9)';
+        ctx.font = '10px system-ui';
+        ctx.fillText('source', S0.x + 10, S0.y + 4);
+      }
+    }
+    ctx.restore();
+  }
+
   const nb = (S.fixtures || []).length;
   $('#vue3dInfo').textContent =
     `plateau ${sc.w} × ${sc.d} × ${sc.h} m · ${nb} barre${nb > 1 ? 's' : ''} · `

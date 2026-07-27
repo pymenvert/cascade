@@ -102,15 +102,21 @@ describe('Défauts corrigés — ils ne doivent jamais revenir', () => {
     // Défaut mesuré : `resync` ne vidait qu'un état lu par le seul pas-à-pas.
     // Le bouton promet « tous les chasers » et ne faisait rien sur la vague.
     for (const moteur of ['wave', 'field']) {
+      // ⚠ Cycle volontairement LENT (4 s) et attente longue. La suite tourne une
+      // dizaine de serveurs et un navigateur en parallèle : avec un cycle de
+      // 1,2 s, un décalage de charge de 100 ms sur une fenêtre de lecture valait
+      // déjà 8 % de cycle, soit jusqu'à 0,25 d'écart — et le test échouait une
+      // fois sur deux sans que rien ne soit cassé. À 4 s, le même décalage ne
+      // pèse plus que 2,5 %.
       await setL({ engine: moteur, pattern: 'lr', field: 'plan', target: 'intensity',
                    mode: 'fade', waveform: 'sine', bars: null, width: 8,
-                   stepMs: 1200, group: 1, speed: 1, phase: 0 });
+                   stepMs: 4000, group: 1, speed: 1, phase: 0 });
       await h.post('/api/blackout');
       await sleep(80);
       await h.post('/api/resync');
       await h.post('/api/start');
       const debut = await lire(90);
-      await sleep(500);                       // ~40 % du cycle
+      await sleep(1400);                      // ~35 % du cycle : le mouvement est certain
       const milieu = await lire(90);
       await h.post('/api/resync');
       const apres = await lire(90);
