@@ -157,6 +157,54 @@ describe('Champ 3D', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
+  test('le miroir du champ replie la projection, comme celui de la vague', async () => {
+    // Le miroir de la vague fait `x = |x - axe|`. Le champ fait la même chose
+    // sur sa projection : l'équivalence des deux moteurs doit donc tenir AUSSI
+    // miroir activé — sinon le champ n'est une généralisation qu'à moitié.
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+    await base({ engine: 'wave', pattern: 'lr', mirrorH: true, axisX: 0.5, ...GEL });
+    const vague = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, axEl: 0,
+                 mirrorH: true, axisX: 0.5, ...GEL });
+    const champ = await clicher();
+    assert.equal(vague.size, 6);
+    for (const [bar, v] of vague) {
+      assert.ok(Math.abs(champ.get(bar) - v) < 0.02,
+        bar + ' : vague miroir ' + v + ' mais champ ' + champ.get(bar));
+    }
+  });
+
+  test('le miroir du champ change vraiment quelque chose', async () => {
+    // Un test d'équivalence seul ne prouve rien si le miroir est ignoré des
+    // DEUX côtés : il faut vérifier qu'il agit.
+    await base({ engine: 'field', field: 'plan', axAz: 0, mirrorH: false, ...GEL });
+    const sans = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, mirrorH: true, axisX: 0.5, ...GEL });
+    const avec = await clicher();
+    let differents = 0;
+    for (const [bar, v] of sans) if (Math.abs(avec.get(bar) - v) > 0.05) differents++;
+    assert.ok(differents >= 2,
+      'le miroir doit modifier le rendu, ' + differents + ' barre(s) changée(s) seulement');
+
+    // Et il est SYMÉTRIQUE : deux barres à égale distance de l'axe s'allument
+    // pareil. C'est la propriété qui définit un miroir.
+    const et = await h.state();
+    const paires = [];
+    for (const f of et.fixtures) {
+      const jumelle = et.fixtures.find(g => g.id !== f.id
+        && Math.abs(Math.abs(g.x - 0.5) - Math.abs(f.x - 0.5)) < 0.01);
+      if (jumelle) paires.push([f, jumelle]);
+    }
+    assert.ok(paires.length >= 2, 'il faut des barres symétriques pour juger');
+    for (const [f, g] of paires) {
+      const a = avec.get(f.address.split('/').pop());
+      const b = avec.get(g.address.split('/').pop());
+      if (a == null || b == null) continue;
+      assert.ok(Math.abs(a - b) < 0.03,
+        'miroir non symétrique entre ' + f.name + ' (' + a + ') et ' + g.name + ' (' + b + ')');
+    }
+  });
+
   // ── Les formes ───────────────────────────────────────────────────────────
 
   test('la profondeur devient enfin un axe utilisable', async () => {

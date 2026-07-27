@@ -480,10 +480,10 @@
 
     <h2 style="margin-top:14px">Pattern</h2>
     <div class="patterns" id="patterns"></div>
-    <label class="row" title="Symétrie gauche/droite : le pattern se reflète autour de l'axe vertical (pointillés dans la vue). Le curseur déplace l'axe."><span>Miroir ↔ (G/D)</span>
+    <label class="row" id="rowMirrorH" title="Symétrie gauche/droite : le pattern se reflète autour de l'axe vertical (pointillés dans la vue). Le curseur déplace l'axe."><span>Miroir ↔ (G/D)</span>
       <input type="checkbox" id="mirrorH">
       <input type="range" id="axisX" min="0" max="100" step="1" title="Position de l'axe de symétrie ↔"><output></output></label>
-    <label class="row" title="Symétrie haut/bas autour de l'axe horizontal. Les deux miroirs ensemble = symétrie centrale (4 zones)."><span>Miroir ↕ (H/B)</span>
+    <label class="row" id="rowMirrorV" title="Symétrie haut/bas autour de l'axe horizontal. Les deux miroirs ensemble = symétrie centrale (4 zones)."><span>Miroir ↕ (H/B)</span>
       <input type="checkbox" id="mirrorV">
       <input type="range" id="axisY" min="0" max="100" step="1" title="Position de l'axe de symétrie ↕"><output></output></label>
     <label class="row" title="Pas à pas : nombre de barres qui s'allument ensemble à chaque pas (blocs synchrones). Vague : nombre de pas pour un cycle complet."><span id="lblGroup">Barres par pas</span>
@@ -1101,6 +1101,10 @@ function render() {
   $('#rowSparkle').style.display = isStep ? '' : 'none';
   $('#rowOneShot').style.display = isStep ? '' : 'none';
   $('#rowOrdre3d').style.display = isStep ? '' : 'none';
+  // Le champ ne produit qu'une grandeur : il n'a qu'UN repli possible. Afficher
+  // le second miroir donnerait une case sans effet — et une case sans effet
+  // ressemble à une panne.
+  $('#rowMirrorV').style.display = champ ? 'none' : '';
   renderBarsTarget(L);
   renderGroups();
 

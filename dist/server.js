@@ -1412,6 +1412,16 @@ function fieldValues(L, list, now) {
         break;
       }
     }
+    // Miroir : exactement ce que fait la vague — replier la projection autour
+    // d'un axe (`x = |x - axe|`). Le motif part alors de l'axe et s'écarte des
+    // deux côtés à la fois. Sur une sphère ça donne une coque à mi-distance,
+    // sur un cylindre deux faisceaux symétriques.
+    //
+    // ⚠ Il n'y a qu'UN repli, parce qu'un champ ne produit qu'une grandeur : le
+    // « miroir ↕ » de la vague replie la seconde coordonnée, qui n'existe pas
+    // ici. L'interface le masque donc pour ce moteur, plutôt que d'afficher une
+    // case sans effet.
+    if (L.mirrorH) u = Math.abs(u - (L.axisX ?? 0.5));
     const d = (((t - u / wl) % 1) + 1) % 1;
     let v;
     if (L.waveform === 'triangle') v = 1 - 2 * Math.min(d, 1 - d);
