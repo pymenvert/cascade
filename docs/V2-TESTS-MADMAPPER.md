@@ -450,3 +450,88 @@ que ~30 ms sur un strobe.
   un média à importer.
 - **Export SVG (T19)**, **Spout depuis Resolume (T22)**, **réversibilité de
   l'écriture** (il faut fermer MadMapper sans enregistrer).
+
+---
+
+# Quatrième passe — 2026-07-27, dégradé couleur, RGB et RGBW
+
+Pym a repatché : **sept fixtures** — quatre barres RGB de 10 LED (30 canaux),
+une de 32 canaux, une **RGB 1×1** (151-153) et une **RGBW 1×1** (243-246) — sous
+une surface portant le générateur **ColorPatterns** en 1024×1024. C'est le banc
+qu'il manquait : du vrai dégradé, et des fixtures multicanaux.
+
+**C'est cette passe qui valide l'architecture v2.** Tout ce qui suit est mesuré
+sur les valeurs DMX réelles.
+
+## Le dégradé est échantillonné en demi-teintes, LED par LED
+
+Extrait brut des 30 canaux de Line-3, à `luminosity` 1 :
+
+```
+182 238 255 · 191 237 255 · 198 235 255 · 206 233 255 · 212 231 255 · 218 228 255 …
+```
+
+Des **triplets RVB qui évoluent régulièrement** : 19 valeurs distinctes sur 30
+canaux, 17 sur les 32 de Line-6. La chaîne rend donc bien un dégradé continu,
+LED par LED — ce n'était pas établi jusqu'ici, les campagnes précédentes
+n'ayant eu qu'un damier binaire sous la main.
+
+## `luminosity` multiplie canal par canal, et préserve la forme
+
+| réglage | rapport moyen mesuré | écart max au rapport attendu |
+|---|---|---|
+| `luminosity` = 0,5 | **0,4987** | 0,0031 |
+| `luminosity` = 0,25 | **0,2512** | 0,0027 |
+
+Calculé **canal par canal**, pas sur le maximum. Autrement dit : la forme du
+dégradé est intacte, seule son amplitude change. C'est exactement ce que
+l'architecture v2 suppose — Cascade calcule **une valeur par barre**, la texture
+apporte le détail, et les deux se multiplient sans se déformer.
+
+Sur la barre RGB 1×1, le rapport par canal vaut **0,497 · 0,498 · 0,498** : les
+trois canaux sont atténués également. Sur la RGBW : **0,498 · 0,500 · 0,500 ·
+0,500** — le canal blanc suit comme les autres.
+
+## La couleur FILTRE, elle ne remplace pas
+
+Sur la barre RGB 1×1, sous le dégradé :
+
+| | R | V | B |
+|---|---|---|---|
+| tel quel | 177 | 207 | 255 |
+| `color` = rouge pur | **177** | **0** | **0** |
+
+Le rouge conserve **exactement** la valeur échantillonnée (177, pas 255) tandis
+que le vert et le bleu sont coupés. **`color/*` est donc un filtre multiplicatif
+par canal.** C'est la réponse définitive à T12 pour une fixture couleur — et
+c'est le comportement qu'on espérait : une couche « couleur » de Cascade teinte
+le contenu au lieu de l'écraser.
+
+⚠ À ne pas confondre avec le cas **monochrome** mesuré à la passe précédente :
+là, faute de canaux séparés, MadMapper réduit la couleur à une luminance
+Rec.601 (rouge → 30 %, vert → 59 %, bleu → 11 %). Les deux comportements
+coexistent, selon le type de fixture.
+
+## Le canal blanc d'une RGBW
+
+Mesuré : R=255 V=236 B=222 **W=222**, soit exactement `min(R, V, B)`. MadMapper
+extrait donc le blanc comme le minimum des trois composantes. Un seul point de
+mesure : à confirmer sur d'autres teintes avant d'en faire une règle.
+
+## T16 — tourner la barre change ce qu'elle joue
+
+Barre horizontale puis à 90° sous le même dégradé : **17 canaux sur 30 changent**
+de plus de 8 unités, et le nombre de valeurs distinctes passe de 10 à 12. La
+démonstration promise au README tient donc debout.
+
+## Ce que ça change pour Cascade
+
+Rien à réécrire — au contraire, c'est la confirmation que le pari était bon :
+
+- une couche **intensité** agit comme un gradateur propre par-dessus le contenu ;
+- une couche **couleur** teinte le contenu au lieu de le remplacer ;
+- le détail par LED vient de MadMapper, et il survit intact à l'atténuation.
+
+Seule précaution à écrire dans le manuel : sur une barre **monochrome**, une
+couche couleur perd la teinte et ne garde que la luminance — un bleu pur n'y
+sortira qu'à 11 %.

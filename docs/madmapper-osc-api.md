@@ -185,3 +185,30 @@ blanche, un bleu pur ne sort qu'à 11 % de l'intensité.
 - **Le port d'entrée ET l'IP de feedback sont des réglages de PROJET.** Ils se
   réinitialisent à chaque nouveau projet. Un feedback envoyé à la mauvaise IP
   donne exactement le même symptôme qu'une entrée éteinte : silence total.
+
+## Couleur sur une fixture MULTICANAL : un filtre, pas un remplacement
+
+Mesuré le 2026-07-27 sur une fixture RGB 1×1 sous un dégradé couleur :
+
+| | R | V | B |
+|---|---|---|---|
+| tel quel | 177 | 207 | 255 |
+| `color` = rouge pur | **177** | **0** | **0** |
+
+Le rouge garde **exactement** la valeur échantillonnée. `color/*` multiplie donc
+canal par canal. Sur une fixture **monochrome**, c'est différent : faute de
+canaux séparés, MadMapper réduit la couleur à une luminance Rec.601.
+
+`luminosity` atténue tous les canaux également — mesuré 0,497 · 0,498 · 0,498 sur
+une RGB, et 0,498 · 0,500 · 0,500 · 0,500 sur une RGBW.
+
+Sur une RGBW, le canal blanc vaut `min(R, V, B)` — mesuré R=255 V=236 B=222,
+W=222. Un seul point : à confirmer.
+
+## Le dégradé survit intact à l'atténuation
+
+Sur une barre RGB de 10 LED sous un dégradé continu, `luminosity` 0,5 puis 0,25
+donne un rapport **canal par canal** de 0,4987 et 0,2512, avec un écart maximal
+de 0,003. La forme du dégradé est donc préservée : seule l'amplitude change.
+C'est la mesure qui valide le principe « Cascade calcule une valeur par barre,
+la texture apporte le détail ».
