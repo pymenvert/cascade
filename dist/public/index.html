@@ -514,12 +514,6 @@
           <option value="square">Carré</option>
         </select>
       </label>
-      <div id="fieldAxe">
-        <label class="row" title="Direction du balayage, à l’horizontale. 0° = vers cour, 90° = vers le lointain."><span>Azimut de l'axe</span>
-          <input type="range" id="axAz" min="0" max="359" step="1"><output></output></label>
-        <label class="row" title="Inclinaison de l’axe. −90° = vers le sol, +90° = vers le ciel."><span>Élévation de l'axe</span>
-          <input type="range" id="axEl" min="-90" max="90" step="1"><output></output></label>
-      </div>
       <div id="fieldSrc">
         <label class="coord" title="Point d’où part le champ, en mètres"><span>Source X</span>
           <input type="number" id="srcX" step="0.25"><span class="unite">m</span></label>
@@ -532,6 +526,12 @@
       <p class="hint">Le champ est évalué à la <strong>position réelle</strong> de chaque barre —
       règle-la dans la page Scène. Un plan sur l’azimut 0° reproduit exactement la vague
       « G › D » : le champ est une généralisation, pas un autre moteur.</p>
+    </div>
+    <div id="fieldAxe" style="display:none">
+      <label class="row" title="Direction du balayage, à l’horizontale. 0° = vers cour, 90° = vers le lointain."><span>Azimut de l'axe</span>
+        <input type="range" id="axAz" min="0" max="359" step="1"><output></output></label>
+      <label class="row" title="Inclinaison de l’axe. −90° = vers le sol, +90° = vers le ciel."><span>Élévation de l'axe</span>
+        <input type="range" id="axEl" min="-90" max="90" step="1"><output></output></label>
     </div>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
@@ -553,6 +553,8 @@
     <label class="row" id="rowOneShot" title="Le motif joue UN seul cycle puis se tait, jusqu'au prochain GO. Pour les accents ponctuels."><span>Une fois (one-shot)</span>
       <input type="checkbox" id="oneShot">
       <button id="btnGo" style="padding:5px 14px; font-weight:700; letter-spacing:1px" title="Relance le cycle de cette couche maintenant">GO</button></label>
+    <label class="row" id="rowOrdre3d" title="Le chase suit la géométrie réelle du plateau au lieu de l'ordre de la liste : un « G › D » part vraiment de jardin, même si les barres ont été ajoutées dans le désordre. Un axe incliné donne un balayage en diagonale."><span>Ordre = axe 3D</span>
+      <input type="checkbox" id="ordre3d"></label>
     </details>
     <label class="row" title="Quelles barres cette couche pilote-t-elle ? Un groupe est un lien vivant : modifier le groupe met à jour la couche."><span>Barres pilotées</span>
       <select id="layerBars" style="flex:1"></select></label>
@@ -1019,16 +1021,21 @@ function render() {
     // L'axe ne sert qu'au plan et au cylindre ; la source, à tout sauf le plan.
     // Le bruit n'utilise ni l'un ni l'autre : montrer des réglages sans effet est
     // le meilleur moyen de faire croire à une panne.
-    $('#fieldAxe').style.display = (forme === 'plan' || forme === 'cylindre') ? '' : 'none';
     $('#fieldSrc').style.display = (forme === 'plan' || forme === 'bruit') ? 'none' : '';
     $('#fieldWaveform').closest('label').style.display = forme === 'bruit' ? 'none' : '';
-    setSlider('#axAz', L.axAz || 0, v => v + '°');
-    setSlider('#axEl', L.axEl || 0, v => v + '°');
     for (const [id, cle] of [['#srcX', 'srcX'], ['#srcY', 'srcY'], ['#srcZ', 'srcZ']]) {
       const el = $(id);
       if (document.activeElement !== el) el.value = Math.round((L[cle] || 0) * 100) / 100;
     }
   }
+  // L'axe sert à DEUX moteurs : au champ (plan et cylindre) et au pas-à-pas
+  // quand l'ordre suit la géométrie. Il vit donc hors du bloc du champ.
+  const axeUtile = champ ? (L.field === 'plan' || L.field === 'cylindre')
+                         : (L.engine === 'steps' && !!L.ordre3d);
+  $('#fieldAxe').style.display = axeUtile ? '' : 'none';
+  setSlider('#axAz', L.axAz || 0, v => v + '°');
+  setSlider('#axEl', L.axEl || 0, v => v + '°');
+  $('#ordre3d').checked = !!L.ordre3d;
   $$('.seg button[data-m]').forEach(b => b.classList.toggle('active', b.dataset.m === L.mode));
   $('#fadeCtrls').style.display = L.mode === 'fade' ? '' : 'none';
   $('#curve').value = L.curve;
@@ -1050,6 +1057,7 @@ function render() {
   const actifs = [
     L.phase && 'décalage', L.swing && 'swing', (L.blocks || 1) > 1 && 'blocs',
     L.floor && 'niveau bas', L.sparkle && 'scintillement', L.oneShot && 'une fois',
+    L.ordre3d && 'ordre 3D',
   ].filter(Boolean);
   const badge = $('#grooveBadge');
   badge.textContent = actifs.length ? actifs.length + (actifs.length > 1 ? ' actifs' : ' actif') : '';
@@ -1068,6 +1076,7 @@ function render() {
   $('#rowBlocks').style.display = isStep ? '' : 'none';
   $('#rowSparkle').style.display = isStep ? '' : 'none';
   $('#rowOneShot').style.display = isStep ? '' : 'none';
+  $('#rowOrdre3d').style.display = isStep ? '' : 'none';
   renderBarsTarget(L);
   renderGroups();
 
@@ -1687,6 +1696,7 @@ $('#quitExport').onclick = async () => {
 };
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
 $('#fieldForme').onchange = (e) => setL({ field: e.target.value }).then(poll);
+$('#ordre3d').onchange = (e) => setL({ ordre3d: e.target.checked }).then(poll);
 $('#fieldWaveform').onchange = (e) => setL({ waveform: e.target.value }).then(poll);
 for (const cle of ['axAz', 'axEl']) {
   const el = $('#' + cle);

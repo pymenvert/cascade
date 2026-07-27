@@ -81,6 +81,10 @@ function defaultLayer(name) {
     axAz: 0,                // azimut de l'axe, en degrés : 0 = vers cour (+X)
     axEl: 0,                // élévation de l'axe, en degrés : -90 = vers le sol
     srcX: 0, srcY: 0, srcZ: 2,   // source du champ, en MÈTRES (sphere/cylindre/boite)
+    // Pas-à-pas : ordonner les barres par leur projection sur l'axe 3D au lieu
+    // de l'ordre de la liste. Le chase suit alors la scénographie RÉELLE — et
+    // c'est le seul réglage qui fait profiter le moteur pas-à-pas de la 3D.
+    ordre3d: false,
   };
 }
 
@@ -120,7 +124,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d'];
 
 function loadConfig() {
   let saved = null;
@@ -225,7 +229,7 @@ function sanitizeLayerSet(set) {
     switch (k) {
       case 'name': o.name = String(v).slice(0, 24).trim() || 'Chaser'; break;
       case 'enabled': case 'mirrorH': case 'mirrorV': case 'invert':
-      case 'oneShot': o[k] = !!v; break;
+      case 'oneShot': case 'ordre3d': o[k] = !!v; break;
       case 'bars': if (v === null) o.bars = null; else if (Array.isArray(v)) o.bars = v.map(String).slice(0, 256); break;
       case 'groupId': o.groupId = (v == null || v === '') ? null : String(v).slice(0, 40); break;
       case 'stepMs': o.stepMs = Math.round(cnum(v, 30, 10000, 250)); break;
@@ -1111,6 +1115,25 @@ function stepValues(L, list, now, store) {
 
   const mh = !!L.mirrorH, mv = !!L.mirrorV;
   const ax = L.axisX ?? 0.5, ay = L.axisY ?? 0.5;
+  // « Ordre = projection sur l'axe » : le chase ne suit plus l'ordre de la liste
+  // mais la géométrie réelle du plateau. C'est ce qui fait qu'un « G › D » part
+  // vraiment de jardin même si les barres ont été ajoutées dans le désordre — et
+  // qu'un axe incliné donne un balayage en diagonale, gratuitement.
+  //
+  // On trie une COPIE : `list` vient de resolveBars et peut être la vraie liste
+  // des fixtures. La trier sur place changerait l'ordre d'affichage de toute
+  // l'interface, pour toutes les couches.
+  if (L.ordre3d) {
+    const a = axeDe(L.axAz, L.axEl);
+    const proj = (f) => {
+      const p = f.p3 || [0, 0, 0];
+      return p[0] * a[0] + p[1] * a[1] + p[2] * a[2];
+    };
+    // Départage par identifiant : deux barres exactement à la même hauteur sur
+    // l'axe doivent garder un ordre STABLE d'un tick à l'autre, sinon le chase
+    // les échange au hasard et ça se voit.
+    list = [...list].sort((f, g2) => (proj(f) - proj(g2)) || (f.id < g2.id ? -1 : f.id > g2.id ? 1 : 0));
+  }
   let chaseList = list;
   if (mh || mv) {
     chaseList = list.filter(f => (!mh || posX(f) <= ax) && (!mv || posY(f) <= ay));

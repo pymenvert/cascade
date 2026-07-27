@@ -32,16 +32,31 @@ function enLigne(n) {
 }
 
 describe('Champ 3D', () => {
-  let h, id;
+  let h;
   before(async () => {
     h = await start();
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
-    id = (await h.state()).layers[0].id;
     await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
   });
   after(async () => { await h.stop(); });
 
-  const setL = (set) => h.post('/api/layer', { id, set });
+  /**
+   * Règle la PREMIÈRE couche, en relisant son identifiant à chaque appel.
+   *
+   * ⚠ Ne jamais mémoriser cet identifiant : le test d'export/import remplace
+   * les couches, donc un identifiant capturé au démarrage devient périmé — et
+   * `/api/layer` sur une couche inconnue ne fait rien, SANS erreur. Les tests
+   * suivants passaient alors pour de mauvaises raisons : ils mesuraient le
+   * comportement par défaut en croyant mesurer un réglage. C'est exactement le
+   * genre de faux vert qui donne confiance à tort.
+   */
+  const setL = async (set) => {
+    const L = (await h.state()).layers[0];
+    assert.ok(L, 'aucune couche à régler');
+    const r = await h.post('/api/layer', { id: L.id, set });
+    assert.equal(r.body.ok, true, 'le réglage de la couche a échoué');
+    return r;
+  };
   /** Repart d'un état connu, moteur figé (vitesse lente + phase fixe). */
   const base = async (set) => {
     await h.post('/api/stop');
@@ -272,7 +287,11 @@ describe('Champ 3D', () => {
   });
 
   test('le bruit 3D donne du relief, sans jamais sortir de [0,1]', async () => {
-    await base({ engine: 'field', field: 'bruit', stepMs: 2000, width: 1 });
+    // ⚠ Dérive volontairement rapide. Le moteur n'envoie une valeur que si elle
+    // a CHANGÉ (cache anti-répétition) : un bruit qui dérive lentement produit
+    // donc très peu de messages, et le test devient famélique sans que le code
+    // soit en cause. Mesuré : à 2 000 ms de période, 8 messages en 700 ms.
+    await base({ engine: 'field', field: 'bruit', stepMs: 200, speed: 1, group: 1, width: 1 });
     h.clearOsc();
     await h.post('/api/start');
     await sleep(700);
@@ -318,7 +337,7 @@ describe('Champ 3D', () => {
 
   test('les réglages du champ sont bornés et les valeurs absurdes refusées', async () => {
     await setL({ field: 'nawak', axAz: 1e9, axEl: 1e9, srcX: 'loin', srcY: NaN, srcZ: 1e12 });
-    const L = (await h.state()).layers.find(x => x.id === id);
+    const L = (await h.state()).layers[0];
     assert.ok(['plan', 'sphere', 'cylindre', 'boite', 'bruit'].includes(L.field),
       'forme invalide acceptée : ' + L.field);
     assert.ok(L.axAz >= 0 && L.axAz < 360, 'azimut hors bornes : ' + L.axAz);
@@ -411,11 +430,126 @@ describe('Champ 3D', () => {
 
     // …et le preset aussi
     await h.post('/api/layer', { id: L.id, set: { field: 'plan', axAz: 0 } });
+    assert.equal((await h.state()).layers.find(x => x.id === L.id).field, 'plan');
     await h.post('/api/preset', { action: 'recall', slot: 5 });
     await sleep(80);
     const L2 = (await h.state()).layers.find(x => x.engine === 'field');
     assert.equal(L2.field, 'cylindre', 'le preset doit restaurer la forme du champ');
     assert.equal(L2.axAz, 137);
+  });
+
+  // ── L'ordre du pas-à-pas suit la géométrie ────────────────────────────────
+
+  test('« ordre = axe 3D » fait suivre au chase la scéno, pas la liste', async () => {
+    // Barres ajoutées VOLONTAIREMENT dans le désordre : c'est le cas réel, quand
+    // on importe une scéno ou qu'on ajoute une barre après coup.
+    // Ordre de la liste : bar0(x=+4) bar1(x=-4) bar2(x=0) bar3(x=+2)
+    // Ordre géométrique sur +X : bar1(-4) bar2(0) bar3(+2) bar0(+4)
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'o0', name: 'D', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'o1', name: 'A', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'o2', name: 'B', address: '/fixtures/bar2', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'o3', name: 'C', address: '/fixtures/bar3', enabled: true, x: 0.5, y: 0.5 },
+    ] });
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: 'o0', p3: [4, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'o1', p3: [-4, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'o2', p3: [0, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'o3', p3: [2, 0, 2], dir3: [1, 0, 0], len3: 1 },
+    ] });
+
+    /** Ordre d'allumage des barres, relevé sur le flux OSC. */
+    const ordreVu = async () => {
+      await h.post('/api/blackout');
+      await sleep(80);
+      h.clearOsc();
+      await h.post('/api/resync');
+      await h.post('/api/start');
+      await sleep(560);           // ~4 pas de 120 ms
+      await h.post('/api/stop');
+      const vus = [];
+      const precedent = {};
+      for (const m of h.osc()) {
+        const mm = /^\/fixtures\/(bar\d+)\/luminosity$/.exec(m.address);
+        if (!mm) continue;
+        if (m.args[0] > 0.5 && !(precedent[mm[1]] > 0.5) && !vus.includes(mm[1])) vus.push(mm[1]);
+        precedent[mm[1]] = m.args[0];
+      }
+      return vus;
+    };
+
+    // Sans l'option : l'ordre de la liste
+    await base({ engine: 'steps', pattern: 'lr', mode: 'onoff', stepMs: 120,
+                 group: 1, speed: 1, width: 1, ordre3d: false });
+    const liste = await ordreVu();
+    assert.deepEqual(liste, ['bar0', 'bar1', 'bar2', 'bar3'],
+      'sans l’option, le chase suit la liste — vu ' + JSON.stringify(liste));
+
+    // Avec l'option, axe +X : l'ordre géométrique de jardin vers cour
+    await base({ engine: 'steps', pattern: 'lr', mode: 'onoff', stepMs: 120,
+                 group: 1, speed: 1, width: 1, ordre3d: true, axAz: 0, axEl: 0 });
+    const geo = await ordreVu();
+    assert.deepEqual(geo, ['bar1', 'bar2', 'bar3', 'bar0'],
+      'avec l’option, le chase doit suivre l’axe — vu ' + JSON.stringify(geo));
+
+    // Et l'axe compte : à 180° l'ordre s'inverse
+    await base({ engine: 'steps', pattern: 'lr', mode: 'onoff', stepMs: 120,
+                 group: 1, speed: 1, width: 1, ordre3d: true, axAz: 180, axEl: 0 });
+    const inverse = await ordreVu();
+    assert.deepEqual(inverse, ['bar0', 'bar3', 'bar2', 'bar1'],
+      'un axe retourné doit retourner l’ordre — vu ' + JSON.stringify(inverse));
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('l’ordre 3D reste stable quand deux barres sont à égalité', async () => {
+    // Deux barres exactement au même endroit sur l'axe : si le tri n'est pas
+    // départagé, elles s'échangent d'un tick à l'autre et le chase saute.
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'e1', name: 'E1', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'e2', name: 'E2', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'e3', name: 'E3', address: '/fixtures/bar2', enabled: true, x: 0.5, y: 0.5 },
+    ] });
+    // Toutes à x = 0 : égalité parfaite sur l'axe +X
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: 'e1', p3: [0, 1, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'e2', p3: [0, 3, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'e3', p3: [0, 5, 2], dir3: [1, 0, 0], len3: 1 },
+    ] });
+    await base({ engine: 'steps', pattern: 'lr', mode: 'onoff', stepMs: 100,
+                 group: 1, speed: 1, width: 1, ordre3d: true, axAz: 0, axEl: 0 });
+    const relever = async () => {
+      await h.post('/api/blackout'); await sleep(70); h.clearOsc();
+      await h.post('/api/resync'); await h.post('/api/start');
+      await sleep(400); await h.post('/api/stop');
+      const vus = []; const prec = {};
+      for (const m of h.osc()) {
+        const mm = /^\/fixtures\/(bar\d+)\/luminosity$/.exec(m.address);
+        if (!mm) continue;
+        if (m.args[0] > 0.5 && !(prec[mm[1]] > 0.5) && !vus.includes(mm[1])) vus.push(mm[1]);
+        prec[mm[1]] = m.args[0];
+      }
+      return vus;
+    };
+    const a = await relever();
+    const b = await relever();
+    assert.equal(a.length, 3, 'les 3 barres doivent s’allumer, vu ' + JSON.stringify(a));
+    assert.deepEqual(a, b, 'l’ordre doit être le MÊME d’une exécution à l’autre : '
+      + JSON.stringify(a) + ' puis ' + JSON.stringify(b));
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('l’ordre 3D ne dérange pas les autres couches', async () => {
+    // Le tri se fait sur une COPIE : trier sur place changerait l'ordre pour
+    // toute l'interface et pour les autres couches.
+    await h.post('/api/fixtures', { fixtures: enLigne(4) });
+    const avant = (await h.state()).fixtures.map(f => f.id);
+    await base({ engine: 'steps', pattern: 'lr', mode: 'onoff', stepMs: 100, ordre3d: true, axAz: 180 });
+    await h.post('/api/start');
+    await sleep(400);
+    await h.post('/api/stop');
+    const apres = (await h.state()).fixtures.map(f => f.id);
+    assert.deepEqual(apres, avant, 'l’ordre des fixtures ne doit pas être touché');
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
