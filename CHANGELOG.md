@@ -4,6 +4,78 @@ Toutes les évolutions notables de Cascade. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [sémantique](https://semver.org/lang/fr/).
 
+## [2.0.0-dev] — en cours, branche `v2`
+
+Version « espace » : Cascade sort du plan. La v1.6.0 reste disponible et
+inchangée sur `main` — rien de ce qui suit ne modifie un show existant.
+
+### Ajouté
+
+- **Une deuxième page, « Scène »** — la scénographie en 3D, à côté de la page
+  Conduite. Caméra orbitale, quatre vues (Face, Dessus, Côté, 3/4), les barres
+  allumées en direct pendant le show. Les trois vues de plan sont
+  orthographiques : sans ça, la vue de face ne coïnciderait plus avec la page
+  Conduite, or c'est tout son intérêt. Sélection commune aux deux pages.
+- **Un repère en mètres.** X = jardin↔cour, Y = profondeur, Z = hauteur,
+  origine au centre du plateau au sol — la convention des plans de feu. La 3D
+  est la vérité, la 2D en est la projection. Un projet v1 est migré sans bouger
+  d'un pixel.
+- **Manipulation à la souris** : glisser une barre la déplace (magnétisme 5 cm),
+  <kbd>Maj</kbd> limite à la hauteur, <kbd>Alt</kbd> l'oriente (magnétisme 5°),
+  glisser le vide tourne la vue. <kbd>Ctrl</kbd>+<kbd>Z</kbd> défait.
+- **Moteur « Champ 3D »** — un effet devient une fonction de la position réelle
+  de chaque barre. Cinq formes : plan avec axe réglable, sphère, cylindre
+  (le phare), boîte, et bruit 3D. Le champ ne produit qu'une grandeur, qui
+  traverse ensuite **exactement** la chaîne existante — forme d'onde, niveau
+  bas, niveau, couleur, HTP, master, courbe de gradateur, Ableton Link. Un plan
+  sur l'axe X rend les mêmes valeurs qu'une vague « G › D », et c'est vérifié
+  par un test : le champ est une généralisation, pas un second moteur.
+- **« Ordre = axe 3D »** pour le pas-à-pas : le chase suit la géométrie réelle
+  du plateau au lieu de l'ordre de la liste.
+- **Groupes de barres nommés**, avec lien vivant : modifier le groupe met à
+  jour toutes les couches qui le suivent.
+- **« Renvoyer la disposition vers MadMapper »** — un bouton, avec
+  confirmation, et rien d'autre. Déplacer une barre dans Cascade n'envoie
+  aucune géométrie : c'est le réglage du régisseur, on ne l'écrase pas dans son
+  dos.
+- **« Trouver le port »** dans les réglages : interroge les ports habituels et
+  dit lequel répond. Le port d'entrée OSC de MadMapper est un réglage **de
+  projet**, il n'est pas toujours 8000, et rien ne permettait de s'en
+  apercevoir.
+- **Messages passagers** (en bas de l'écran) à la place de `alert()`, qui
+  bloquait la page — inacceptable pendant un show.
+
+### Mesuré sur MadMapper 6.0.9
+
+Une campagne complète, valeurs DMX réelles lues en Art-Net. Tout est consigné
+dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
+
+- `luminosity` **multiplie** la texture échantillonnée, linéairement
+  (255 → 127 → 64), et le motif des LED allumées ne change pas. Le blackout
+  coupe vraiment, même en régime texture.
+- La chaîne est linéaire **de bout en bout** : exposant mesuré 1,00 sur des
+  demi-teintes.
+- **Déplacer une barre change ce qu'elle joue** — vérifié sur la sortie DMX,
+  pas seulement par relecture OSC.
+- `output/x` et `output/y` sont en **pixels**, pas en 0..1. `output/rot`
+  n'accepte que **[0 ; 360[** et, hors plage, ignore le message **sans rien
+  dire**. Ces deux pièges ont chacun coûté un bug, tous deux corrigés.
+
+### Corrigé
+
+- Les positions 3D sont bornées à ±500 m : un glissé emballé, ou une requête
+  hostile, expédiait une barre hors d'atteinte de la souris.
+- `setPointerCapture` sous `try/catch` : la capture peut légitimement échouer,
+  et l'exception interrompait le début du geste.
+- Le bruit 3D saturait 24,5 % de ses valeurs aux butées — du clignotement dur
+  au lieu de mouvement organique. Ramené à 3,8 % en mesurant sa distribution
+  réelle plutôt qu'en la devinant.
+
+### Tests
+
+162 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+véritables événements de souris injectés par CDP.
+
 ## [1.6.0] — 2026-07-25
 
 Version « phase » : Cascade ne se contente plus de suivre le tempo d'Ableton

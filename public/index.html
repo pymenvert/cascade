@@ -367,9 +367,33 @@
     <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
     <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
     <tr><td>Glisser</td><td>Une barre dans la vue spatiale : la déplacer</td></tr>
+    <tr><th colspan="2">Page Scène (vue 3D)</th></tr>
+    <tr><td>Glisser une barre</td><td>La déplacer · <kbd>Maj</kbd> = en hauteur · <kbd>Alt</kbd> = l'orienter</td></tr>
+    <tr><td>Glisser le vide</td><td>Tourner la vue · molette = zoom</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Défaire le dernier déplacement</td></tr>
+    <tr><th colspan="2">Les trois moteurs</th></tr>
+    <tr><td>⧉ Pas à pas</td><td>Un moteur d'<strong>ordre</strong> : les barres s'allument l'une après
+      l'autre. C'est lui qui porte le swing, les blocs et le « une fois ».</td></tr>
+    <tr><td>∿ Vague</td><td>Une onde qui traverse le plateau <strong>à plat</strong>, comme sur la page Conduite.</td></tr>
+    <tr><td>◈ Champ 3D</td><td>La même idée, mais dans l'<strong>espace</strong> : l'effet est calculé à
+      l'endroit réel de chaque barre. Deux barres au même point du plan mais à des profondeurs
+      différentes reçoivent enfin des valeurs différentes.</td></tr>
+    <tr><th colspan="2">Les cinq formes du champ</th></tr>
+    <tr><td>Plan</td><td>Un balayage. L'axe se règle en azimut et en élévation : incliné, il donne
+      une diagonale. Sur l'azimut 0°, il reproduit exactement la vague « G › D ».</td></tr>
+    <tr><td>Sphère</td><td>Des ondes concentriques depuis un point du plateau, en mètres.</td></tr>
+    <tr><td>Cylindre</td><td>Le phare : un balayage qui tourne autour de l'axe.</td></tr>
+    <tr><td>Boîte</td><td>Des coques rectangulaires qui s'éloignent de la source.</td></tr>
+    <tr><td>Bruit 3D</td><td>Du mouvement organique — feu, nuages, scintillement.
+      « Étendue du motif » règle la taille des taches.</td></tr>
+    <tr><td>Ordre = axe 3D</td><td>En pas-à-pas : le chase suit la géométrie réelle au lieu de
+      l'ordre de la liste. À cocher si tes barres ont été ajoutées dans le désordre.</td></tr>
   </table>
   <p class="hint">Sur iPad, un double-tap remplace le double-clic.
   Les raccourcis sont ignorés pendant une saisie de texte.</p>
+  <p class="hint"><strong>Le champ 3D lit la position que tu poses dans la page Scène.</strong>
+  Tant que toutes tes barres sont à la même profondeur, il se comporte comme la vague —
+  c'est en les plaçant en volume qu'il prend tout son sens.</p>
   <div class="mini" style="justify-content:flex-end; margin-top:12px">
     <button id="aideClose">Fermer</button>
   </div>
