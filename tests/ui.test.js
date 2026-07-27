@@ -577,7 +577,9 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
         await poll();
         return { champ: vu('#fieldCtrls'), vague: vu('#waveCtrls'), motifs: vu('#patterns'),
                  axe: vu('#fieldAxe'), src: vu('#fieldSrc'), pas: vu('#stepCtrls'),
-                 swing: vu('#rowSwing') };
+                 swing: vu('#rowSwing'),
+                 duty: (() => { const e = document.querySelector('#duty');
+                   return e ? getComputedStyle(e.closest('label')).display !== 'none' : null; })() };
       };
       document.querySelector('.seg button[data-eng="field"]').click();
       await new Promise(r => setTimeout(r, 250));
@@ -605,9 +607,14 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.equal(r.sphere.axe, false, 'la sphère n’utilise pas l’axe');
     assert.equal(r.cylindre.axe, true, 'le cylindre a besoin de l’axe');
     assert.equal(r.cylindre.src, true, 'et de la source');
-    // Le bruit n'utilise ni l'un ni l'autre
-    assert.equal(r.bruit.axe, false, 'le bruit n’utilise pas l’axe');
-    assert.equal(r.bruit.src, false, 'ni la source');
+    // Le bruit utilise l'axe — c'est la direction de sa dérive. Il l'a longtemps
+    // utilisé SANS le montrer, ce qui donnait un feu qui descend toujours sans
+    // réglage pour l'expliquer. Il n'a en revanche pas de source.
+    assert.equal(r.bruit.axe, true, 'le bruit doit montrer l’axe : c’est sa dérive');
+    assert.equal(r.bruit.src, false, 'le bruit n’a pas de source');
+    // La netteté ne s'applique pas au bruit : il ne traverse pas la forme d'onde.
+    assert.equal(r.bruit.duty, false, 'la netteté doit être masquée pour le bruit');
+    assert.equal(r.plan.duty, true, 'et visible pour un plan');
 
     // Et on revient bien au pas-à-pas
     assert.equal(r.steps.champ, false);

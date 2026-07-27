@@ -81,6 +81,16 @@ function defaultLayer(name) {
     axAz: 0,                // azimut de l'axe, en degrés : 0 = vers cour (+X)
     axEl: 0,                // élévation de l'axe, en degrés : -90 = vers le sol
     srcX: 0, srcY: 0, srcZ: 2,   // source du champ, en MÈTRES (sphere/cylindre/boite)
+    // Netteté : quelle part de la longueur d'onde le motif occupe, en %.
+    // 100 = comportement d'origine (le motif remplit tout son cycle, donc la
+    // moitié du plateau est allumée en permanence). Mesuré avant ce réglage :
+    // 48 à 50 % des barres au-dessus de 50 %, quelle que soit la forme ou
+    // l'étendue — impossible d'obtenir une bande étroite, ni une comète.
+    duty: 100,
+    // Course de la source, en MÈTRES. 0 = source fixe. Sinon elle balaie un
+    // segment de cette longueur, centré sur elle, une fois par cycle, le long de
+    // l'axe. Avec une sphère et une netteté serrée, ça fait une comète.
+    course: 0,
     // Pas-à-pas : ordonner les barres par leur projection sur l'axe 3D au lieu
     // de l'ordre de la liste. Le chase suit alors la scénographie RÉELLE — et
     // c'est le seul réglage qui fait profiter le moteur pas-à-pas de la 3D.
@@ -151,7 +161,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course'];
 
 function loadConfig() {
   let saved = null;
@@ -272,6 +282,8 @@ function sanitizeLayerSet(set) {
       case 'axAz': o.axAz = Math.round(((cnum(v, -100000, 100000, 0) % 360) + 360) % 360); break;
       case 'axEl': o.axEl = Math.round(cnum(v, -90, 90, 0)); break;
       case 'srcX': case 'srcY': case 'srcZ': o[k] = cnum(v, -P3_MAX, P3_MAX, 0); break;
+      case 'duty': o.duty = Math.round(cnum(v, 5, 100, 100)); break;
+      case 'course': o.course = cnum(v, 0, 200, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
       case 'colorA': case 'colorB': if (/^#[0-9a-fA-F]{6}$/.test(String(v))) o[k] = String(v); break;
@@ -1591,6 +1603,7 @@ function fieldValues(L, list, now, store) {
   const t = phaseContinue(L, now, store).u + (L.phase || 0) / 360;
   const wl = Math.max(0.1, Math.max(1, L.width) / 8);   // même sémantique que `wave`
   const forme = L.field || 'plan';
+  const duty = Math.round(cnum(L.duty, 5, 100, 100));
   const a = axeDe(L.axAz, L.axEl);
   // Étendue du plateau le long de l'axe : pour un axe pur on retrouve w, d ou h.
   const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);
@@ -1599,8 +1612,18 @@ function fieldValues(L, list, now, store) {
   // à h. Prendre d/2 comme centre en profondeur décalait tout le plan d'une
   // demi-profondeur, sans que rien ne le signale.
   const cx = 0, cy = 0, cz = sc.h / 2;
-  const src = [fini(L.srcX, 0), fini(L.srcY, 0), fini(L.srcZ, 2)];
+  // Source, éventuellement MOBILE : elle balaie un segment de longueur `course`
+  // centré sur sa position, le long de l'axe, une fois par cycle. C'est ce qui
+  // fait une comète quand on l'associe à une sphère et à une netteté serrée.
+  const course = Math.max(0, fini(L.course, 0));
+  const glisse = course ? (t % 1 + 1) % 1 : 0;
+  const dep = course ? (glisse - 0.5) * course : 0;
+  const src = [fini(L.srcX, 0) + a[0] * dep,
+               fini(L.srcY, 0) + a[1] * dep,
+               fini(L.srcZ, 2) + a[2] * dep];
   const diag = Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2);
+  // Taille d'une tache de bruit, en mètres. Isotrope par construction.
+  const grainBruit = Math.max(0.15, wl * Math.max(sc.w, sc.d, sc.h));
 
   // Base orthonormée perpendiculaire à l'axe, pour mesurer l'angle du cylindre.
   // Calculée UNE fois : elle ne dépend que de l'axe, pas de la barre. La laisser
@@ -1666,10 +1689,20 @@ function fieldValues(L, list, now, store) {
       }
       case 'bruit': {
         // Le bruit rend DÉJÀ une valeur : il ne traverse pas la forme d'onde,
-        // sinon on obtiendrait de la bouillie. `width` règle la finesse du
-        // grain (large = grandes taches), le temps fait dériver le volume.
-        const k = 1 / Math.max(0.15, wl * ext);
-        out.set(f.id, etaler(bruit3(p[0] * k, p[1] * k, p[2] * k + t)));
+        // sinon on obtiendrait de la bouillie. `width` règle la finesse du grain.
+        //
+        // ⚠ Le grain est normalisé sur la plus grande cote du plateau, pas sur
+        // `ext` : `ext` dépend de l'axe, si bien que changer l'azimut changeait la
+        // taille des taches de 20 % sans qu'aucun réglage visible ne l'explique.
+        //
+        // Et la dérive suit maintenant l'AXE, au lieu de descendre toujours selon
+        // Z : un feu qui descend, ce n'est pas un feu. Le motif avance d'un grain
+        // par cycle dans la direction de l'axe.
+        const k = 1 / grainBruit;
+        const g = t * grainBruit;
+        out.set(f.id, etaler(bruit3((p[0] + a[0] * g) * k,
+                                    (p[1] + a[1] * g) * k,
+                                    (p[2] + a[2] * g) * k)));
         continue;
       }
       default: {   // plan / balayage
@@ -1692,9 +1725,25 @@ function fieldValues(L, list, now, store) {
     if (L.mirrorH) u = Math.abs(u - (L.axisX ?? 0.5));
     const d = (((t - (cyclique ? u * tours : u / wl)) % 1) + 1) % 1;
     let v;
-    if (L.waveform === 'triangle') v = 1 - 2 * Math.min(d, 1 - d);
-    else if (L.waveform === 'square') v = d < 0.5 ? 1 : 0;
-    else v = (1 + Math.cos(2 * Math.PI * d)) / 2;
+    if (duty >= 100) {
+      // Chemin d'origine, laissé intact au bit près : c'est lui que le test de
+      // non-régression compare à la vague, et la netteté par défaut vaut 100.
+      if (L.waveform === 'triangle') v = 1 - 2 * Math.min(d, 1 - d);
+      else if (L.waveform === 'square') v = d < 0.5 ? 1 : 0;
+      else v = (1 + Math.cos(2 * Math.PI * d)) / 2;
+    } else {
+      // Netteté : le motif n'occupe plus qu'une part de sa longueur d'onde, et
+      // le reste est noir. `dd` est la distance à la crête, de 0 à 0,5.
+      const dd = Math.min(d, 1 - d);
+      const demi = duty / 200;
+      if (dd >= demi) v = 0;
+      else {
+        const q = dd / demi;      // 0 sur la crête, 1 au bord de la bande
+        v = L.waveform === 'square' ? 1
+          : L.waveform === 'triangle' ? 1 - q
+          : (1 + Math.cos(Math.PI * q)) / 2;
+      }
+    }
     out.set(f.id, v);
   }
   return out;
@@ -2082,6 +2131,46 @@ const server = http.createServer(async (req, res) => {
         if (!touchees.length) return json(res, { ok: false });
         saveConfig();
         return json(res, { ok: true, fixture: touchees[0], fixtures: touchees });
+      }
+      case '/api/demo': {
+        // Presets de DÉMONSTRATION du champ 3D.
+        //
+        // Sans eux, basculer sur « Champ 3D » ne change rien à l'écran : le
+        // réglage par défaut (plan, azimut 0) rend exactement la vague « G › D »,
+        // et un projet v1 migré a toutes ses barres à la même profondeur. Le
+        // régisseur voit cinq nouveaux réglages apparaître et la lumière ne
+        // bouger d'un iota — la pire première impression possible.
+        //
+        // ⚠ Ils REMPLACENT les couches courantes : c'est destructif, donc
+        // l'interface demande confirmation, et rien n'est envoyé sans clic.
+        const sc = state.scene;
+        const demos = [
+          { name: 'Profondeur', engine: 'field', field: 'plan', axAz: 90, axEl: 0,
+            width: 6, duty: 45, stepMs: 900, mode: 'fade', level: 1,
+            colorA: '#ff6a00', colorB: '#ffd400' },
+          { name: 'Comète', engine: 'field', field: 'sphere', axAz: 0, axEl: 0,
+            srcX: 0, srcY: sc.d / 2, srcZ: sc.h / 2, course: Math.max(4, sc.w),
+            width: 8, duty: 22, stepMs: 1400, mode: 'fade', level: 1 },
+          { name: 'Phare', engine: 'field', field: 'cylindre', axAz: 0, axEl: 90,
+            srcX: 0, srcY: 0, srcZ: sc.h / 2, width: 2, duty: 30,
+            stepMs: 2200, mode: 'fade', level: 0.9 },
+          { name: 'Feu', engine: 'field', field: 'bruit', axAz: 0, axEl: 90,
+            width: 2, stepMs: 2600, mode: 'fade', level: 1,
+            target: 'color', colorA: '#3a0a00', colorB: '#ffb300' },
+        ];
+        stopChase();
+        state.layers = demos.map((d, i) => {
+          const L = defaultLayer(d.name);
+          Object.assign(L, sanitizeLayerSet({ ...d, enabled: i === 0 }));
+          L.name = d.name;
+          return L;
+        });
+        layerSeq = state.layers.length + 1;
+        engines.clear();
+        saveConfig();
+        console.log('[cascade] presets de démonstration du champ 3D chargés');
+        return json(res, { ok: true, layers: state.layers,
+          noms: state.layers.map(l => l.name) });
       }
       case '/api/vues': {
         // Créer, renommer, supprimer une vue. Rien n'est envoyé à MadMapper ici.

@@ -393,7 +393,14 @@
     <tr><td>Cylindre</td><td>Le phare : un balayage qui tourne autour de l'axe.</td></tr>
     <tr><td>Boîte</td><td>Des coques rectangulaires qui s'éloignent de la source.</td></tr>
     <tr><td>Bruit 3D</td><td>Du mouvement organique — feu, nuages, scintillement.
-      « Étendue du motif » règle la taille des taches.</td></tr>
+      « Étendue » règle la taille des taches, et <strong>l'axe donne la direction de
+      la dérive</strong> : élévation +90° pour un feu qui monte.</td></tr>
+    <tr><td>Netteté</td><td>Quelle part de sa longueur d'onde le motif occupe. À 100 %, la moitié
+      du plateau est allumée en permanence. Serre-la pour une bande étroite — ou une comète.</td></tr>
+    <tr><td>Course</td><td>La source balaie un segment de cette longueur, le long de l'axe, une
+      fois par cycle. Sphère + course + netteté serrée = comète.</td></tr>
+    <tr><td>✨ Démos</td><td>Quatre couches prêtes qui exploitent la profondeur : Profondeur,
+      Comète, Phare, Feu. Elles <strong>remplacent</strong> tes couches — exporte avant.</td></tr>
     <tr><td>Ordre = axe 3D</td><td>En pas-à-pas : le chase suit la géométrie réelle au lieu de
       l'ordre de la liste. À cocher si tes barres ont été ajoutées dans le désordre.</td></tr>
     <tr><th colspan="2">Vues — choisir l'axe de projection d'une texture</th></tr>
@@ -560,6 +567,8 @@
           <option value="square">Carré</option>
         </select>
       </label>
+      <label class="row" title="Quelle part de sa longueur d'onde le motif occupe. 100 % = le motif remplit tout son cycle (la moitié du plateau est allumée en permanence). Serre-le pour obtenir une bande étroite, ou une comète."><span>Netteté</span>
+        <input type="range" id="duty" min="5" max="100" step="1"><output></output></label>
       <div id="fieldSrc">
         <label class="coord" title="Point d’où part le champ, en mètres"><span>Source X</span>
           <input type="number" id="srcX" step="0.25"><span class="unite">m</span></label>
@@ -567,7 +576,12 @@
           <input type="number" id="srcY" step="0.25"><span class="unite">m</span></label>
         <label class="coord"><span>Source Z</span>
           <input type="number" id="srcZ" step="0.25"><span class="unite">m</span></label>
+        <label class="row" title="La source balaie un segment de cette longueur, le long de l'axe, une fois par cycle. 0 = source fixe. Avec une sphère et une netteté serrée, ça fait une comète."><span>Course</span>
+          <input type="range" id="course" min="0" max="40" step="0.5"><output></output></label>
         <button id="btnSrcCentre" class="ghost" style="font-size:11px; padding:4px 9px" title="Pose la source au centre du plateau, à mi-hauteur">Centrer la source</button>
+      </div>
+      <div class="mini" style="margin:8px 0 4px">
+        <button id="btnDemo" class="ghost" title="Charge quatre couches de démonstration qui exploitent la profondeur : Profondeur, Comète, Phare, Feu. REMPLACE les couches actuelles.">✨ Charger les démos</button>
       </div>
       <p class="hint">Le champ est évalué à la <strong>position réelle</strong> de chaque barre —
       règle-la dans la page Scène. Un plan sur l’azimut 0° reproduit exactement la vague
@@ -1087,7 +1101,12 @@ function render() {
   $('#lblWidth').textContent = champ ? 'Étendue du motif'
     : wave ? 'Largeur de vague' : 'Tenue (traîne)';
   setSlider('#group', L.group || 1, v => wave ? v + ' pas' : v + (v > 1 ? ' barres' : ' barre'));
-  setSlider('#width', L.width, v => wave ? Math.round(v / 8 * 100) + ' %' : v + ' pas');
+  // ⚠ Un pourcentage ne veut RIEN dire ici : la grandeur normalisée diffère selon
+  // la forme. À « 13 % », un plan fait 1,25 m de longueur d'onde, une sphère
+  // 0,85 m, une boîte 0,63 m et un cylindre 8 faisceaux. Deux couches réglées
+  // pareil affichaient la même valeur pour des rendus incomparables.
+  setSlider('#width', L.width, v => champ ? uniteEtendue(L, v)
+    : wave ? Math.round(v / 8 * 100) + ' %' : v + ' pas');
   $('#stepCtrls').style.display = wave ? 'none' : '';
   $('#waveCtrls').style.display = (wave && !champ) ? '' : 'none';
   $('#fieldCtrls').style.display = champ ? '' : 'none';
@@ -1099,6 +1118,10 @@ function render() {
     // Le bruit n'utilise ni l'un ni l'autre : montrer des réglages sans effet est
     // le meilleur moyen de faire croire à une panne.
     $('#fieldSrc').style.display = (forme === 'plan' || forme === 'bruit') ? 'none' : '';
+    setSlider('#duty', L.duty ?? 100, v => v >= 100 ? '100 % (plein)' : v + ' %');
+    setSlider('#course', L.course ?? 0, v => v ? v.toLocaleString('fr-FR') + ' m' : 'fixe');
+    // La netteté n'a pas de sens sur le bruit : il ne traverse pas la forme d'onde.
+    $('#duty').closest('label').style.display = forme === 'bruit' ? 'none' : '';
     $('#fieldWaveform').closest('label').style.display = forme === 'bruit' ? 'none' : '';
     for (const [id, cle] of [['#srcX', 'srcX'], ['#srcY', 'srcY'], ['#srcZ', 'srcZ']]) {
       const el = $(id);
@@ -1107,7 +1130,9 @@ function render() {
   }
   // L'axe sert à DEUX moteurs : au champ (plan et cylindre) et au pas-à-pas
   // quand l'ordre suit la géométrie. Il vit donc hors du bloc du champ.
-  const axeUtile = champ ? (L.field === 'plan' || L.field === 'cylindre')
+  // Le bruit utilise MAINTENANT l'axe : c'est la direction de sa dérive. Le
+  // masquer donnait un feu qui descend toujours, sans réglage pour l'expliquer.
+  const axeUtile = champ ? ['plan', 'cylindre', 'bruit'].includes(L.field)
                          : (L.engine === 'steps' && !!L.ordre3d);
   $('#fieldAxe').style.display = axeUtile ? '' : 'none';
   setSlider('#axAz', L.axAz || 0, v => v + '°');
@@ -1779,8 +1804,24 @@ $('#quitExport').onclick = async () => {
 };
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
 $('#fieldForme').onchange = (e) => setL({ field: e.target.value }).then(poll);
+// Les démos : le seul moyen de VOIR ce que le champ 3D apporte. Sans elles, le
+// réglage par défaut rend exactement la vague, et on croit que rien ne marche.
+$('#btnDemo').onclick = async () => {
+  if (!confirm('Charger les quatre couches de démonstration ?\n\n'
+    + 'Cela REMPLACE tes couches actuelles. Exporte ton projet avant si tu veux les garder.')) return;
+  const r = await post('/api/demo');
+  await poll();
+  toast(r.ok ? ('Démos chargées : ' + (r.noms || []).join(' · ')) : 'Échec');
+};
 $('#ordre3d').onchange = (e) => setL({ ordre3d: e.target.checked }).then(poll);
 $('#fieldWaveform').onchange = (e) => setL({ waveform: e.target.value }).then(poll);
+for (const cle of ['duty', 'course']) {
+  const el = $('#' + cle);
+  el.oninput = () => setSlider('#' + cle, +el.value,
+    v => cle === 'duty' ? (v >= 100 ? '100 % (plein)' : v + ' %')
+       : (v ? v.toLocaleString('fr-FR') + ' m' : 'fixe'));
+  el.onchange = () => setL({ [cle]: +el.value }).then(poll);
+}
 for (const cle of ['axAz', 'axEl']) {
   const el = $('#' + cle);
   el.oninput = () => setSlider('#' + cle, +el.value, v => v + '°');
@@ -2697,6 +2738,35 @@ function renderScene() {
   }
   renderSel3d();
 }
+/**
+ * L'étendue du motif, dans l'unité qui a du sens pour la forme choisie.
+ * Les formules suivent exactement celles du serveur : plan normalisé par
+ * l'étendue du plateau le long de l'axe, sphère par la demi-diagonale, boîte par
+ * les demi-cotes, cylindre en nombre entier de faisceaux, bruit par la plus
+ * grande cote.
+ */
+function uniteEtendue(L, w) {
+  const sc = (S && S.scene) || { w: 10, d: 8, h: 6 };
+  const az = (L.axAz || 0) * Math.PI / 180, el = (L.axEl || 0) * Math.PI / 180;
+  const ce = Math.cos(el);
+  const a = [ce * Math.cos(az), ce * Math.sin(az), Math.sin(el)];
+  const wl = Math.max(0.1, Math.max(1, w) / 8);
+  const m = (x) => (Math.round(x * 100) / 100).toLocaleString('fr-FR') + ' m';
+  switch (L.field || 'plan') {
+    case 'sphere': return m(wl * Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2));
+    case 'boite': return m(wl * Math.max(0.1, Math.max(sc.w, sc.d, sc.h) / 2));
+    case 'bruit': return 'grain ' + m(Math.max(0.15, wl * Math.max(sc.w, sc.d, sc.h)));
+    case 'cylindre': {
+      const n = Math.max(1, Math.round(1 / wl));
+      return n + (n > 1 ? ' faisceaux' : ' faisceau') + ' (' + Math.round(360 / n) + '°)';
+    }
+    default: {
+      const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);
+      return m(wl * ext);
+    }
+  }
+}
+
 /**
  * Le panneau des vues. Une ligne par vue : bouton d'activation, nom du dossier
  * MadMapper, case « à moi » (vue dessinée à la main, que Cascade ne recalcule

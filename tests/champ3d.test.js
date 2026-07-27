@@ -791,6 +791,194 @@ describe('Champ 3D', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
+  // ── Netteté, dérive du bruit, source mobile ────────────────────────────────
+
+  test('la netteté resserre vraiment le motif', async () => {
+    // Avant ce réglage, mesuré : 48 à 50 % des barres au-dessus de 50 %, quelle
+    // que soit la forme, la forme d'onde ou l'étendue. Impossible d'obtenir une
+    // bande étroite — donc impossible de faire une comète.
+    await h.post('/api/fixtures', { fixtures: enLigne(16) });
+    const part = async (duty) => {
+      await base({ engine: 'field', field: 'plan', axAz: 0, duty, ...GEL, width: 4 });
+      await h.post('/api/start');
+      let hauts = 0, total = 0;
+      for (let i = 0; i < 8; i++) {
+        h.clearOsc();
+        await sleep(110);
+        const n = niveaux(h.osc());
+        for (const v of n.values()) { total++; if (v > 0.5) hauts++; }
+      }
+      await h.post('/api/stop');
+      return total ? hauts / total : 0;
+    };
+    const plein = await part(100);
+    const serre = await part(20);
+    assert.ok(plein > 0.3, 'a 100 %, une bonne part du plateau doit etre allumee, vu '
+      + (plein * 100).toFixed(0) + ' %');
+    assert.ok(serre < plein * 0.55,
+      'a 20 % de nettete, la part allumee doit s effondrer : ' + (plein * 100).toFixed(0)
+      + ' % -> ' + (serre * 100).toFixed(0) + ' %');
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('la netteté à 100 % ne change RIEN au rendu d’origine', async () => {
+    // Garde-fou de compatibilité : la valeur par défaut doit laisser le chemin
+    // historique intact, sinon tous les shows existants changent de rendu.
+    await base({ engine: 'wave', pattern: 'lr', ...GEL });
+    const vague = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, duty: 100, ...GEL });
+    const champ = await clicher();
+    for (const [bar, v] of vague) {
+      assert.ok(Math.abs(champ.get(bar) - v) < 0.02,
+        bar + ' : la nettete a 100 % doit rendre la vague au bit pres');
+    }
+  });
+
+  test('le bruit dérive dans la direction de l’AXE, pas toujours vers le bas', async () => {
+    // Défaut mesuré avant correction : le temps n'était ajouté qu'à la troisième
+    // coordonnée, donc le motif descendait toujours. Un feu qui descend, ce n'est
+    // pas un feu.
+    await h.post('/api/fixtures', { fixtures: enLigne(8) });
+    const suite = async (axAz) => {
+      await base({ engine: 'field', field: 'bruit', axAz, axEl: 0,
+                   stepMs: 300, speed: 1, group: 1, width: 3 });
+      await h.post('/api/start');
+      const s = [];
+      for (let i = 0; i < 6; i++) { h.clearOsc(); await sleep(140); const n = niveaux(h.osc()); if (n.size) s.push(n); }
+      await h.post('/api/stop');
+      return s;
+    };
+    const av = await suite(0);
+    const ar = await suite(180);
+    assert.ok(av.length >= 3 && ar.length >= 3, 'trop peu de releves');
+    let differe = 0;
+    for (const b of ['bar0', 'bar2', 'bar4', 'bar6']) {
+      const a1 = av.map(n => n.get(b)).filter(v => v != null);
+      const a2 = ar.map(n => n.get(b)).filter(v => v != null);
+      if (!a1.length || !a2.length) continue;
+      const m1 = a1.reduce((s, v) => s + v, 0) / a1.length;
+      const m2 = a2.reduce((s, v) => s + v, 0) / a2.length;
+      if (Math.abs(m1 - m2) > 0.03) differe++;
+    }
+    assert.ok(differe >= 1,
+      'changer l axe doit changer la derive du bruit, ' + differe + ' barre(s) affectee(s)');
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('le grain du bruit ne dépend PLUS de l’axe', async () => {
+    // Défaut mesuré : le grain était normalisé sur l'étendue du plateau LE LONG
+    // DE L'AXE, si bien que passer l'azimut de 0 à 90° changeait la taille des
+    // taches de 20 % — sans qu'aucun réglage visible ne l'explique.
+    await h.post('/api/fixtures', { fixtures: Array.from({ length: 12 }, (_, i) => ({
+      id: 'g' + i, name: 'G' + i, address: '/fixtures/bar' + i, enabled: true, x: 0.5, y: 0.5 })) });
+    await h.post('/api/fixture3d', { fixtures: Array.from({ length: 12 }, (_, i) => ({
+      id: 'g' + i, p3: [i * 0.7 - 4, 1, 2], dir3: [1, 0, 0], len3: 0.5 })) });
+    const ecartType = async (axAz) => {
+      await base({ engine: 'field', field: 'bruit', axAz, axEl: 0,
+                   stepMs: 10000, group: 8, speed: 0.05, width: 2 });
+      await h.post('/api/start');
+      const vals = [];
+      for (let i = 0; i < 10; i++) {
+        const st = await h.state();
+        for (const v of (st.levels || [])) if (typeof v === 'number') vals.push(v);
+        await sleep(70);
+      }
+      await h.post('/api/stop');
+      const m = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
+      return Math.sqrt(vals.reduce((s, v) => s + (v - m) ** 2, 0) / (vals.length || 1));
+    };
+    const e0 = await ecartType(0);
+    const e90 = await ecartType(90);
+    assert.ok(e0 > 0.05 && e90 > 0.05, 'le bruit doit avoir du relief aux deux azimuts');
+    assert.ok(Math.abs(e0 - e90) < Math.max(e0, e90) * 0.5,
+      'la statistique du bruit ne devrait pas dependre de l axe : ' + e0.toFixed(3)
+      + ' contre ' + e90.toFixed(3));
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('une source mobile fait voyager le centre du champ', async () => {
+    // La comète : une sphère dont la source balaie un segment. Deux barres aux
+    // extrémités du plateau doivent culminer à des MOMENTS différents.
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'k1', name: 'Jardin', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'k2', name: 'Cour', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
+    ] });
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: 'k1', p3: [-4, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'k2', p3: [4, 0, 2], dir3: [1, 0, 0], len3: 1 },
+    ] });
+    await base({ engine: 'field', field: 'sphere', axAz: 0, axEl: 0,
+                 srcX: 0, srcY: 0, srcZ: 2, course: 10, duty: 30,
+                 stepMs: 900, speed: 1, group: 1, width: 8 });
+    await h.post('/api/start');
+    const serie = [];
+    for (let i = 0; i < 14; i++) {
+      h.clearOsc();
+      await sleep(90);
+      const n = niveaux(h.osc());
+      if (n.has('bar0') || n.has('bar1')) serie.push([n.get('bar0'), n.get('bar1')]);
+    }
+    await h.post('/api/stop');
+    assert.ok(serie.length >= 6, 'trop peu de releves : ' + serie.length);
+    const iMax = (k) => serie.reduce((best, v, i) =>
+      (v[k] != null && (best.v == null || v[k] > best.v)) ? { i, v: v[k] } : best, { i: -1, v: null });
+    const a = iMax(0), b = iMax(1);
+    assert.ok(a.v > 0.5 && b.v > 0.5,
+      'les deux barres doivent etre balayees : ' + JSON.stringify([a.v, b.v]));
+    assert.notEqual(a.i, b.i,
+      'les deux barres culminent au meme instant : la source ne bouge pas');
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('course et netteté sont bornées', async () => {
+    await setL({ duty: 1e9, course: 1e9 });
+    let L = (await h.state()).layers[0];
+    assert.ok(L.duty >= 5 && L.duty <= 100, 'nettete hors bornes : ' + L.duty);
+    assert.ok(L.course >= 0 && L.course <= 200, 'course hors bornes : ' + L.course);
+    await setL({ duty: -50, course: -3 });
+    L = (await h.state()).layers[0];
+    assert.ok(L.duty >= 5, 'nettete negative acceptee : ' + L.duty);
+    assert.equal(L.course, 0, 'course negative acceptee : ' + L.course);
+    await setL({ duty: 100, course: 0 });
+  });
+
+  test('les démos chargent quatre couches qui exploitent vraiment la 3D', async () => {
+    // Sans elles, basculer sur « Champ 3D » ne change rien à l'écran : le réglage
+    // par défaut rend exactement la vague, et un projet migré a toutes ses barres
+    // à la même profondeur. C'est la pire première impression possible.
+    await h.post('/api/fixtures', { fixtures: enLigne(8) });
+    const r = await h.post('/api/demo');
+    assert.equal(r.body.ok, true);
+    const L = (await h.state()).layers;
+    assert.equal(L.length, 4, 'quatre couches attendues, vu ' + L.length);
+    assert.deepEqual(L.map(x => x.name), ['Profondeur', 'Comète', 'Phare', 'Feu']);
+    // Toutes en champ, et chacune sur une forme différente : sinon la démo ne
+    // montre pas ce qu'elle prétend montrer.
+    for (const x of L) assert.equal(x.engine, 'field', x.name + ' devrait être en champ');
+    assert.equal(new Set(L.map(x => x.field)).size, 4, 'quatre formes distinctes attendues');
+    // Une seule active : quatre couches ensemble donneraient de la bouillie.
+    assert.equal(L.filter(x => x.enabled).length, 1, 'une seule couche doit être active');
+    // Et la comète doit avoir une source mobile, sinon ce n'est pas une comète.
+    const com = L.find(x => x.name === 'Comète');
+    assert.ok(com.course > 0, 'la comète doit avoir une course, vu ' + com.course);
+    assert.ok(com.duty < 60, 'la comète doit être serrée, vu ' + com.duty);
+
+    // Elles doivent VRAIMENT sortir de la lumière
+    await h.post('/api/blackout');
+    await sleep(80);
+    h.clearOsc();
+    await h.post('/api/start');
+    await sleep(400);
+    const msgs = h.osc();
+    await h.post('/api/stop');
+    assert.ok(msgs.length > 10, 'les démos doivent produire de la lumière, vu ' + msgs.length);
+    const mauvais = msgs.filter(m => typeof m.args[0] === 'number'
+      && (!Number.isFinite(m.args[0]) || m.args[0] < 0 || m.args[0] > 1));
+    assert.equal(mauvais.length, 0);
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
