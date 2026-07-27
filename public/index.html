@@ -1739,8 +1739,10 @@ for (const cle of ['srcX', 'srcY', 'srcZ']) {
 // faire faire par un bouton.
 $('#btnSrcCentre').onclick = () => {
   const sc = (S && S.scene) || { w: 10, d: 8, h: 6 };
-  setL({ srcX: 0, srcY: Math.round(sc.d / 2 * 100) / 100, srcZ: Math.round(sc.h / 2 * 100) / 100 })
-    .then(poll);
+  // ⚠ X et Y sont centrés sur ZÉRO — seul Z va de 0 à la hauteur. Écrire d/2 en
+  // profondeur, comme je l'avais fait, posait la source au bord LOINTAIN du
+  // plateau : « centrer » envoyait la source à quatre mètres derrière le centre.
+  setL({ srcX: 0, srcY: 0, srcZ: Math.round(sc.h / 2 * 100) / 100 }).then(poll);
 };
 $$('.seg button[data-tgt]').forEach(b => b.onclick = () => setL({ target: b.dataset.tgt }).then(poll));
 $$('.seg button[data-m]').forEach(b => b.onclick = () => setL({ mode: b.dataset.m }).then(poll));

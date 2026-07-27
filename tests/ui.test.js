@@ -625,8 +625,9 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
       await poll();
       const L = sel();
       return { x: L.srcX, y: L.srcY, z: L.srcZ };`);
+    // X et Y sont centrés sur zéro dans le repère du plateau ; seul Z va de 0 à h.
     assert.equal(r.x, 0, 'X au centre du plateau');
-    assert.ok(Math.abs(r.y - 4.5) < 0.01, 'Y à mi-profondeur, vu ' + r.y);
+    assert.equal(r.y, 0, 'Y au centre du plateau (et non au bord lointain), vu ' + r.y);
     assert.ok(Math.abs(r.z - 3.5) < 0.01, 'Z à mi-hauteur, vu ' + r.z);
     await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
     await nav.evaluate(`document.querySelector('.seg button[data-eng="steps"]').click();

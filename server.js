@@ -989,6 +989,35 @@ const engines = new Map();
 /** `store` permet de faire tourner une seconde scène en parallèle (fondu
  *  entre presets) sans que les deux se marchent dessus : les identifiants de
  *  couche sont souvent les mêmes des deux côtés. */
+/**
+ * Position dans le cycle, pour les moteurs continus (vague et champ).
+ *
+ * ⚠ Pourquoi ne PAS écrire `now / period` — l'évidence qui était fausse.
+ * `now` vaut ~1,78e12 ms. La partie fractionnaire de `now / period` n'a aucune
+ * continuité quand `period` change : passer stepMs de 10000 à 9999 (0,01 %,
+ * imperceptible musicalement) projetait la vague à une phase arbitraire.
+ * Mesuré : les niveaux sautaient de « 0,27 0,00 0,19 0,67 0,99 0,85 » à
+ * « 0,48 0,91 0,90 … », soit 0,93 d'écart. Or Ableton Link change le tempo en
+ * permanence, et la règle n°4 du projet exige que la phase soit préservée.
+ * Défaut présent depuis la v1 sur le moteur vague ; le champ en héritait.
+ *
+ * On intègre donc le temps : la phase avance de (Δt / période) à chaque appel.
+ * Changer la période change la VITESSE, jamais la position. Et `resync` peut
+ * enfin la remettre à zéro — ce que le bouton GO promettait sans le faire.
+ */
+function phaseContinue(L, now, store = engines) {
+  const e = eng(L.id, store);
+  const gs = Math.max(0.05, state.global.speed);
+  const period = Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
+  if (e.u == null) { e.u = 0; e.uLast = now; }
+  // Un écart négatif ou délirant (horloge système reculée, machine en veille)
+  // ne doit pas propulser la phase n'importe où : on borne à une seconde.
+  const dt = Math.min(1000, Math.max(0, now - e.uLast));
+  e.uLast = now;
+  e.u = (e.u + dt / period) % 1;
+  return { u: e.u, period };
+}
+
 function eng(id, store = engines) {
   let e = store.get(id);
   if (!e) {
@@ -1001,7 +1030,12 @@ function eng(id, store = engines) {
 /** Copie l'état moteur d'une couche : la scène sortante d'un fondu continue
  *  sa course là où elle en était, au lieu de repartir du premier pas. */
 function cloneEngine(e) {
+  // ⚠ `u` et `uLast` font partie de l'état : ce sont la phase des moteurs
+  // continus. Les oublier remettrait la couche sortante à zéro au début de
+  // CHAQUE fondu entre presets — un saut visible, précisément au moment où
+  // l'on cherche une transition douce.
   return { startTime: e.startTime, lastStep: e.lastStep, stepDur: e.stepDur,
+    u: e.u, uLast: e.uLast,
     triggers: new Map(e.triggers), lastEnv: new Map(e.lastEnv),
     randomCache: new Map(e.randomCache), gain: new Map(e.gain) };
 }
@@ -1038,7 +1072,16 @@ function recallPreset(i, fadeMs) {
              fixtures: deep(state.fixtures), engines: store };
   } else cancelFade();
   state.layers = deep(p.layers);
-  if (Array.isArray(p.fixtures) && p.fixtures.length) { state.fixtures = deep(p.fixtures); pruneCaches(); }
+  if (Array.isArray(p.fixtures) && p.fixtures.length) {
+    // ⚠ Repasser par sanitizeFixtures, et pas seulement copier : c'était le SEUL
+    // chemin d'écriture des fixtures qui ne re-dérivait pas la 2D depuis la 3D.
+    // Un preset enregistré sur un plateau de 10 m, rappelé sur un plateau de
+    // 20 m, laissait des x/y d'un autre monde — et « Renvoyer la disposition »
+    // aurait écrit ces faux pixels dans MadMapper. Mesuré : x = 0,90 là où la
+    // position 3D imposait 0,70.
+    state.fixtures = sanitizeFixtures(p.fixtures);
+    pruneCaches();
+  }
   engines.clear();
   return true;
 }
@@ -1046,6 +1089,14 @@ function recallPreset(i, fadeMs) {
 function presetNames() { return state.presets.map((p, i) => p ? (p.name || 'P' + (i + 1)) : null); }
 
 /** Resync : recale la phase (départ des pas) d'une couche, ou de toutes. */
+/**
+ * GO / RESYNC : tout repart ensemble, sur le temps fort.
+ *
+ * Supprimer l'entrée suffit : la prochaine évaluation recrée un état neuf, donc
+ * une phase à zéro pour les moteurs continus et un cycle qui redémarre pour le
+ * pas-à-pas. Avant l'horloge de phase, la vague et le champ étaient sans état :
+ * le bouton ne faisait rien sur eux, alors qu'il promet « tous les chasers ».
+ */
 function resync(layerId) {
   if (layerId) engines.delete(layerId); else engines.clear();
 }
@@ -1233,12 +1284,11 @@ function stepValues(L, list, now, store) {
 }
 
 /** Moteur vague continue : renvoie Map fixtureId -> valeur 0..1 */
-function waveValues(L, list, now) {
-  const gs = Math.max(0.05, state.global.speed);
-  const period = Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
+function waveValues(L, list, now, store) {
   const wl = Math.max(0.1, Math.max(1, L.width) / 8); // largeur de vague : 1/8 à 1 de la scène
   const ax = L.axisX ?? 0.5, ay = L.axisY ?? 0.5;
-  const t = now / period + (L.phase || 0) / 360; // décalage de phase de la couche
+  // Phase intégrée, pas `now / period` : voir phaseContinue().
+  const t = phaseContinue(L, now, store).u + (L.phase || 0) / 360;
   const out = new Map();
   for (const f of list) {
     let x = posX(f), y = posY(f);
@@ -1296,8 +1346,18 @@ function axeDe(azDeg, elDeg) {
  */
 function hash3(x, y, z) {
   // Mélange entier, sans état ni table : reproductible d'une machine à l'autre.
-  let h = (x | 0) * 374761393 + (y | 0) * 668265263 + (z | 0) * 2147483647;
-  h = (h ^ (h >>> 13)) * 1274126177;
+  //
+  // ⚠ `Math.imul` et non `*` : la multiplication ordinaire se fait en virgule
+  // flottante. Or la coordonnée Z porte le TEMPS, qui vaut plusieurs centaines
+  // de millions ; multipliée par 2 147 483 647 elle dépasse 2^53, la limite des
+  // entiers exacts en double. Les bits de poids faible étaient perdus, donc le
+  // hachage ne changeait plus quand le temps avançait : le bruit était GELÉ.
+  // Mesuré : une barre à 1,0000 sur huit relevés, étendue 0,0000. Les tests ne
+  // l'avaient pas vu parce qu'ils mesuraient la variation entre barres — qui,
+  // elle, fonctionnait très bien.
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)
+           + Math.imul(z | 0, 2147483647)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
 }
 const doux = (t) => t * t * (3 - 2 * t);   // lissage cubique
@@ -1347,17 +1407,20 @@ function etaler(v) {
  * des cas particuliers exacts. Déplacer ce centre casserait la compatibilité
  * sans que rien ne le signale.
  */
-function fieldValues(L, list, now) {
+function fieldValues(L, list, now, store) {
   const sc = state.scene;
-  const gs = Math.max(0.05, state.global.speed);
-  const period = Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
-  const t = now / period + (L.phase || 0) / 360;
+  // Phase intégrée, pas `now / period` : voir phaseContinue().
+  const t = phaseContinue(L, now, store).u + (L.phase || 0) / 360;
   const wl = Math.max(0.1, Math.max(1, L.width) / 8);   // même sémantique que `wave`
   const forme = L.field || 'plan';
   const a = axeDe(L.axAz, L.axEl);
   // Étendue du plateau le long de l'axe : pour un axe pur on retrouve w, d ou h.
   const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);
-  const cx = 0, cy = sc.d / 2, cz = sc.h / 2;
+  // Centre du plateau. ⚠ X et Y sont centrés sur ZÉRO — la grille du sol est
+  // tracée de -d/2 à +d/2 et un projet v1 migré arrive à y = 0. Seul Z va de 0
+  // à h. Prendre d/2 comme centre en profondeur décalait tout le plan d'une
+  // demi-profondeur, sans que rien ne le signale.
+  const cx = 0, cy = 0, cz = sc.h / 2;
   const src = [fini(L.srcX, 0), fini(L.srcY, 0), fini(L.srcZ, 2)];
   const diag = Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2);
 
@@ -1369,13 +1432,29 @@ function fieldValues(L, list, now) {
   // ⚠ Le vecteur de départ est choisi selon la plus petite composante de l'axe :
   // en prendre un colinéaire annulerait le produit vectoriel et l'angle
   // deviendrait n'importe quoi. C'est le piège des pôles.
-  let u1 = null, u2 = null;
+  let u1 = null, u2 = null, tours = 1;
   if (forme === 'cylindre') {
-    const t0 = Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
-    const e1 = [a[1] * t0[2] - a[2] * t0[1], a[2] * t0[0] - a[0] * t0[2], a[0] * t0[1] - a[1] * t0[0]];
-    const n1 = Math.hypot(e1[0], e1[1], e1[2]) || 1;
-    u1 = [e1[0] / n1, e1[1] / n1, e1[2] / n1];
+    // Base orthonormée perpendiculaire à l'axe, construite ANALYTIQUEMENT depuis
+    // l'azimut. `u1 = (-sin az, cos az, 0)` est perpendiculaire à l'axe quel que
+    // soit l'élévation (le produit scalaire se simplifie à zéro), unitaire
+    // partout, et surtout CONTINU — y compris aux pôles.
+    //
+    // ⚠ La version précédente choisissait un vecteur de référence selon
+    // `|a[2]| < 0.9`. Mesuré : entre 64° et 65° d'élévation la base s'inversait
+    // et le faisceau sautait d'un demi-tour — 0,98 d'écart sur une barre pour
+    // un degré. Et le correctif « prendre toujours (0,0,1) » qu'on m'a proposé
+    // aurait dégénéré à l'aplomb : le produit vectoriel s'annule quand l'axe est
+    // vertical, et le champ serait devenu uniforme. D'où cette construction, qui
+    // n'a de cas dégénéré nulle part.
+    const az = fini(L.axAz, 0) * DEG;
+    u1 = [-Math.sin(az), Math.cos(az), 0];
     u2 = [a[1] * u1[2] - a[2] * u1[1], a[2] * u1[0] - a[0] * u1[2], a[0] * u1[1] - a[1] * u1[0]];
+    // L'angle est CYCLIQUE : au raccord, `u` saute de 1 à 0, donc la phase saute
+    // de 1/wl. Ce saut n'est invisible que s'il vaut un nombre ENTIER de cycles.
+    // Mesuré avant correction : à width 3, deux barres voisines de 10° sautaient
+    // de 0,918 alors que l'écart médian était de 0,168 — le faisceau se déchirait
+    // à un angle fixe. On arrondit donc à un nombre entier de faisceaux.
+    tours = Math.max(1, Math.round(1 / wl));
   }
   const out = new Map();
 
@@ -1420,6 +1499,9 @@ function fieldValues(L, list, now) {
         break;
       }
     }
+    // Le cylindre compte en TOURS entiers (voir plus haut) ; les autres formes
+    // divisent par la longueur d'onde.
+    const cyclique = forme === 'cylindre';
     // Miroir : exactement ce que fait la vague — replier la projection autour
     // d'un axe (`x = |x - axe|`). Le motif part alors de l'axe et s'écarte des
     // deux côtés à la fois. Sur une sphère ça donne une coque à mi-distance,
@@ -1430,7 +1512,7 @@ function fieldValues(L, list, now) {
     // ici. L'interface le masque donc pour ce moteur, plutôt que d'afficher une
     // case sans effet.
     if (L.mirrorH) u = Math.abs(u - (L.axisX ?? 0.5));
-    const d = (((t - u / wl) % 1) + 1) % 1;
+    const d = (((t - (cyclique ? u * tours : u / wl)) % 1) + 1) % 1;
     let v;
     if (L.waveform === 'triangle') v = 1 - 2 * Math.min(d, 1 - d);
     else if (L.waveform === 'square') v = d < 0.5 ? 1 : 0;
@@ -1515,8 +1597,8 @@ function computeMix(layers, fixtures, now, store) {
     if (!L.enabled) continue;
     const list = resolveBars(L, enabled);
     if (!list.length) continue;
-    const vals = L.engine === 'field' ? fieldValues(L, list, now)
-      : L.engine === 'wave' ? waveValues(L, list, now)
+    const vals = L.engine === 'field' ? fieldValues(L, list, now, store)
+      : L.engine === 'wave' ? waveValues(L, list, now, store)
       : stepValues(L, list, now, store);
     const flr = Math.max(0, Math.min(1, L.floor || 0));
     for (const [id, v0] of vals) {
@@ -1541,9 +1623,20 @@ function computeMix(layers, fixtures, now, store) {
 }
 /** Niveau d'une fixture dans un mix, avant master et courbe.
  *  Couches couleur seules : l'intensité est tenue à fond pour voir la couleur. */
+/**
+ * Intensité à envoyer pour une barre, une fois toutes les couches mélangées.
+ *
+ * ⚠ Le `mix.col.has(id)` n'est pas décoratif. Une couche « couleur » ne pilote
+ * pas l'intensité : il faut bien ouvrir le gradateur pour qu'on voie sa teinte.
+ * Mais l'ouvrir pour TOUTES les barres — ce que faisait `mix.anyCol ? 1 : 0` —
+ * allumait à pleine intensité celles que la couche ne pilote même pas.
+ * Mesuré sur une couche couleur limitée à deux barres sur six : les quatre
+ * autres sortaient à 1. Sur scène, c'est un plein feu involontaire.
+ * Défaut présent depuis la v1.
+ */
 function mixLevel(mix, id) {
   if (mix.anyInt) return mix.lum.get(id) || 0;
-  return mix.anyCol ? 1 : 0;
+  return (mix.anyCol && mix.col.has(id)) ? 1 : 0;
 }
 
 function tick() {

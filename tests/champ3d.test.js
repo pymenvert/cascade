@@ -79,7 +79,13 @@ describe('Champ 3D', () => {
   // comparaison au centième. La période complète vaut
   // stepMs × group / (speed × vitesse globale) : avec 10 000 × 8 / 0,05 on
   // obtient 1 600 000 ms, et deux secondes ne pèsent plus que 0,0013 cycle.
-  const GEL = { stepMs: 10000, group: 8, speed: 0.05 };
+  // ⚠ `width: 8` fait partie du gel, et ce n'est pas un détail. À width 4 la
+  // longueur d'onde vaut 0,5 : tout décalage de la projection multiple de 0,5
+  // devient invisible modulo 1, et le repli du miroir (u → |u − 0,5|) est
+  // carrément NEUTRE pour une sinusoïde. Les comparaisons passaient alors sans
+  // rien prouver. À width 8 (longueur d'onde 1), un décalage de projection se
+  // lit directement en décalage de phase.
+  const GEL = { stepMs: 10000, group: 8, speed: 0.05, width: 8 };
 
   /**
    * Écart maximal entre deux barres, relevé sur PLUSIEURS phases du cycle.
