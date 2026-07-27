@@ -212,3 +212,68 @@ donne un rapport **canal par canal** de 0,4987 et 0,2512, avec un écart maximal
 de 0,003. La forme du dégradé est donc préservée : seule l'amplitude change.
 C'est la mesure qui valide le principe « Cascade calcule une valeur par barre,
 la texture apporte le détail ».
+
+---
+
+## ⚠ NE JAMAIS ÉCRIRE `output/handles/*` — incident du 2026-07-27
+
+**Ce qui s'est passé.** En sondant ce qu'on pouvait faire d'une surface, j'ai
+écrit `/surfaces/Quad-1/output/handles/0/x` et `/y`, puis « restitué » les
+valeurs lues avant l'essai. **La surface s'est retrouvée déformée**, réduite à
+une ligne, et la restitution n'a rien restitué.
+
+**Pourquoi.** Les quatre poignées **renvoient 0 en permanence**, quelle que soit
+la forme réelle de la surface — comme la branche `selected`, c'est une lecture
+morte. J'ai donc écrit 0 dans les quatre coins en croyant les remettre où ils
+étaient : ça les a **rassemblés vers l'origine**.
+
+**Pire** : les écritures de géométrie par OSC **ne sont pas dans la pile
+d'annulation** de MadMapper. Seuls les changements de média y sont. `Ctrl+Z` ne
+répare donc rien. La forme d'une surface écrasée par cette voie est **perdue**.
+Il a fallu supprimer la surface et en recréer une.
+
+**La règle qui en découle, sans exception :**
+
+> **Ne jamais écrire un contrôle dont la relecture n'est pas fiable.**
+> Avant toute première écriture sur une adresse nouvelle : écrire une valeur
+> DIFFÉRENTE de celle lue, relire, et vérifier que la relecture a bougé. Si elle
+> ne bouge pas, la lecture est morte — et écrire devient un aller sans retour.
+
+Contrôles vérifiés comme **fiables en lecture ET en écriture** (relecture qui
+suit) : `output/x`, `output/y`, `output/width`, `output/height`, `output/rot`,
+`opacity`, `luminosity`, `color/*`, `/master/*`.
+
+Contrôles à **lecture morte**, donc **interdits en écriture** :
+`output/handles/*`, tout ce qui est sous `/surfaces/selected/` et
+`/fixtures/selected/`, `select`.
+
+**Conséquence pour Cascade** : la fonction « ranger les barres » ne doit toucher
+qu'à `output/x|y|rot` des fixtures et, au plus, à `output/x|y|width|height|rot`
+des surfaces. **Jamais aux poignées.** Une zone se pose par son centre et ses
+proportions, pas par ses coins.
+
+## `/media/<nom>/assign` marche, mais on ne choisit pas la cible
+
+Vérifié : `/media/Gradient Color/assign` puis `/media/TestCard/assign` changent
+bien le visuel de la surface — `visual/name` suit.
+
+⚠ Mais l'assignation va à la surface **sélectionnée dans l'interface de
+MadMapper**, et `/surfaces/<nom>/select` **ne fonctionne pas** en OSC (essayé en
+float, en int et en bang : `select` reste à `false`). Avec plusieurs surfaces,
+Cascade ne peut donc pas choisir laquelle reçoit quel visuel.
+
+**Conséquence** : l'assignation des visuels reste une manipulation manuelle, à
+faire une fois. Cascade ne doit pas prétendre la piloter.
+
+## Créer une surface : impossible en OSC
+
+14 203 nœuds passés au crible. Les seules commandes de création ou d'assignation
+sont `/application/media/add` (ajoute un média à la bibliothèque),
+`/media/<nom>/assign` et `/media/<nom>/assign_to_all_surfaces`. **Aucune
+commande ne crée une surface, une fixture ou un groupe.**
+
+## L'adressage DMX n'est pas exposé
+
+Aucun contrôle d'univers, de canal de départ ou d'adresse n'apparaît dans
+l'espace de noms OSC. Cascade **ne peut pas** modifier l'adressage d'une
+fixture, même par erreur. Le patch Art-Net est donc intouchable par cette voie.
