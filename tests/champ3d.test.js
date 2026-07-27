@@ -671,6 +671,126 @@ describe('Champ 3D', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
+  // ── Angles morts trouvés par test de mutation ─────────────────────────────
+  // Chacun de ces tests a été ajouté après avoir cassé le code exprès et
+  // constaté que la suite ne s'en apercevait PAS. Le test de mutation est
+  // ensuite rejoué pour vérifier qu'il attrape désormais le cassage.
+
+  test('les trois formes d’onde du champ sont justes ET distinctes', async () => {
+    // Mutation qui passait inaperçue : remplacer le triangle par « toujours 1 ».
+    // Aucun test ne réglait `waveform` ailleurs que sur « sine ».
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+    const par = {};
+    for (const wf of ['sine', 'triangle', 'square']) {
+      // Le champ doit rendre la même chose que la vague, POUR CHAQUE forme.
+      // Les deux moteurs ont leur propre copie du calcul : une seule cassée,
+      // et la comparaison tombe.
+      await base({ engine: 'wave', pattern: 'lr', waveform: wf, ...GEL });
+      const vague = await clicher();
+      await base({ engine: 'field', field: 'plan', axAz: 0, waveform: wf, ...GEL });
+      const champ = await clicher();
+      assert.equal(champ.size, 6, wf + ' : les 6 barres doivent être vues');
+      for (const [bar, v] of vague) {
+        assert.ok(Math.abs(champ.get(bar) - v) < 0.02,
+          wf + ' · ' + bar + ' : vague ' + v + ' mais champ ' + champ.get(bar));
+      }
+      par[wf] = champ;
+    }
+    // …et les trois formes ne doivent pas se ressembler : sinon une forme
+    // dégénérée (constante, ou copie du sinus) passerait le test ci-dessus.
+    const distance = (a, b) => {
+      let d = 0;
+      for (const [k, v] of a) d = Math.max(d, Math.abs((b.get(k) ?? v) - v));
+      return d;
+    };
+    assert.ok(distance(par.sine, par.triangle) > 0.05,
+      'sinus et triangle rendent la même chose : une des deux formes est dégénérée');
+    assert.ok(distance(par.sine, par.square) > 0.2,
+      'sinus et carré rendent la même chose');
+    // Le carré ne prend que deux valeurs, par définition
+    const vs = [...new Set([...par.square.values()].map(v => Math.round(v * 1000)))];
+    assert.ok(vs.length <= 2, 'le carré devrait ne donner que deux niveaux, vu ' + vs.length);
+  });
+
+  test('le décalage de phase agit sur le champ, et boucle à 360°', async () => {
+    // Mutation qui passait inaperçue : ignorer purement et simplement L.phase
+    // dans le champ. Aucun test ne le réglait ailleurs que sur 0.
+    await base({ engine: 'field', field: 'plan', axAz: 0, phase: 0, ...GEL });
+    const a = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, phase: 180, ...GEL });
+    const b = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, phase: 360, ...GEL });
+    const c = await clicher();
+
+    let bouge = 0, revient = 0;
+    for (const [bar, v] of a) {
+      if (Math.abs((b.get(bar) ?? v) - v) > 0.3) bouge++;
+      if (Math.abs((c.get(bar) ?? v) - v) < 0.03) revient++;
+    }
+    assert.ok(bouge >= 3, 'un décalage d’un demi-cycle doit changer le rendu, '
+      + bouge + ' barre(s) seulement ont bougé');
+    assert.equal(revient, a.size, '360° est un tour complet : le rendu doit être identique à 0°');
+  });
+
+  test('l’inversion retourne bien le champ', async () => {
+    // Mutation qui passait inaperçue : ignorer L.invert dans le mélange. Le test
+    // qui s’intitulait « … inversion … » ne la vérifiait en réalité jamais.
+    await base({ engine: 'field', field: 'plan', axAz: 0, invert: false, ...GEL });
+    const droit = await clicher();
+    await base({ engine: 'field', field: 'plan', axAz: 0, invert: true, ...GEL });
+    const inverse = await clicher();
+    assert.equal(inverse.size, droit.size);
+    // Relation exacte attendue : v' = 1 - v, barre par barre.
+    for (const [bar, v] of droit) {
+      const vi = inverse.get(bar);
+      assert.ok(Math.abs(vi - (1 - v)) < 0.03,
+        bar + ' : sans inversion ' + v.toFixed(3) + ', avec inversion ' + vi.toFixed(3)
+        + ' — attendu ' + (1 - v).toFixed(3));
+    }
+    // Garde-fou : si tout valait 0,5, la relation serait vraie sans rien prouver.
+    assert.ok(Math.max(...droit.values()) - Math.min(...droit.values()) > 0.3,
+      'le champ doit être contrasté pour que ce test ait un sens');
+  });
+
+  test('le bruit ne sature pas plus que ce que sa distribution autorise', async () => {
+    // Mutation qui passait inaperçue : revenir à l’étalement rejeté (division
+    // par 0,44), qui saturait 24,5 % des valeurs. Le seuil de 35 % le laissait
+    // repasser. Mesuré sur la version retenue : 3,8 % de saturation attendue.
+    // Le seuil est posé À MI-CHEMIN, pas au petit bonheur.
+    await h.post('/api/fixtures', { fixtures: Array.from({ length: 16 }, (_, i) => ({
+      id: 'n' + i, name: 'N' + i, address: '/fixtures/bar' + i, enabled: true, x: 0.5, y: 0.5 })) });
+    await h.post('/api/fixture3d', { fixtures: Array.from({ length: 16 }, (_, i) => ({
+      id: 'n' + i,
+      p3: [((i * 31) % 90) / 10 - 4.5, ((i * 47) % 70) / 10, ((i * 23) % 50) / 10],
+      dir3: [1, 0, 0], len3: 0.8 })) });
+    await base({ engine: 'field', field: 'bruit', stepMs: 200, speed: 1, group: 1, width: 1 });
+    await h.post('/api/start');
+    // ⚠ On échantillonne les niveaux de la PRÉVIEW, pas le flux OSC. Le moteur
+    // n'envoie une valeur que si elle a CHANGÉ : les valeurs collées aux butées
+    // se répètent, donc elles sont massivement sous-représentées dans l'OSC.
+    // Mesurer la saturation là-dessus la sous-estime — c'est précisément ce qui
+    // laissait passer la version rejetée du bruit.
+    const vals = [];
+    for (let i = 0; i < 30; i++) {
+      const st = await h.state();
+      for (const v of (st.levels || [])) if (typeof v === 'number') vals.push(v);
+      await sleep(70);
+    }
+    await h.post('/api/stop');
+    assert.ok(vals.length > 200, 'échantillon trop maigre pour juger : ' + vals.length);
+
+    const satures = vals.filter(v => v <= 0.001 || v >= 0.999).length / vals.length;
+    assert.ok(satures < 0.12,
+      'bruit trop saturé : ' + (satures * 100).toFixed(1) + ' % aux butées. '
+      + 'La version retenue en donne ~4 %, celle qui a été rejetée 24,5 % — '
+      + 'ce seuil est là pour empêcher d’y revenir sans le voir.');
+    // Et il doit rester du relief : un bruit constant ne saturerait pas non plus.
+    assert.ok(Math.max(...vals) - Math.min(...vals) > 0.4,
+      'le bruit doit garder de l’amplitude, étendue vue '
+      + (Math.max(...vals) - Math.min(...vals)).toFixed(3));
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

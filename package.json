@@ -9,6 +9,7 @@
     "start": "node server.js",
     "test": "node --test",
     "test:ui": "node --test tests/ui.test.js",
+    "test:mutation": "node tests/mutation.js",
     "sync-dist": "node sync-dist.js",
     "build": "node sync-dist.js && node build.js"
   },
