@@ -95,6 +95,10 @@ function defaultLayer(name) {
     // de l'ordre de la liste. Le chase suit alors la scénographie RÉELLE — et
     // c'est le seul réglage qui fait profiter le moteur pas-à-pas de la 3D.
     ordre3d: false,
+    // Mode de fusion avec les couches précédentes. `htp` = comportement v1.
+    blend: 'htp',
+    // Perspective atmosphérique : force d'atténuation avec la profondeur, en %.
+    prof: 0,
   };
 }
 
@@ -161,7 +165,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof'];
 
 function loadConfig() {
   let saved = null;
@@ -249,6 +253,7 @@ function saveConfigSoon() {
 const ENUMS = {
   engine: ['steps', 'wave', 'field'], target: ['intensity', 'color'], mode: ['onoff', 'fade'],
   field: ['plan', 'sphere', 'cylindre', 'boite', 'bruit'],
+  blend: ['htp', 'add', 'mul', 'screen', 'min', 'sub', 'remp'],
   curve: ['linear', 'easeIn', 'easeOut', 'easeInOut', 'expo'],
   waveform: ['sine', 'triangle', 'square'],
   pattern: ['lr', 'rl', 'pingpong', 'random', 'evenodd', 'all', 'tb', 'bt', 'pulse', 'radial', 'outin', 'inout'],
@@ -283,6 +288,7 @@ function sanitizeLayerSet(set) {
       case 'axEl': o.axEl = Math.round(cnum(v, -90, 90, 0)); break;
       case 'srcX': case 'srcY': case 'srcZ': o[k] = cnum(v, -P3_MAX, P3_MAX, 0); break;
       case 'duty': o.duty = Math.round(cnum(v, 5, 100, 100)); break;
+      case 'prof': o.prof = Math.round(cnum(v, 0, 100, 0)); break;
       case 'course': o.course = cnum(v, 0, 200, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
@@ -1816,8 +1822,55 @@ function resolveBars(L, enabled) {
 
 /** Calcule le mix d'un jeu de couches : intensité (HTP) et couleur par fixture.
  *  Isolé pour pouvoir évaluer DEUX scènes dans le même tick pendant un fondu. */
+/**
+ * Modes de fusion entre couches — l'équivalent des « Mix modes » de Madrix.
+ *
+ * Cascade ne savait faire que du HTP (le plus fort gagne). C'est le réflexe des
+ * consoles lumière, et c'est juste pour empiler des chases — mais ça interdit
+ * tout ce qui fait la richesse d'un compositeur : masquer une couche par une
+ * autre, additionner deux nappes, creuser un trou dans un fond.
+ *
+ * `htp` reste le défaut : tous les projets existants gardent leur rendu.
+ *
+ * ⚠ L'ordre des couches compte pour tous les modes SAUF htp, add et mul, qui
+ * sont commutatifs. C'est écrit dans l'interface, parce qu'un mode où l'ordre
+ * compte sans qu'on le sache est une source d'incompréhension sans fin.
+ */
+const FUSIONS = {
+  htp:    (a, b) => Math.max(a, b),          // le plus fort gagne (défaut, v1)
+  add:    (a, b) => Math.min(1, a + b),      // les nappes s'additionnent
+  mul:    (a, b) => a * b,                   // b masque a : le noir de b creuse
+  screen: (a, b) => 1 - (1 - a) * (1 - b),   // éclaircit sans jamais brûler
+  min:    (a, b) => Math.min(a, b),          // ne garde que l'intersection
+  sub:    (a, b) => Math.max(0, a - b),      // b creuse un trou dans a
+  remp:   (a, b) => b,                       // la dernière couche remplace
+};
+
+/**
+ * Perspective atmosphérique — ce qui fait VRAIMENT ressortir la profondeur.
+ *
+ * L'œil lit la profondeur d'abord par l'atténuation : ce qui est loin est plus
+ * sombre et moins contrasté. C'est ce que Smode appelle le depth-cue et ce que
+ * tout moteur 3D fait avec du brouillard. Sur un plateau, deux barres identiques
+ * à cinq mètres l'une derrière l'autre se lisent comme une seule surface si
+ * elles sortent au même niveau — et le volume disparaît.
+ *
+ * `prof` est la force, en pourcentage : à 100, la barre du lointain est éteinte.
+ * On travaille sur la profondeur NORMALISÉE par la cote du plateau, pas sur des
+ * mètres absolus : le réglage garde son sens quand on change de salle.
+ */
+function attenuationProfondeur(f, force, scene) {
+  if (!force) return 1;
+  const d = Math.max(0.1, scene.d);
+  const p = f.p3 ? f.p3[1] : 0;
+  // Y est centré sur zéro : -d/2 = face, +d/2 = lointain.
+  const u = Math.min(1, Math.max(0, (p + d / 2) / d));
+  return 1 - (force / 100) * u;
+}
+
 function computeMix(layers, fixtures, now, store) {
   const enabled = fixtures.filter(f => f.enabled !== false);
+  const parId = new Map(enabled.map(f => [f.id, f]));
   const lum = new Map(), col = new Map();
   let anyInt = false, anyCol = false;
   for (const L of layers) {
@@ -1835,14 +1888,21 @@ function computeMix(layers, fixtures, now, store) {
       // partir du noir (usage classique en spectacle).
       if (flr > 0) v = flr + (1 - flr) * v;
       v *= (typeof L.level === 'number' ? L.level : 1);
+      // Perspective atmosphérique, appliquée APRÈS le niveau de couche : c'est
+      // une propriété de l'espace, pas du motif.
+      if (L.prof) v *= attenuationProfondeur(parId.get(id) || {}, L.prof, state.scene);
+      const fusion = FUSIONS[L.blend] || FUSIONS.htp;
       if (L.target === 'color') {
         anyCol = true;
         const c = mixColor(L, v);
         const cur = col.get(id);
-        col.set(id, cur ? [Math.max(cur[0], c[0]), Math.max(cur[1], c[1]), Math.max(cur[2], c[2])] : c);
+        col.set(id, cur ? [fusion(cur[0], c[0]), fusion(cur[1], c[1]), fusion(cur[2], c[2])] : c);
       } else {
         anyInt = true;
-        lum.set(id, Math.max(lum.get(id) || 0, v));
+        // ⚠ `lum.has(id)` et pas `|| 0` : pour `mul` et `min`, un fond absent
+        // vaut 1 (rien ne masque), pas 0 — sinon la première couche en mode
+        // multiplicatif s'annulerait elle-même et on croirait à une panne.
+        lum.set(id, lum.has(id) ? fusion(lum.get(id), v) : v);
       }
     }
   }

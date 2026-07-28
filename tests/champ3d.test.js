@@ -989,6 +989,110 @@ describe('Champ 3D', () => {
   });
 
 
+  // ── Modes de fusion et perspective atmosphérique ──────────────────────────
+
+  test('les modes de fusion combinent vraiment deux couches', async () => {
+    // Cascade ne savait faire que du HTP. Ça interdit tout ce qui fait un
+    // compositeur : masquer, additionner, creuser.
+    await h.post('/api/fixtures', { fixtures: enLigne(4) });
+    while ((await h.state()).layers.length < 2) await h.post('/api/layers', { action: 'add' });
+    const ids = (await h.state()).layers.map(l => l.id);
+
+    // Deux couches PLATES, à des niveaux connus : 0,8 puis 0,5.
+    const poser = async (blend) => {
+      for (const [i, lvl] of [[0, 0.8], [1, 0.5]]) {
+        await h.post('/api/layer', { id: ids[i], set: {
+          engine: 'wave', pattern: 'pulse', waveform: 'square', mode: 'onoff',
+          target: 'intensity', bars: null, enabled: true, level: lvl, floor: 1,
+          invert: false, prof: 0, blend: i === 0 ? 'htp' : blend,
+          stepMs: 10000, group: 8, speed: 0.05, width: 8 } });
+      }
+      await h.post('/api/blackout');
+      await sleep(80);
+      h.clearOsc();
+      await h.post('/api/start');
+      await sleep(260);
+      const n = niveaux(h.osc());
+      await h.post('/api/stop');
+      return Math.max(...n.values());
+    };
+
+    // `floor: 1` force la valeur à 1 avant le niveau : chaque couche sort donc
+    // exactement son `level`. Sans ça on mesurerait la forme d'onde, pas la fusion.
+    const attendu = { htp: 0.8, add: 1, mul: 0.4, screen: 0.9, min: 0.5, sub: 0.3, remp: 0.5 };
+    for (const [mode, cible] of Object.entries(attendu)) {
+      const vu = await poser(mode);
+      assert.ok(Math.abs(vu - cible) < 0.03,
+        'fusion « ' + mode + ' » : attendu ' + cible + ', vu ' + vu.toFixed(3));
+    }
+    // Nettoyage
+    for (const id of ids.slice(1)) await h.post('/api/layers', { action: 'remove', id });
+    await h.post('/api/layer', { id: ids[0], set: { blend: 'htp', floor: 0, level: 1 } });
+  });
+
+  test('HTP reste le défaut : aucun projet existant ne change de rendu', async () => {
+    const L = (await h.state()).layers[0];
+    assert.equal(L.blend, 'htp', 'le mode par défaut doit rester HTP');
+    assert.equal(L.prof, 0, 'la perspective doit être neutre par défaut');
+    // Et un mode inconnu retombe sur HTP plutôt que de casser le mélange
+    await setL({ blend: 'nawak' });
+    assert.ok(['htp', 'add', 'mul', 'screen', 'min', 'sub', 'remp']
+      .includes((await h.state()).layers[0].blend));
+    await setL({ blend: 'htp' });
+  });
+
+  test('la perspective atmosphérique assombrit le lointain, et lui seul', async () => {
+    // C'est CE réglage qui fait lire la profondeur : sans lui, deux barres l'une
+    // derrière l'autre sortent au même niveau et se confondent en une surface.
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'pf', name: 'Face', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'pm', name: 'Milieu', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'pl', name: 'Lointain', address: '/fixtures/bar2', enabled: true, x: 0.5, y: 0.5 },
+    ] });
+    const sc = (await h.state()).scene;
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: 'pf', p3: [0, -sc.d / 2, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'pm', p3: [0, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'pl', p3: [0, sc.d / 2, 2], dir3: [1, 0, 0], len3: 1 },
+    ] });
+
+    const mesurer = async (prof) => {
+      await base({ engine: 'wave', pattern: 'pulse', waveform: 'square', mode: 'onoff',
+                   floor: 1, level: 1, prof, blend: 'htp', ...GEL });
+      await h.post('/api/start');
+      const n = await (async () => { h.clearOsc(); await sleep(240); return niveaux(h.osc()); })();
+      await h.post('/api/stop');
+      return n;
+    };
+
+    const plat = await mesurer(0);
+    assert.ok(Math.abs(plat.get('bar0') - plat.get('bar2')) < 0.02,
+      'sans perspective, les trois barres doivent sortir pareil : ' + JSON.stringify([...plat]));
+
+    const creuse = await mesurer(80);
+    const face = creuse.get('bar0'), milieu = creuse.get('bar1'), loin = creuse.get('bar2');
+    assert.ok(face > 0.95, 'la barre de face ne doit pas être touchée, vue à ' + face);
+    assert.ok(loin < 0.3, 'la barre du lointain doit s’effacer, vue à ' + loin);
+    assert.ok(milieu > loin && milieu < face,
+      'le milieu doit être entre les deux : ' + [face, milieu, loin].map(v => v.toFixed(2)));
+    // Et la loi est linéaire en profondeur : le milieu vaut la moyenne.
+    assert.ok(Math.abs(milieu - (face + loin) / 2) < 0.05,
+      'l’atténuation doit être régulière, vu ' + milieu.toFixed(3));
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  test('fusion et perspective voyagent avec le projet', async () => {
+    await setL({ blend: 'mul', prof: 45 });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    const L = (await h.state()).layers[0];
+    assert.equal(L.blend, 'mul');
+    assert.equal(L.prof, 45);
+    await setL({ blend: 'htp', prof: 0 });
+  });
+
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

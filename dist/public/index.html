@@ -403,6 +403,15 @@
       Comète, Phare, Feu. Elles <strong>remplacent</strong> tes couches — exporte avant.</td></tr>
     <tr><td>Ordre = axe 3D</td><td>En pas-à-pas : le chase suit la géométrie réelle au lieu de
       l'ordre de la liste. À cocher si tes barres ont été ajoutées dans le désordre.</td></tr>
+    <tr><th colspan="2">Mélanger les couches, et faire ressortir la profondeur</th></tr>
+    <tr><td>Fusion</td><td>Comment une couche se mêle aux précédentes. <strong>HTP</strong> = le plus
+      fort gagne (comportement historique). <strong>Multiplication</strong> = la couche devient un
+      masque : la texture n'apparaît que là où elle éclaire — c'est la façon de sculpter une
+      profondeur. <strong>Soustraction</strong> creuse un trou. Pour tout sauf HTP, addition et
+      multiplication, <strong>l'ordre des couches compte</strong>.</td></tr>
+    <tr><td>Profondeur</td><td>Les barres du lointain sortent plus sombres. C'est ce qui fait
+      <strong>lire</strong> le volume : sans ça, deux barres l'une derrière l'autre se confondent en
+      une seule surface. Le brouillard des moteurs 3D, l'air d'un vrai théâtre.</td></tr>
     <tr><th colspan="2">Vues — choisir l'axe de projection d'une texture</th></tr>
     <tr><td>Le principe</td><td>Une vue = un <strong>dossier de fixtures</strong> dans MadMapper.
       Chaque barre y existe en une copie, toutes à la <strong>même adresse DMX</strong>. On change
@@ -593,6 +602,19 @@
       <label class="row" title="Inclinaison de l’axe. −90° = vers le sol, +90° = vers le ciel."><span>Élévation de l'axe</span>
         <input type="range" id="axEl" min="-90" max="90" step="1"><output></output></label>
     </div>
+    <label class="row" title="Comment cette couche se mélange à celles d'au-dessus dans la liste. HTP = le plus fort gagne (comportement historique). Pour tout sauf HTP, addition et multiplication, l'ORDRE des couches compte."><span>Fusion</span>
+      <select id="blend">
+        <option value="htp">HTP — le plus fort gagne</option>
+        <option value="add">Addition — les nappes s'ajoutent</option>
+        <option value="mul">Multiplication — masque le fond</option>
+        <option value="screen">Écran — éclaircit sans brûler</option>
+        <option value="min">Minimum — garde l'intersection</option>
+        <option value="sub">Soustraction — creuse un trou</option>
+        <option value="remp">Remplace — écrase les précédentes</option>
+      </select>
+    </label>
+    <label class="row" title="Perspective atmosphérique : les barres du lointain sortent plus sombres. C'est ce qui fait LIRE la profondeur — sans ça, deux barres l'une derrière l'autre se confondent en une seule surface."><span>Profondeur</span>
+      <input type="range" id="prof" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Les barres « éteintes » restent à ce niveau : le chase court AU-DESSUS d'un fond allumé au lieu de partir du noir."><span>Niveau bas</span>
@@ -1147,6 +1169,8 @@ function render() {
   setSlider('#level', Math.round((L.level ?? 1) * 100), v => v + ' %');
   setSlider('#floor', Math.round((L.floor || 0) * 100), v => v ? v + ' %' : 'noir');
   $('#invert').checked = !!L.invert;
+  $('#blend').value = L.blend || 'htp';
+  setSlider('#prof', L.prof || 0, v => v ? v + ' %' : 'à plat');
   // Groove & découpe
   setSlider('#phase', L.phase || 0, v => v ? v + '°' : '—');
   setSlider('#swing', L.swing || 0, v => v ? (v > 0 ? '+' : '') + v + ' %' : 'droit');
@@ -1803,6 +1827,12 @@ $('#quitExport').onclick = async () => {
   setTimeout(quitCascade, 400); // laisse partir le téléchargement
 };
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
+$('#blend').onchange = (e) => setL({ blend: e.target.value }).then(poll);
+{
+  const el = $('#prof');
+  el.oninput = () => setSlider('#prof', +el.value, v => v ? v + ' %' : 'à plat');
+  el.onchange = () => setL({ prof: +el.value }).then(poll);
+}
 $('#fieldForme').onchange = (e) => setL({ field: e.target.value }).then(poll);
 // Les démos : le seul moyen de VOIR ce que le champ 3D apporte. Sans elles, le
 // réglage par défaut rend exactement la vague, et on croit que rien ne marche.
