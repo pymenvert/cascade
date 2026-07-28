@@ -58,7 +58,7 @@ vocabulaire qui nous concerne directement :
 | Depth-cue | brouillard Smode | ✅ **perspective atmosphérique** (nouveau) |
 | Blocs / symétries | MAtricks | ✅ `blocks`, miroirs, `ordre3d` |
 | Décalage de phase réparti | Phasers, MAtricks | ⚠ `phase` est **globale à la couche**, pas répartie sur la sélection |
-| Palette multi-arrêts | partout | ❌ deux couleurs seulement |
+| Palette multi-arrêts | partout | ✅ **jusqu'à 8 arrêts**, 5 palettes prêtes (nouveau) |
 | Crossfader entre deux decks | Madrix | ❌ on a un fondu entre presets, pas un crossfader tenu à la main |
 | Modulateurs branchables | Smode | ❌ |
 | Grille de scènes à déclencher | Storage Places | ⚠ 16 presets, mais sans grille visuelle |
@@ -118,19 +118,6 @@ depth-cue — l'œil lit la distance par la couleur autant que par l'intensité.
 La **brancher sur la profondeur** plutôt que sur le temps. Aujourd'hui elle suit
 la valeur du champ ; il faudrait un choix « la palette suit : le motif / la
 profondeur / la hauteur ». Petit code, gros effet.
-
-### 2. L'ancien point 1, pour mémoire
-
-Deux couleurs interdisent tout dégradé qui ne passe pas par le milieu : pas de
-feu (noir → rouge sombre → orange → jaune → blanc), pas de rampe froide à trois
-teintes. La spéc en fait « l'écart visuel principal avec les consoles
-classiques », et le coût est dérisoire : une liste d'arrêts et une fonction
-`palette(u)`.
-
-**Bonus qui sert directement la profondeur** : une palette permet de faire une
-rampe *chaud près → froid loin* en branchant la palette sur la profondeur plutôt
-que sur le temps. C'est la deuxième moitié du depth-cue — l'œil lit la distance
-autant par la couleur que par l'intensité.
 
 ### 2. Le décalage de phase RÉPARTI sur la sélection
 
