@@ -64,6 +64,7 @@ function defaultLayer(name) {
     fadeInPct: 20, fadeOutPct: 80,
     invert: false, level: 1,
     colorA: '#ff2000', colorB: '#0040ff',
+    palette: null,          // null = les deux couleurs ci-dessus (comportement v1)
     // ── v1.3 : fonctions de chase des consoles lumière ──
     phase: 0,               // décalage de départ, en degrés du cycle (0-360)
     swing: 0,               // groove : retarde les pas impairs, -75..+75 % du demi-pas
@@ -165,7 +166,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette'];
 
 function loadConfig() {
   let saved = null;
@@ -293,6 +294,16 @@ function sanitizeLayerSet(set) {
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
       case 'colorA': case 'colorB': if (/^#[0-9a-fA-F]{6}$/.test(String(v))) o[k] = String(v); break;
+      case 'palette': {
+        if (v === null || v === '') { o.palette = null; break; }
+        // Un nom de palette prête, ou une liste d'arrêts. Deux arrêts minimum,
+        // huit maximum : au-delà on ne distingue plus rien sur une barre.
+        const src = typeof v === 'string' ? PALETTES[v] : v;
+        if (!Array.isArray(src)) break;
+        const arr = src.filter(c => /^#[0-9a-fA-F]{6}$/.test(String(c))).slice(0, 8).map(String);
+        o.palette = arr.length >= 2 ? arr : null;
+        break;
+      }
       default: if (ENUMS[k]) { if (ENUMS[k].includes(v)) o[k] = v; } break;
     }
   }
@@ -1762,10 +1773,41 @@ function hexToRgb(h) {
   const n = parseInt(m[1], 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
+/**
+ * Couleur d'une couche pour une valeur de 0 à 1.
+ *
+ * Deux couleurs seulement, c'était la limite la plus visible du moteur : tout
+ * dégradé devait passer par le mélange des deux extrêmes. Impossible de faire un
+ * feu — noir, rouge sombre, orange, jaune, blanc — ni une rampe froide à trois
+ * teintes. La spéc en faisait « l'écart visuel principal avec les consoles
+ * classiques ».
+ *
+ * `palette` prend le dessus dès qu'elle a au moins deux arrêts. Sans elle, on
+ * retombe exactement sur colorA → colorB : aucun projet existant ne bouge.
+ */
 function mixColor(L, v) {
-  const a = hexToRgb(L.colorA), b = hexToRgb(L.colorB);
-  return [a[0] + (b[0] - a[0]) * v, a[1] + (b[1] - a[1]) * v, a[2] + (b[2] - a[2]) * v];
+  const pal = Array.isArray(L.palette) && L.palette.length >= 2 ? L.palette : null;
+  if (!pal) {
+    const a = hexToRgb(L.colorA), b = hexToRgb(L.colorB);
+    return [a[0] + (b[0] - a[0]) * v, a[1] + (b[1] - a[1]) * v, a[2] + (b[2] - a[2]) * v];
+  }
+  const t = Math.max(0, Math.min(1, v)) * (pal.length - 1);
+  const i = Math.min(pal.length - 2, Math.floor(t));
+  const k = t - i;
+  const a = hexToRgb(pal[i]), b = hexToRgb(pal[i + 1]);
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 }
+
+/** Palettes prêtes à l'emploi — celles qu'on refait à la main sinon. */
+const PALETTES = {
+  feu:     ['#000000', '#4a0a00', '#c43a00', '#ff8c00', '#ffd966', '#ffffff'],
+  glace:   ['#000814', '#003566', '#0077b6', '#48cae4', '#ade8f4'],
+  couche:  ['#12005e', '#6a00a8', '#c9184a', '#ff7b00', '#ffd400'],
+  foret:   ['#03110a', '#0b3d20', '#2d6a4f', '#74c69d', '#d8f3dc'],
+  // Chaud près, froid loin : à brancher sur la profondeur pour que l'œil lise
+  // la distance par la couleur autant que par l'intensité.
+  distance: ['#ffb703', '#fb8500', '#8ecae6', '#219ebc', '#023047'],
+};
 
 // Courbe de gradateur : les LED DMX ne réagissent pas linéairement. « Carrée »
 // donne des bas de fondu bien plus fins, « racine » remonte les niveaux bas.

@@ -412,6 +412,9 @@
     <tr><td>Profondeur</td><td>Les barres du lointain sortent plus sombres. C'est ce qui fait
       <strong>lire</strong> le volume : sans ça, deux barres l'une derrière l'autre se confondent en
       une seule surface. Le brouillard des moteurs 3D, l'air d'un vrai théâtre.</td></tr>
+    <tr><td>Palette</td><td>Remplace les deux couleurs par un dégradé à plusieurs arrêts — un feu
+      passe enfin par le rouge sombre, l'orange et le jaune. <strong>Distance</strong> est chaude près
+      et froide loin : l'œil lit la profondeur par la couleur autant que par l'intensité.</td></tr>
     <tr><th colspan="2">Vues — choisir l'axe de projection d'une texture</th></tr>
     <tr><td>Le principe</td><td>Une vue = un <strong>dossier de fixtures</strong> dans MadMapper.
       Chaque barre y existe en une copie, toutes à la <strong>même adresse DMX</strong>. On change
@@ -515,6 +518,17 @@
     </div>
     <label class="row" id="rowColors" style="display:none"><span>Couleurs A → B</span>
       <input type="color" id="colorA"><input type="color" id="colorB"></label>
+    <label class="row" id="rowPalette" style="display:none" title="Une palette remplace les deux couleurs par un dégradé à plusieurs arrêts. « Distance » est chaude près et froide loin : branchée sur la profondeur, elle fait lire le volume par la couleur."><span>Palette</span>
+      <select id="palette">
+        <option value="">Deux couleurs (A → B)</option>
+        <option value="feu">Feu</option>
+        <option value="glace">Glace</option>
+        <option value="couche">Coucher de soleil</option>
+        <option value="foret">Forêt</option>
+        <option value="distance">Distance (chaud près, froid loin)</option>
+      </select>
+      <span id="paletteApercu" style="flex:1; height:16px; border-radius:4px; border:1px solid var(--line)"></span>
+    </label>
 
     <h2 style="margin-top:14px">Pattern</h2>
     <div class="patterns" id="patterns"></div>
@@ -1170,6 +1184,22 @@ function render() {
   setSlider('#floor', Math.round((L.floor || 0) * 100), v => v ? v + ' %' : 'noir');
   $('#invert').checked = !!L.invert;
   $('#blend').value = L.blend || 'htp';
+  $('#rowPalette').style.display = L.target === 'color' ? '' : 'none';
+  {
+    const pal = Array.isArray(L.palette) && L.palette.length >= 2 ? L.palette : null;
+    // On retrouve le NOM de la palette par son contenu : l'état ne stocke que
+    // les arrêts, pour qu'un projet reste lisible même si les palettes prêtes
+    // changent un jour.
+    const noms = { feu: '#000000,#4a0a00,#c43a00,#ff8c00,#ffd966,#ffffff',
+      glace: '#000814,#003566,#0077b6,#48cae4,#ade8f4',
+      couche: '#12005e,#6a00a8,#c9184a,#ff7b00,#ffd400',
+      foret: '#03110a,#0b3d20,#2d6a4f,#74c69d,#d8f3dc',
+      distance: '#ffb703,#fb8500,#8ecae6,#219ebc,#023047' };
+    const cle = pal ? (Object.keys(noms).find(k => noms[k] === pal.join(',')) || '') : '';
+    $('#palette').value = cle;
+    const arrets = pal || [L.colorA || '#ff2000', L.colorB || '#0040ff'];
+    $('#paletteApercu').style.background = 'linear-gradient(90deg,' + arrets.join(',') + ')';
+  }
   setSlider('#prof', L.prof || 0, v => v ? v + ' %' : 'à plat');
   // Groove & découpe
   setSlider('#phase', L.phase || 0, v => v ? v + '°' : '—');
@@ -1828,6 +1858,7 @@ $('#quitExport').onclick = async () => {
 };
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
 $('#blend').onchange = (e) => setL({ blend: e.target.value }).then(poll);
+$('#palette').onchange = (e) => setL({ palette: e.target.value || null }).then(poll);
 {
   const el = $('#prof');
   el.oninput = () => setSlider('#prof', +el.value, v => v ? v + ' %' : 'à plat');

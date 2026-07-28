@@ -103,7 +103,23 @@ dans un moteur 3D, et ce que fait l'air dans un vrai théâtre.
 
 ## Ce qu'il faut faire ensuite, par valeur décroissante
 
-### 1. La palette à N arrêts *(le plus gros reste)*
+### 1. ~~La palette à N arrêts~~ — ✅ FAIT le 2026-07-28
+
+Cinq palettes prêtes (Feu, Glace, Coucher de soleil, Forêt, Distance) et
+jusqu'à huit arrêts. Sans palette, on retombe exactement sur colorA → colorB :
+aucun projet existant ne bouge, et un test le verrouille en vérifiant qu'un
+dégradé rouge → bleu ne contient **aucun** vert.
+
+« Distance » est chaude près et froide loin : c'est la seconde moitié du
+depth-cue — l'œil lit la distance par la couleur autant que par l'intensité.
+
+### 1 bis. Ce que la palette n'a pas encore
+
+La **brancher sur la profondeur** plutôt que sur le temps. Aujourd'hui elle suit
+la valeur du champ ; il faudrait un choix « la palette suit : le motif / la
+profondeur / la hauteur ». Petit code, gros effet.
+
+### 2. L'ancien point 1, pour mémoire
 
 Deux couleurs interdisent tout dégradé qui ne passe pas par le milieu : pas de
 feu (noir → rouge sombre → orange → jaune → blanc), pas de rampe froide à trois

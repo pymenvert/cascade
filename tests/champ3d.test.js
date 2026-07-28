@@ -65,7 +65,8 @@ describe('Champ 3D', () => {
       stepMs: 4000, speed: 1, width: 4, group: 1, phase: 0, floor: 0, sparkle: 0,
       level: 1, invert: false, mirrorH: false, mirrorV: false, oneShot: false,
       target: 'intensity', bars: null, groupId: null, blocks: 1,
-      field: 'plan', axAz: 0, axEl: 0, srcX: 0, srcY: 0, srcZ: 2, ...set,
+      field: 'plan', axAz: 0, axEl: 0, srcX: 0, srcY: 0, srcZ: 2,
+      duty: 100, course: 0, blend: 'htp', prof: 0, palette: null, ordre3d: false, ...set,
     });
     await h.post('/api/global', { master: 1, speed: 1, dimmer: 'linear' });
     await h.post('/api/blackout');
@@ -1090,6 +1091,104 @@ describe('Champ 3D', () => {
     assert.equal(L.blend, 'mul');
     assert.equal(L.prof, 45);
     await setL({ blend: 'htp', prof: 0 });
+  });
+
+
+  // ── Palette à N arrêts ─────────────────────────────────────────────────────
+
+  test('une palette traverse VRAIMENT ses arrêts intermédiaires', async () => {
+    // Deux couleurs interdisaient tout dégradé qui ne passe pas par le mélange
+    // des extrêmes : pas de feu (noir → rouge → orange → jaune → blanc). Le test
+    // qui compte est celui-là : les teintes du MILIEU doivent apparaître.
+    await h.post('/api/fixtures', { fixtures: enLigne(10) });
+    await base({ engine: 'field', field: 'plan', axAz: 0, target: 'color',
+                 palette: 'feu', mode: 'fade', ...GEL, width: 8 });
+    h.clearOsc();
+    await h.post('/api/start');
+    await sleep(400);
+    const msgs = h.osc();
+    await h.post('/api/stop');
+
+    // On reconstitue la couleur de chaque barre depuis les trois canaux.
+    const par = {};
+    for (const m of msgs) {
+      const x = /^\/fixtures\/(bar\d+)\/color\/(red|green|blue)$/.exec(m.address);
+      if (x) (par[x[1]] = par[x[1]] || {})[x[2]] = m.args[0];
+    }
+    const coul = Object.values(par).filter(c => c.red != null && c.green != null && c.blue != null);
+    assert.ok(coul.length >= 5, 'trop peu de couleurs relevées : ' + coul.length);
+
+    // Le feu doit produire de l'ORANGE : du rouge fort, du vert moyen, peu de
+    // bleu. Avec deux couleurs seulement, cette combinaison est impossible.
+    const orange = coul.filter(c => c.red > 0.6 && c.green > 0.2 && c.green < 0.8 && c.blue < 0.4);
+    assert.ok(orange.length >= 1,
+      'la palette feu doit passer par l’orange, aucune barre trouvée parmi '
+      + JSON.stringify(coul.map(c => [c.red, c.green, c.blue].map(v => v.toFixed(2)).join('/'))));
+  });
+
+  test('sans palette, on retombe exactement sur les deux couleurs', async () => {
+    // Garde-fou de compatibilité : aucun projet existant ne doit changer.
+    // ⚠ On juge le défaut sur une couche NEUVE, pas sur celle que les tests
+    // précédents ont triturée : sinon on affirme un « défaut » qui n'en est pas un.
+    await h.post('/api/layers', { action: 'add' });
+    const neuves = (await h.state()).layers;
+    const neuve = neuves[neuves.length - 1];
+    assert.equal(neuve.palette, null, 'pas de palette par défaut');
+    assert.equal(neuve.blend, 'htp', 'HTP par défaut');
+    assert.equal(neuve.prof, 0, 'pas de perspective par défaut');
+    assert.equal(neuve.duty, 100, 'netteté pleine par défaut');
+    await h.post('/api/layers', { action: 'remove', id: neuve.id });
+    await base({ engine: 'field', field: 'plan', target: 'color', palette: null,
+                 colorA: '#ff0000', colorB: '#0000ff', mode: 'fade', ...GEL, width: 8 });
+    h.clearOsc();
+    await h.post('/api/start');
+    await sleep(300);
+    const msgs = h.osc();
+    await h.post('/api/stop');
+    const verts = msgs.filter(m => /\/color\/green$/.test(m.address)).map(m => m.args[0]);
+    assert.ok(verts.length > 0, 'aucune couleur envoyée');
+    // Un dégradé rouge → bleu ne contient AUCUN vert. Si la palette s'appliquait
+    // par erreur, il y en aurait.
+    assert.ok(Math.max(...verts) < 0.02,
+      'du vert est apparu dans un dégradé rouge → bleu : ' + Math.max(...verts));
+  });
+
+  test('une palette hostile est nettoyée, jamais acceptée telle quelle', async () => {
+    await setL({ palette: ['pas une couleur', '#00ff00', 42, '#0000ff'] });
+    let L = (await h.state()).layers[0];
+    assert.ok(Array.isArray(L.palette) && L.palette.length === 2,
+      'seules les couleurs valides doivent rester : ' + JSON.stringify(L.palette));
+    // Un seul arrêt valide ne fait pas une palette
+    await setL({ palette: ['#00ff00', 'nope'] });
+    assert.equal((await h.state()).layers[0].palette, null,
+      'une palette d’un seul arrêt doit être refusée');
+    // Bornée à huit arrêts
+    await setL({ palette: Array.from({ length: 30 }, () => '#123456') });
+    L = (await h.state()).layers[0];
+    assert.ok(L.palette.length <= 8, 'palette non bornée : ' + L.palette.length);
+    // Et un nom inconnu ne casse rien
+    await setL({ palette: 'nawak' });
+    assert.ok((await h.state()).layers[0].palette === null
+      || Array.isArray((await h.state()).layers[0].palette));
+    await setL({ palette: null });
+  });
+
+  test('la palette voyage avec le projet et les presets', async () => {
+    await setL({ palette: 'glace', target: 'color' });
+    const avant = (await h.state()).layers[0].palette;
+    assert.ok(Array.isArray(avant) && avant.length >= 4);
+    await h.post('/api/preset', { action: 'save', slot: 7, name: 'Glace' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    assert.deepEqual((await h.state()).layers[0].palette, avant,
+      'la palette doit survivre à l’export/import');
+    await setL({ palette: null });
+    await h.post('/api/preset', { action: 'recall', slot: 7 });
+    await sleep(80);
+    assert.deepEqual((await h.state()).layers[0].palette, avant,
+      'le preset doit restaurer la palette');
+    await setL({ palette: null, target: 'intensity' });
   });
 
 
