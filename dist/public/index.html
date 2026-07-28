@@ -638,6 +638,11 @@
       <input type="range" id="prof" min="0" max="100" step="1"><output></output></label>
     <label class="row" id="rowSpread" style="display:none" title="Étale un décalage de temps de la première barre à la dernière : elles ne bougent plus à l'unisson. 360° = un cycle complet réparti sur toute la sélection. Coché avec « Ordre = axe 3D », la vague traverse la scéno selon un axe réel."><span>Décalage réparti</span>
       <input type="range" id="spread" min="0" max="1440" step="15"><output></output></label>
+    <label class="row" title="Range la couche dans un des deux jeux du crossfader (panneau Global). « Toujours » = jamais touchée par le fader, c'est le défaut. Deux jeux permettent de préparer une ambiance pendant que l'autre joue, puis de passer de l'une à l'autre à la main."><span>Jeu (crossfader)</span>
+      <div class="seg" id="segDeck">
+        <button data-deck="">Toujours</button><button data-deck="a">A</button><button data-deck="b">B</button>
+      </div>
+    </label>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Les barres « éteintes » restent à ce niveau : le chase court AU-DESSUS d'un fond allumé au lieu de partir du noir."><span>Niveau bas</span>
@@ -707,6 +712,8 @@
       <input type="range" id="gspeed" min="-100" max="100" step="1"><output></output></label>
     <label class="row" title="Intensité générale de sortie — dimmer maître de toute l'app"><span>Master</span>
       <input type="range" id="master" min="0" max="100" step="1"><output></output></label>
+    <label class="row" id="rowXfade" title="Passe du jeu A au jeu B, à la main. Les couches rangées dans un jeu (réglage « Jeu » de chaque couche) suivent le fader ; les autres jouent toujours. C'est la différence entre déclencher un preset — un saut — et JOUER un passage. Pilotable par une console : /chaser/xfade 0-1."><span>Crossfader A ↔ B</span>
+      <input type="range" id="xfade" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Temps de fondu au rappel d'un preset. À 0, le changement est sec (comportement d'origine). Sinon, la scène sortante continue de jouer et décroît pendant que la nouvelle monte."><span>Fondu presets</span>
       <input type="range" id="presetFade" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Réponse du gradateur. Les LED DMX sont souvent trop brutales en linéaire : « carrée » affine les bas de fondu, « racine » remonte les niveaux faibles."><span>Courbe dimmer</span>
@@ -1261,6 +1268,21 @@ function render() {
   setSlider('#speed', sliderFromSpeed(L.speed), () => '×' + L.speed.toFixed(2));
   setSlider('#gspeed', sliderFromSpeed(S.global.speed), () => '×' + S.global.speed.toFixed(2));
   setSlider('#master', Math.round(S.global.master * 100), v => v + ' %');
+  setSlider('#xfade', Math.round((S.global.xfade || 0) * 100),
+    v => v === 0 ? 'jeu A' : v === 100 ? 'jeu B' : (100 - v) + ' / ' + v);
+  // Le fader ne dit quelque chose que si au moins une couche est rangée dans
+  // un jeu : sinon c'est un curseur qui ne fait rien, et on le cherche.
+  const jeux = (S.layers || []).some(x => x.deck === 'a' || x.deck === 'b');
+  const ligneX = $('#rowXfade');
+  // ⚠ L'infobulle d'origine est mise de côté à la première passe. Sans ça,
+  // l'écrire par le message de repli la DÉTRUIT : au premier rendu (aucun jeu,
+  // l'état de tout projet) elle serait perdue, et ne reviendrait jamais.
+  if (!ligneX.dataset.titre) ligneX.dataset.titre = ligneX.title;
+  ligneX.style.opacity = jeux ? '1' : '0.45';
+  ligneX.title = jeux ? ligneX.dataset.titre
+    : 'Aucune couche n’est rangée dans un jeu : le fader n’a rien à faire passer. '
+      + 'Réglez « Jeu » sur A ou B dans une couche.';
+  $$('#segDeck button').forEach(b => b.classList.toggle('active', (L.deck || '') === b.dataset.deck));
   setSlider('#presetFade', fadeToSlider(S.global.presetFade || 0),
     v => { const ms = fadeFromSlider(v); return ms ? (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s') : 'sec'; });
   if (document.activeElement !== $('#dimmer')) $('#dimmer').value = S.global.dimmer || 'linear';
@@ -1953,6 +1975,13 @@ $('#stepMs').oninput = e => setL({ stepMs: stepFromSlider(+e.target.value) });
 $('#speed').oninput = e => setL({ speed: +speedFromSlider(+e.target.value).toFixed(2) });
 $('#gspeed').oninput = e => post('/api/global', { speed: +speedFromSlider(+e.target.value).toFixed(2) });
 $('#master').oninput = e => post('/api/global', { master: +e.target.value / 100 });
+$('#xfade').oninput = e => {
+  setSlider('#xfade', +e.target.value,
+    v => v === 0 ? 'jeu A' : v === 100 ? 'jeu B' : (100 - v) + ' / ' + v);
+  post('/api/global', { xfade: +e.target.value / 100 });
+};
+$$('#segDeck button').forEach(b =>
+  b.onclick = () => setL({ deck: b.dataset.deck || null }).then(poll));
 $('#btnAssign').onclick = () => {
   assignMode = (assignMode && assignMode.type === 'layer') ? null : { type: 'layer' };
   $('#layerBars').dataset.sig = ''; $('#groupChips').dataset.sig = '';

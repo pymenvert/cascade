@@ -60,7 +60,7 @@ vocabulaire qui nous concerne directement :
 | Décalage de phase réparti | Phasers, MAtricks | ✅ **`spread`**, de 0 à 1440°, étalé sur la sélection (nouveau) |
 | Palette multi-arrêts | partout | ✅ **jusqu'à 8 arrêts**, 5 palettes prêtes (nouveau) |
 | Palette branchée sur l'espace | gradients 3D Smode | ✅ **la palette suit le motif, la profondeur ou la hauteur** (nouveau) |
-| Crossfader entre deux decks | Madrix | ❌ on a un fondu entre presets, pas un crossfader tenu à la main |
+| Crossfader entre deux decks | Madrix | ✅ **deux jeux de couches et un fader**, pilotable en OSC (nouveau) |
 | Modulateurs branchables | Smode | ❌ |
 | Grille de scènes à déclencher | Storage Places | ⚠ 16 presets, mais sans grille visuelle |
 
@@ -144,11 +144,23 @@ forcément la même valeur, donc toute différence en sortie ne peut venir que d
 décalage. Et il ajoute une preuve en créneau, où la symétrie de la sinusoïde ne
 peut rien masquer.
 
-### 3. Un crossfader entre deux jeux de couches
+### 3. ~~Un crossfader entre deux jeux de couches~~ — ✅ FAIT le 2026-07-28
 
-L'outil de conduite de Madrix. Cascade a un fondu entre presets, mais pas de
-fader tenu à la main. Pour un régisseur, c'est la différence entre déclencher et
-**jouer**.
+Chaque couche se range dans le jeu **A**, le jeu **B**, ou nulle part
+(« Toujours », le défaut — donc aucun projet existant ne change). Un fader passe
+de A à B, à la main, et une console peut le tenir : `/chaser/xfade 0-1`.
+
+C'est la différence entre **déclencher** et **jouer** : un rappel de preset est
+un saut, un fader se tient.
+
+**Le point qui fait tout le travail :** le poids du fader s'applique sur le
+RÉSULTAT de la fusion, pas sur la valeur de la couche — `fond + poids × (fusion −
+fond)`. C'est la seule forme correcte pour les sept modes à la fois. Appliqué
+sur la valeur, une couche en multiplication baissée à zéro deviendrait un masque
+NOIR et éteindrait tout ce qui est dessous : exactement l'inverse de ce qu'on
+demande à un fader qu'on baisse. Sous cette forme, à poids nul, le fond ressort
+intact quel que soit le mode. Un test dédié le verrouille, et une mutation
+vérifie que ce test attrape bien la mauvaise formule.
 
 ### 4. Des modulateurs branchables
 

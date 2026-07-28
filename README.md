@@ -6,7 +6,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-2.0.0--dev-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-225-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-2.0.0--dev-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-232-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -71,6 +71,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **La palette suit la profondeur** : chaud devant, froid derrière. La perspective agit sur l'intensité, la palette sur la teinte, et l'œil se sert des deux pour juger une distance.
 - **Sept modes de fusion** entre couches : HTP (défaut), addition, multiplication, écran, minimum, soustraction, remplacement. En multiplication, une couche devient un **masque** — un plan en profondeur ne laisse passer la texture que dans la tranche qu'il éclaire.
 - **Décalage réparti** : la première barre à 0°, la dernière à N°, étalé sur la sélection. Une vague traverse la scéno selon un axe réel avec un seul réglage.
+- **Crossfader A ↔ B** : rangez vos couches en deux jeux et passez de l'un à l'autre à la main — ou au fader d'une console, en OSC. C'est la différence entre déclencher un preset et *jouer* un passage.
 - **Coupure de secours** : met la sortie DMX de MadMapper à zéro d'un message. La seule voie qui coupe vraiment quand une texture joue — volontairement séparée de BLACKOUT.
 
 ### Mise en forme du chase

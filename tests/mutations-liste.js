@@ -98,6 +98,18 @@ const MUTATIONS = [
     vers: '  const etale = 0;',
   },
   {
+    nom: 'le crossfader ne fait plus rien (poids toujours 1)',
+    cible: 'tests/crossfader.test.js',
+    de: "  return L.deck === 'a' ? 1 - x : x;",
+    vers: '  return 1;',
+  },
+  {
+    nom: 'le poids du fader s applique sur la VALEUR, pas sur la fusion',
+    cible: 'tests/crossfader.test.js',
+    de: '      const doser = (fond, apres) => fond + poids * (apres - fond);',
+    vers: '      const doser = (fond, apres) => apres * poids;',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

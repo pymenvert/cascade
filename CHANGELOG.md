@@ -96,6 +96,13 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   la profondeur, la couleur d'une barre ne dépend que de sa distance au public :
   chaud devant, froid derrière. C'est la seconde moitié du depth-cue, la
   perspective agissant sur l'intensité et celle-ci sur la teinte.
+- **Crossfader entre deux jeux de couches** — l'outil de conduite de Madrix.
+  Chaque couche se range dans le jeu A, le jeu B, ou nulle part (« Toujours »,
+  le défaut). Un fader passe de l'un à l'autre, et une console peut le tenir :
+  `/chaser/xfade 0-1`. La différence entre déclencher un preset — un saut — et
+  **jouer** un passage. Le poids s'applique sur le résultat de la fusion, pas
+  sur la valeur : sinon une couche en multiplication baissée à zéro deviendrait
+  un masque noir et éteindrait tout ce qui est dessous.
 - **Décalage réparti** (0–1440°) — l'idée des MAtricks de grandMA. La première
   barre à 0°, la dernière à N°, étalé sur la sélection. Combiné à « ordre = axe
   3D », une vague traverse la scéno selon un axe réel avec un seul réglage.
@@ -135,15 +142,15 @@ et chacun a son test dans `tests/regressions.test.js`.
 
 ### Tests
 
-225 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+232 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — **14 mutations, 14 détectées**.
+s'en aperçoit — **16 mutations, 16 détectées**.
 
 Un garde-fou a été ajouté après incident : un commit était parti avec un
 cassage volontaire encore en place, et toute la suite restait verte — c'est
 normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
-le code source contient toujours la forme saine de chacun des quatorze endroits
+le code source contient toujours la forme saine de chacun des seize endroits
 que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25

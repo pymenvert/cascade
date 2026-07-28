@@ -488,12 +488,22 @@ E += [h1("1. Présentation"),
       li("Écran, Minimum, Remplacement : pour les cas particuliers."),
       note("Sauf pour HTP, addition et multiplication, l'ORDRE des couches compte : la couche "
            "du bas est le fond, celles du dessus s'y appliquent. L'infobulle le rappelle."),
-      h2("8.4 — Le décalage réparti"),
+      h2("8.4 — Le crossfader A / B"),
+      p("Chaque couche se range dans le jeu A, le jeu B, ou nulle part — « Toujours », le "
+        "défaut, une couche qui joue quoi qu'il arrive. Le crossfader du panneau Global passe "
+        "de A à B. On prépare une ambiance sur le jeu inactif pendant que l'autre joue, puis "
+        "on passe de l'une à l'autre en tenant le fader."),
+      note("C'est la différence entre DÉCLENCHER et JOUER : un rappel de preset est un saut, "
+           "un crossfader se tient à la main. Une console peut le tenir à votre place — "
+           "adresse OSC /chaser/xfade, de 0 à 1."),
+      p("Baisser le fader retire vraiment la couche : une couche en multiplication n'agit plus "
+        "du tout, elle ne devient pas un masque noir qui éteindrait le reste."),
+      h2("8.5 — Le décalage réparti"),
       p("« Décalage » décale toute la couche. « Décalage réparti » étale en plus un décalage de "
         "la PREMIÈRE barre à la DERNIÈRE : 360° = un cycle complet réparti sur la sélection. Des "
         "barres symétriques cessent de bouger à l'unisson. Combiné à « ordre = axe 3D », la "
         "vague traverse la scéno selon un axe réel, avec un seul réglage."),
-      h2("8.5 — Une recette qui marche"),
+      h2("8.6 — Une recette qui marche"),
       li("Une couche « champ / plan » sur l'axe de la profondeur, netteté 20 %, en fond."),
       li("Profondeur à 60 % : le lointain s'efface."),
       li("Palette Distance branchée sur la profondeur : le fond devient froid."),

@@ -65,6 +65,7 @@ function defaultLayer(name) {
     invert: false, level: 1,
     colorA: '#ff2000', colorB: '#0040ff',
     palette: null,          // null = les deux couleurs ci-dessus (comportement v1)
+    deck: null,             // null = toujours jouée | 'a' | 'b' — voir le crossfader
     palSrc: 'motif',        // motif | prof | haut — d'où vient la place dans la palette
     spread: 0,              // décalage de phase étalé sur la sélection, en degrés
     // ── v1.3 : fonctions de chase des consoles lumière ──
@@ -145,6 +146,7 @@ const state = {
   groups: [],
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
+            xfade: 0,          // 0 = jeu A seul, 1 = jeu B seul
             vueActive: null,   // identifiant de la vue allumée, ou null
             // ⚠ Au démarrage, Cascade se SOUVIENT de la vue active mais n'a
             // rien envoyé : il ne sait donc pas ce que MadMapper a réellement.
@@ -168,7 +170,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette', 'palSrc', 'spread'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette', 'palSrc', 'spread', 'deck'];
 
 function loadConfig() {
   let saved = null;
@@ -294,6 +296,7 @@ function sanitizeLayerSet(set) {
       case 'duty': o.duty = Math.round(cnum(v, 5, 100, 100)); break;
       case 'prof': o.prof = Math.round(cnum(v, 0, 100, 0)); break;
       case 'spread': o.spread = Math.round(cnum(v, 0, 1440, 0)); break;
+      case 'deck': o.deck = (v === 'a' || v === 'b') ? v : null; break;
       case 'course': o.course = cnum(v, 0, 200, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
@@ -329,6 +332,7 @@ function sanitizeGlobal(g) {
   if (!g || typeof g !== 'object') return o;
   if ('speed' in g) o.speed = cnum(g.speed, 0.05, 5, 1);
   if ('master' in g) o.master = cnum(g.master, 0, 1, 1);
+  if ('xfade' in g) o.xfade = cnum(g.xfade, 0, 1, 0);
   if ('param' in g) o.param = safeParam(g.param, 'luminosity');
   if ('dimmer' in g && ENUMS.dimmer.includes(g.dimmer)) o.dimmer = g.dimmer;
   if ('presetFade' in g) o.presetFade = Math.round(cnum(g.presetFade, 0, MAX_FADE_MS, 0));
@@ -953,6 +957,7 @@ const WAVE_PATTERNS = ['lr', 'rl', 'tb', 'bt', 'pulse', 'radial'];
  * Adresses reconnues :
  *  /chaser/start | /stop | /blackout | /tap
  *  /chaser/master 0-1        /chaser/speed 0-1 (0.5 = ×1)
+ *  /chaser/xfade 0-1         (crossfader : 0 = jeu A, 1 = jeu B)
  *  /chaser/preset 1-8   ou   /chaser/preset/3
  *  /chaser/layer/N/level|stepms|speed|pattern|enable|invert|mirrorh|mirrorv|width|group|tap
  *   (N = numéro de couche 1-8 ; valeurs 0-1, pattern = 0-1 découpé en 6 zones)
@@ -975,6 +980,7 @@ function handleControlOsc(msgs) {
     else if (p[1] === 'link') { setLinkActive(on); changed = false; } // gère sa propre sauvegarde
     else if (p[1] === 'linkphase') state.settings.linkPhase = on;
     else if (p[1] === 'master') state.global.master = v;
+    else if (p[1] === 'xfade') state.global.xfade = v;
     else if (p[1] === 'speed') state.global.speed = +speedCurve(v).toFixed(3);
     // Fondu entre presets : 0-1 → 0 à 10 s (au-delà, passer par les réglages)
     else if (p[1] === 'presetfade') state.global.presetFade = Math.round(v * 10000);
@@ -1954,6 +1960,22 @@ function attenuationProfondeur(f, force, scene) {
   return 1 - (force / 100) * u;
 }
 
+/**
+ * Poids d'une couche selon le crossfader.
+ *
+ * L'outil de conduite de Madrix, et la différence entre DÉCLENCHER et JOUER :
+ * un rappel de preset est un saut, un crossfader se tient à la main. On range
+ * les couches en deux jeux, et le fader passe de l'un à l'autre.
+ *
+ * Une couche sans jeu (`deck: null`) vaut toujours 1 : c'est le défaut, donc
+ * aucun projet existant ne change de rendu.
+ */
+function poidsDeck(L) {
+  if (L.deck !== 'a' && L.deck !== 'b') return 1;
+  const x = Math.max(0, Math.min(1, fini(state.global.xfade, 0)));
+  return L.deck === 'a' ? 1 - x : x;
+}
+
 function computeMix(layers, fixtures, now, store) {
   const enabled = fixtures.filter(f => f.enabled !== false);
   const parId = new Map(enabled.map(f => [f.id, f]));
@@ -1961,6 +1983,10 @@ function computeMix(layers, fixtures, now, store) {
   let anyInt = false, anyCol = false;
   for (const L of layers) {
     if (!L.enabled) continue;
+    const poids = poidsDeck(L);
+    // À poids nul la couche n'a AUCUN effet — pas même un masque noir. C'est ce
+    // que donne aussi la formule ci-dessous, mais autant ne pas calculer.
+    if (poids === 0) continue;
     const list = resolveBars(L, enabled);
     if (!list.length) continue;
     const vals = L.engine === 'field' ? fieldValues(L, list, now, store)
@@ -1978,17 +2004,27 @@ function computeMix(layers, fixtures, now, store) {
       // une propriété de l'espace, pas du motif.
       if (L.prof) v *= attenuationProfondeur(parId.get(id) || {}, L.prof, state.scene);
       const fusion = FUSIONS[L.blend] || FUSIONS.htp;
+      // Le poids du crossfader s'applique SUR LE RÉSULTAT DE LA FUSION, pas sur
+      // la valeur : `fond + poids × (fusion − fond)`. C'est la seule forme
+      // correcte pour les sept modes à la fois. Sur la valeur, une couche en
+      // multiplication tombée à zéro deviendrait un masque NOIR et éteindrait
+      // tout ce qui est dessous — l'inverse de ce qu'on demande à un fader qu'on
+      // baisse. Ici, à poids nul, le fond ressort intact quel que soit le mode.
+      const doser = (fond, apres) => fond + poids * (apres - fond);
       if (L.target === 'color') {
         anyCol = true;
         const c = mixColor(L, v, parId.get(id));
         const cur = col.get(id);
-        col.set(id, cur ? [fusion(cur[0], c[0]), fusion(cur[1], c[1]), fusion(cur[2], c[2])] : c);
+        col.set(id, cur
+          ? [doser(cur[0], fusion(cur[0], c[0])), doser(cur[1], fusion(cur[1], c[1])),
+             doser(cur[2], fusion(cur[2], c[2]))]
+          : [c[0] * poids, c[1] * poids, c[2] * poids]);
       } else {
         anyInt = true;
         // ⚠ `lum.has(id)` et pas `|| 0` : pour `mul` et `min`, un fond absent
         // vaut 1 (rien ne masque), pas 0 — sinon la première couche en mode
         // multiplicatif s'annulerait elle-même et on croirait à une panne.
-        lum.set(id, lum.has(id) ? fusion(lum.get(id), v) : v);
+        lum.set(id, lum.has(id) ? doser(lum.get(id), fusion(lum.get(id), v)) : v * poids);
       }
     }
   }

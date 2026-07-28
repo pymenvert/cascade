@@ -136,7 +136,7 @@ describe('Interface — garde-fous du source', () => {
       'la forme saine a disparu de server.js — un mutant est peut-être resté :\n'
       + restes.map(m => '  - ' + m.nom + '\n      attendu : ' + m.de.trim()).join('\n'));
     // Et le garde-fou doit lui-même être vivant : une liste vide passerait tout.
-    assert.ok(MUTATIONS.length >= 14,
+    assert.ok(MUTATIONS.length >= 16,
       'la liste des mutations a maigri : ' + MUTATIONS.length);
   });
 
