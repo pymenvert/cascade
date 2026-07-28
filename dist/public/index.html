@@ -529,6 +529,13 @@
       </select>
       <span id="paletteApercu" style="flex:1; height:16px; border-radius:4px; border:1px solid var(--line)"></span>
     </label>
+    <label class="row" id="rowPalSrc" style="display:none" title="D'où vient la place de chaque barre dans la palette. « Le motif » suit l'animation. « La profondeur » colore selon la distance au public : c'est ça qui fait lire un volume par la couleur, l'œil juge la distance à la teinte autant qu'à l'intensité. « La hauteur » colore de bas en haut."><span>La palette suit</span>
+      <select id="palSrc">
+        <option value="motif">Le motif (l'animation)</option>
+        <option value="prof">La profondeur (près → loin)</option>
+        <option value="haut">La hauteur (bas → haut)</option>
+      </select>
+    </label>
 
     <h2 style="margin-top:14px">Pattern</h2>
     <div class="patterns" id="patterns"></div>
@@ -579,7 +586,7 @@
           <option value="plan">Plan / balayage</option>
           <option value="sphere">Sphère (ondes)</option>
           <option value="cylindre">Cylindre (phare)</option>
-          <option value="boite">Boîte (coques)</option>
+          <option value="boite">Pavé mobile (bloc)</option>
           <option value="bruit">Bruit 3D (organique)</option>
         </select>
       </label>
@@ -629,6 +636,8 @@
     </label>
     <label class="row" title="Perspective atmosphérique : les barres du lointain sortent plus sombres. C'est ce qui fait LIRE la profondeur — sans ça, deux barres l'une derrière l'autre se confondent en une seule surface."><span>Profondeur</span>
       <input type="range" id="prof" min="0" max="100" step="1"><output></output></label>
+    <label class="row" id="rowSpread" style="display:none" title="Étale un décalage de temps de la première barre à la dernière : elles ne bougent plus à l'unisson. 360° = un cycle complet réparti sur toute la sélection. Coché avec « Ordre = axe 3D », la vague traverse la scéno selon un axe réel."><span>Décalage réparti</span>
+      <input type="range" id="spread" min="0" max="1440" step="15"><output></output></label>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Les barres « éteintes » restent à ce niveau : le chase court AU-DESSUS d'un fond allumé au lieu de partir du noir."><span>Niveau bas</span>
@@ -1199,8 +1208,16 @@ function render() {
     $('#palette').value = cle;
     const arrets = pal || [L.colorA || '#ff2000', L.colorB || '#0040ff'];
     $('#paletteApercu').style.background = 'linear-gradient(90deg,' + arrets.join(',') + ')';
+    // La source spatiale n'a de sens qu'avec une palette ET des barres placées en
+    // 3D : sans p3, `mixColor` retombe sur le motif de lui-même.
+    $('#rowPalSrc').style.display = (pal && L.target === 'color') ? '' : 'none';
+    $('#palSrc').value = L.palSrc || 'motif';
   }
   setSlider('#prof', L.prof || 0, v => v ? v + ' %' : 'à plat');
+  // Réparti : seulement sur le champ, seul moteur qui en tient compte. Le montrer
+  // ailleurs ferait croire à un réglage qui n'agit pas.
+  $('#rowSpread').style.display = L.engine === 'field' ? '' : 'none';
+  setSlider('#spread', L.spread || 0, v => v ? v + '°' : 'à l’unisson');
   // Groove & découpe
   setSlider('#phase', L.phase || 0, v => v ? v + '°' : '—');
   setSlider('#swing', L.swing || 0, v => v ? (v > 0 ? '+' : '') + v + ' %' : 'droit');
@@ -1859,6 +1876,12 @@ $('#quitExport').onclick = async () => {
 $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.dataset.eng }).then(poll));
 $('#blend').onchange = (e) => setL({ blend: e.target.value }).then(poll);
 $('#palette').onchange = (e) => setL({ palette: e.target.value || null }).then(poll);
+$('#palSrc').onchange = (e) => setL({ palSrc: e.target.value }).then(poll);
+{
+  const el = $('#spread');
+  el.oninput = () => setSlider('#spread', +el.value, v => v ? v + '°' : 'à l’unisson');
+  el.onchange = () => setL({ spread: +el.value }).then(poll);
+}
 {
   const el = $('#prof');
   el.oninput = () => setSlider('#prof', +el.value, v => v ? v + ' %' : 'à plat');
@@ -2885,7 +2908,9 @@ function uniteEtendue(L, w) {
   const m = (x) => (Math.round(x * 100) / 100).toLocaleString('fr-FR') + ' m';
   switch (L.field || 'plan') {
     case 'sphere': return m(wl * Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2));
-    case 'boite': return m(wl * Math.max(0.1, Math.max(sc.w, sc.d, sc.h) / 2));
+    // Pavé : on annonce ses cotes réelles, pas une longueur d'onde.
+    case 'boite': return 'pavé ' + [sc.w, sc.d, sc.h].map(c => Math.round(wl * c * 100) / 100)
+      .join(' × ') + ' m';
     case 'bruit': return 'grain ' + m(Math.max(0.15, wl * Math.max(sc.w, sc.d, sc.h)));
     case 'cylindre': {
       const n = Math.max(1, Math.round(1 / wl));

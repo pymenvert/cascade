@@ -101,6 +101,18 @@ const MUTATIONS = [
     vers: "const BRUIT_MOY = 0.5, BRUIT_EC = 0.11;",
   },
   {
+    nom: 'la palette ignore la source spatiale (toujours le motif)',
+    cible: 'tests/champ3d.test.js',
+    de: "  const src = L.palSrc || 'motif';",
+    vers: "  const src = 'motif';",
+  },
+  {
+    nom: 'le decalage reparti est ignore (tout a l unisson)',
+    cible: 'tests/champ3d.test.js',
+    de: '  const etale = fini(L.spread, 0) / 360;',
+    vers: '  const etale = 0;',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

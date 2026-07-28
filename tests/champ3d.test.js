@@ -110,6 +110,31 @@ describe('Champ 3D', () => {
     return { ecart, vus };
   }
 
+  /**
+   * Suite de clichés pris pendant `duree`, chacun rendu comme un tableau de
+   * niveaux dans l'ordre des barres. Sert à juger la FORME d'un profil (franc
+   * ou ondulé) et son déplacement, là où `ecartMax` ne compare que deux barres.
+   *
+   * ⚠ La fenêtre doit rester longue devant le bruit de charge : la suite lance
+   * une dizaine de serveurs en parallèle. D'où des cycles d'au moins 900 ms.
+   */
+  async function releves(duree, pas = 130) {
+    await h.post('/api/start');
+    const out = [];
+    const fin = Date.now() + duree;
+    while (Date.now() < fin) {
+      h.clearOsc();
+      await sleep(pas);
+      const niv = niveaux(h.osc());
+      if (!niv.size) continue;
+      const noms = [...niv.keys()].sort((x, y) =>
+        (+x.replace(/\D/g, '') || 0) - (+y.replace(/\D/g, '') || 0));
+      out.push(noms.map(k => niv.get(k)));
+    }
+    await h.post('/api/stop');
+    return out;
+  }
+
   /** Un cliché des niveaux, pris juste après le démarrage. */
   async function clicher() {
     h.clearOsc();
@@ -288,36 +313,72 @@ describe('Champ 3D', () => {
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
   });
 
-  test('la boîte fait des coques rectangulaires, pas des sphères', async () => {
-    // Le test qui distingue vraiment `boite` de `sphere` : deux barres à la même
-    // distance de Tchebychev mais à des distances euclidiennes différentes
-    // doivent recevoir la même valeur en boîte — et des valeurs différentes en
-    // sphère. Sans ce test, les deux formes pourraient être le même code.
-    await h.post('/api/fixtures', { fixtures: [
-      { id: 'ba', name: 'A', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
-      { id: 'bb', name: 'B', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
-    ] });
-    // Plateau 10 × 8 × 6 → demi-cotes 5, 4, 3.
-    // A : x = 2,5 → 0,5 ; y = 0 → 0. B : x = 2,5 → 0,5 ; y = 2 → 0,5.
-    // Tchebychev identique (0,5), mais B est plus loin en euclidien.
-    await h.post('/api/fixture3d', { fixtures: [
-      { id: 'ba', p3: [2.5, 4, 3], dir3: [1, 0, 0], len3: 1 },
-      { id: 'bb', p3: [2.5, 6, 3], dir3: [1, 0, 0], len3: 1 },
-    ] });
-    const mesure = async (forme) => {
-      await base({ engine: 'field', field: forme, srcX: 0, srcY: 4, srcZ: 3,
-                   stepMs: 300, group: 1, speed: 1, width: 8 });
-      const r = await ecartMax('bar0', 'bar1', 10);
-      assert.ok(r.vus >= 5, forme + ' : trop peu de relevés (' + r.vus + ')');
-      return r.ecart;
+  test('le pavé a des bords FRANCS : allumé ou éteint, rien entre les deux', async () => {
+    // Ce qui distingue un pavé d'une onde, c'est la coupure nette. À netteté
+    // 100, une barre est dans le volume ou elle n'y est pas : les valeurs
+    // intermédiaires doivent être rarissimes. C'est exactement ce qu'aucune
+    // autre forme du champ ne produit.
+    await h.post('/api/fixtures', { fixtures: enLigne(12) });
+    await base({ engine: 'field', field: 'boite', srcX: 0, srcY: 0, srcZ: 3,
+                 stepMs: 900, group: 1, speed: 1, width: 3, duty: 100 });
+    const vues = await releves(2200);
+    const toutes = vues.flat();
+    assert.ok(toutes.length >= 40, 'trop peu de relevés (' + toutes.length + ')');
+    const entre = toutes.filter(v => v > 0.06 && v < 0.94).length;
+    assert.ok(entre / toutes.length < 0.1,
+      'un pavé à netteté 100 doit trancher : ' + Math.round(100 * entre / toutes.length)
+      + ' % de valeurs intermédiaires');
+    // …et il faut que les deux états existent, sinon « franc » ne veut rien dire
+    assert.ok(toutes.some(v => v > 0.94), 'aucune barre allumée');
+    assert.ok(toutes.some(v => v < 0.06), 'aucune barre éteinte');
+  });
+
+  test('sur un rig PLAN, le pavé ne ressemble pas à la sphère', async () => {
+    // Le vrai reproche fait à l'ancienne boîte : sur une simple ligne de barres
+    // — le cas le plus courant — sa distance de Tchebychev se réduisait à |dx|,
+    // donc à la sphère à un facteur près. Les deux formes étaient
+    // indiscernables là où ça compte. On mesure la forme du profil : le pavé
+    // tranche, la sphère ondule.
+    await h.post('/api/fixtures', { fixtures: enLigne(12) });
+    const profil = async (forme) => {
+      await base({ engine: 'field', field: forme, srcX: 0, srcY: 0, srcZ: 3,
+                   stepMs: 900, group: 1, speed: 1, width: 3, duty: 100 });
+      const toutes = (await releves(2200)).flat();
+      const entre = toutes.filter(v => v > 0.06 && v < 0.94).length;
+      return entre / Math.max(1, toutes.length);
     };
-    const enBoite = await mesure('boite');
-    const enSphere = await mesure('sphere');
-    assert.ok(enBoite < 0.02,
-      'en boîte, deux barres à même distance de Tchebychev doivent être égales — écart ' + enBoite);
-    assert.ok(enSphere > 0.15,
-      'en sphère, elles doivent différer (sinon les deux formes sont le même code) — écart ' + enSphere);
+    const pave = await profil('boite');
+    const sphere = await profil('sphere');
+    assert.ok(sphere - pave > 0.25,
+      'les deux formes se ressemblent trop sur une ligne — intermédiaires : pavé '
+      + Math.round(pave * 100) + ' %, sphère ' + Math.round(sphere * 100) + ' %');
+  });
+
+  test('le pavé se déplace : il ne reste pas planté sur les mêmes barres', async () => {
+    await h.post('/api/fixtures', { fixtures: enLigne(12) });
+    await base({ engine: 'field', field: 'boite', srcX: 0, srcY: 0, srcZ: 3,
+                 stepMs: 1400, group: 1, speed: 1, width: 2, duty: 100 });
+    // Fenêtre large : sous charge, une image sur deux arrive incomplète et le
+    // cache anti-répétition n'émet que ce qui change. On prend ce qui vient.
+    const vues = (await releves(4200)).filter(v => v.length >= 6);
+    assert.ok(vues.length >= 4, 'trop peu d’images (' + vues.length + ')');
+    // Barycentre des barres allumées : il doit se déplacer le long de la ligne.
+    const centres = vues.map(v => {
+      let s = 0, n = 0;
+      v.forEach((x, i) => { if (x > 0.5) { s += i; n++; } });
+      return n ? s / n : null;
+    }).filter(c => c !== null);
+    assert.ok(centres.length >= 3, 'le pavé n’allume jamais rien');
+    const etendue = Math.max(...centres) - Math.min(...centres);
+    assert.ok(etendue > 1.5, 'le pavé ne se déplace pas (étendue ' + etendue.toFixed(2) + ' barre)');
+    // ⚠ Remettre la scéno ET la couche dans leur état d'origine. Un test qui
+    // laisse derrière lui une forme, une source ou une taille de motif fait
+    // tomber les suivants — et ils tombent pour une raison qui n'a plus rien à
+    // voir avec ce qu'ils vérifient. C'est le piège déjà rencontré deux fois
+    // sur ce fichier.
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
+    await base({ engine: 'field', field: 'plan', srcX: 0, srcY: 0, srcZ: 2,
+                 duty: 100, course: 0, width: 8, spread: 0 });
   });
 
   test('le cylindre balaie en tournant : l’angle décide, pas la distance', async () => {
@@ -1191,6 +1252,174 @@ describe('Champ 3D', () => {
     await setL({ palette: null, target: 'intensity' });
   });
 
+
+  // ── La palette branchée sur l'ESPACE ───────────────────────────────────────
+
+  test('la palette peut suivre la profondeur au lieu du motif', async () => {
+    // Le discriminant ne dépend d'aucune convention d'axe : la profondeur NE
+    // BOUGE PAS. Donc si la palette la suit, la couleur de chaque barre est FIGÉE
+    // alors que le champ continue de tourner. Branchée sur le motif, elle change
+    // sans arrêt. Aucun risque de test tautologique.
+    await h.post('/api/fixtures', { fixtures: [
+      { id: 'qa', name: 'Face', address: '/fixtures/bar0', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'qb', name: 'Milieu', address: '/fixtures/bar1', enabled: true, x: 0.5, y: 0.5 },
+      { id: 'qc', name: 'Loin', address: '/fixtures/bar2', enabled: true, x: 0.5, y: 0.5 },
+    ] });
+    const sc = (await h.state()).scene;
+    await h.post('/api/fixture3d', { fixtures: [
+      { id: 'qa', p3: [0, -sc.d / 2, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'qb', p3: [0, 0, 2], dir3: [1, 0, 0], len3: 1 },
+      { id: 'qc', p3: [0, sc.d / 2, 2], dir3: [1, 0, 0], len3: 1 },
+    ] });
+
+    const couleurs = async (palSrc) => {
+      await base({ engine: 'field', field: 'plan', target: 'color', mode: 'fade',
+                   palette: ['#ff0000', '#0000ff'], palSrc, level: 1, floor: 0,
+                   // ⚠ Ici on NE gèle PAS le moteur, au contraire de la plupart
+                   // des tests : la démonstration repose sur le fait que le motif
+                   // BOUGE pendant la fenêtre. Période = stepMs × group / speed,
+                   // soit 400 ms — la fenêtre de 500 ms couvre un cycle entier.
+                   // Avec le gel habituel (10 000 × 8 / 0,05) on n'en verrait
+                   // qu'un millième : la couleur paraîtrait figée elle aussi et
+                   // le test ne prouverait plus rien.
+                   speed: 1, width: 8, stepMs: 400, group: 1 });
+      h.clearOsc();
+      await h.post('/api/start');
+      await sleep(500);
+      const msgs = h.osc();
+      await h.post('/api/stop');
+      const par = new Map();
+      for (const m of msgs) {
+        const x = /^\/fixtures\/(bar\d)\/color\/(red|blue)$/.exec(m.address);
+        if (x) {
+          if (!par.has(x[1])) par.set(x[1], { red: [], blue: [] });
+          par.get(x[1])[x[2]].push(m.args[0]);
+        }
+      }
+      return par;
+    };
+
+    const motif = await couleurs('motif');
+    const rouges = motif.get('bar1') ? motif.get('bar1').red : [];
+    assert.ok(new Set(rouges.map(v => v.toFixed(2))).size >= 3,
+      'branchée sur le motif, la couleur doit VOYAGER : ' + rouges.length
+      + ' envois, ' + new Set(rouges.map(v => v.toFixed(2))).size + ' valeurs');
+
+    const prof = await couleurs('prof');
+    for (const [bar, c] of prof) {
+      assert.equal(new Set(c.red.map(v => v.toFixed(3))).size, 1,
+        'branchée sur la profondeur, ' + bar + ' doit être FIGÉE : '
+        + JSON.stringify(c.red));
+    }
+    // Et le dégradé va bien du proche au lointain : rouge devant, bleu derrière.
+    const r = (b) => prof.get(b).red[0], bl = (b) => prof.get(b).blue[0];
+    assert.ok(r('bar0') > 0.9 && bl('bar0') < 0.1,
+      'la barre de face doit être rouge, vue ' + r('bar0') + '/' + bl('bar0'));
+    assert.ok(r('bar2') < 0.1 && bl('bar2') > 0.9,
+      'la barre du lointain doit être bleue, vue ' + r('bar2') + '/' + bl('bar2'));
+    assert.ok(Math.abs(r('bar1') - 0.5) < 0.06,
+      'le milieu doit être à mi-palette, vu ' + r('bar1'));
+
+    // La hauteur marche pareil, sur un autre axe : les trois barres sont à la
+    // même cote, donc elles doivent sortir IDENTIQUES — ce qui prouve que c'est
+    // bien la hauteur qui est lue, et pas la profondeur par accident.
+    const haut = await couleurs('haut');
+    const vals = [...haut.values()].map(c => c.red[0]);
+    assert.ok(Math.max(...vals) - Math.min(...vals) < 0.02,
+      'à hauteur égale, la palette doit donner la même couleur : ' + JSON.stringify(vals));
+
+    await base({ target: 'intensity', palette: null, palSrc: 'motif' });
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+
+  // ── Le décalage de phase RÉPARTI (les MAtricks de grandMA) ─────────────────
+
+  test('le décalage réparti désynchronise des barres pourtant confondues', async () => {
+    // Toutes les barres au MÊME point 3D : le champ leur donne forcément la même
+    // valeur. Si elles sortent différentes, ça ne peut venir que du décalage
+    // réparti — aucune autre explication possible.
+    const N = 8;
+    await h.post('/api/fixtures', { fixtures: enLigne(N) });
+    await h.post('/api/fixture3d', { fixtures: Array.from({ length: N }, (_, i) =>
+      ({ id: 'c' + i, p3: [0, 0, 2], dir3: [1, 0, 0], len3: 1 })) });
+
+    const mesurer = async (spread, engine, forme) => {
+      // ⚠ Les formes d'onde sont sine | triangle | square. Demander « saw » ne
+      // lève rien : le sanitizer garde la valeur précédente, et on croit tester
+      // une rampe alors qu'on teste une sinusoïde.
+      await base({ engine: engine || 'field', field: 'plan', waveform: forme || 'sine',
+                   pattern: 'pulse', mode: 'fade', spread, level: 1, floor: 0, ...GEL });
+      h.clearOsc();
+      await h.post('/api/start');
+      await sleep(260);
+      const n = niveaux(h.osc());
+      await h.post('/api/stop');
+      return n;
+    };
+
+    const ensemble = await mesurer(0);
+    const v0 = [...ensemble.values()];
+    assert.ok(v0.length >= N - 1, 'trop peu de barres relevées : ' + v0.length);
+    assert.ok(Math.max(...v0) - Math.min(...v0) < 0.02,
+      'au même point et sans décalage, tout doit sortir à l’unisson : '
+      + JSON.stringify(v0.map(v => v.toFixed(3))));
+
+    const etale = await mesurer(360);
+    const v1 = [...etale.values()];
+    assert.ok(Math.max(...v1) - Math.min(...v1) > 0.6,
+      'un décalage de 360° doit étaler un cycle entier : '
+      + JSON.stringify(v1.map(v => v.toFixed(3))));
+    // ⚠ On n'exige PAS N valeurs distinctes, et ce n'est pas un test tiède :
+    // avec une sinusoïde, un décalage qui couvre exactement un cycle apparie la
+    // barre i et la barre N−1−i à la MÊME valeur (le cosinus est symétrique).
+    // Quatre valeurs pour huit barres est le maximum théorique, pas un défaut.
+    assert.ok(new Set(v1.map(v => v.toFixed(2))).size >= N / 2,
+      'chaque barre doit avoir SA place dans le cycle : '
+      + JSON.stringify(v1.map(v => v.toFixed(3))));
+
+    // La preuve sans repli possible : en créneau, un décalage d'un cycle entier
+    // met forcément une partie des barres en haut et l'autre en bas. Sans
+    // décalage elles seraient toutes du même côté — aucune symétrie ne peut
+    // fabriquer ça par accident.
+    const creneau = [...(await mesurer(360, 'field', 'square')).values()];
+    assert.ok(creneau.some(v => v > 0.9) && creneau.some(v => v < 0.1),
+      'en créneau, le décalage doit séparer les barres en deux camps : '
+      + JSON.stringify(creneau.map(v => v.toFixed(2))));
+
+    // Il ne touche pas la vague : le champ est le seul moteur qui en tient
+    // compte. Si ça changeait, l'interface mentirait en cachant le réglage.
+    const vague = [...(await mesurer(360, 'wave')).values()];
+    assert.ok(Math.max(...vague) - Math.min(...vague) < 0.02,
+      'la vague doit ignorer le décalage réparti : '
+      + JSON.stringify(vague.map(v => v.toFixed(3))));
+    await base({ engine: 'field', spread: 0 });
+  });
+
+  test('la source de palette et le décalage voyagent avec le projet', async () => {
+    await setL({ palSrc: 'prof', spread: 720, palette: 'distance', target: 'color' });
+    await h.post('/api/preset', { action: 'save', slot: 9, name: 'Volume' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    let L = (await h.state()).layers[0];
+    assert.equal(L.palSrc, 'prof', 'la source de palette doit survivre à l’import');
+    assert.equal(L.spread, 720, 'le décalage réparti doit survivre à l’import');
+
+    await setL({ palSrc: 'motif', spread: 0 });
+    await h.post('/api/preset', { action: 'recall', slot: 9 });
+    await sleep(80);
+    L = (await h.state()).layers[0];
+    assert.equal(L.palSrc, 'prof', 'le preset doit restaurer la source de palette');
+    assert.equal(L.spread, 720, 'le preset doit restaurer le décalage');
+
+    // Bornes : rien d'hostile ne passe.
+    await setL({ palSrc: 'nawak', spread: 99999 });
+    L = (await h.state()).layers[0];
+    assert.ok(['motif', 'prof', 'haut'].includes(L.palSrc),
+      'une source inconnue doit être refusée, vu ' + L.palSrc);
+    assert.ok(L.spread <= 1440, 'le décalage doit être borné, vu ' + L.spread);
+    await setL({ palSrc: 'motif', spread: 0, palette: null, target: 'intensity' });
+  });
 
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>

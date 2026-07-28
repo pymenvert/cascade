@@ -65,6 +65,8 @@ function defaultLayer(name) {
     invert: false, level: 1,
     colorA: '#ff2000', colorB: '#0040ff',
     palette: null,          // null = les deux couleurs ci-dessus (comportement v1)
+    palSrc: 'motif',        // motif | prof | haut — d'où vient la place dans la palette
+    spread: 0,              // décalage de phase étalé sur la sélection, en degrés
     // ── v1.3 : fonctions de chase des consoles lumière ──
     phase: 0,               // décalage de départ, en degrés du cycle (0-360)
     swing: 0,               // groove : retarde les pas impairs, -75..+75 % du demi-pas
@@ -166,7 +168,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette', 'palSrc', 'spread'];
 
 function loadConfig() {
   let saved = null;
@@ -255,6 +257,7 @@ const ENUMS = {
   engine: ['steps', 'wave', 'field'], target: ['intensity', 'color'], mode: ['onoff', 'fade'],
   field: ['plan', 'sphere', 'cylindre', 'boite', 'bruit'],
   blend: ['htp', 'add', 'mul', 'screen', 'min', 'sub', 'remp'],
+  palSrc: ['motif', 'prof', 'haut'],
   curve: ['linear', 'easeIn', 'easeOut', 'easeInOut', 'expo'],
   waveform: ['sine', 'triangle', 'square'],
   pattern: ['lr', 'rl', 'pingpong', 'random', 'evenodd', 'all', 'tb', 'bt', 'pulse', 'radial', 'outin', 'inout'],
@@ -290,6 +293,7 @@ function sanitizeLayerSet(set) {
       case 'srcX': case 'srcY': case 'srcZ': o[k] = cnum(v, -P3_MAX, P3_MAX, 0); break;
       case 'duty': o.duty = Math.round(cnum(v, 5, 100, 100)); break;
       case 'prof': o.prof = Math.round(cnum(v, 0, 100, 0)); break;
+      case 'spread': o.spread = Math.round(cnum(v, 0, 1440, 0)); break;
       case 'course': o.course = cnum(v, 0, 200, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
@@ -1641,6 +1645,11 @@ function fieldValues(L, list, now, store) {
   const diag = Math.max(0.1, Math.hypot(sc.w, sc.d, sc.h) / 2);
   // Taille d'une tache de bruit, en mètres. Isotrope par construction.
   const grainBruit = Math.max(0.15, wl * Math.max(sc.w, sc.d, sc.h));
+  // Demi-cotes du pavé mobile, en mètres : `width` en règle la taille,
+  // proportionnellement au plateau, axe par axe.
+  const demiPave = [Math.max(0.05, wl * sc.w / 2),
+                    Math.max(0.05, wl * sc.d / 2),
+                    Math.max(0.05, wl * sc.h / 2)];
 
   // Base orthonormée perpendiculaire à l'axe, pour mesurer l'angle du cylindre.
   // Calculée UNE fois : elle ne dépend que de l'axe, pas de la barre. La laisser
@@ -1674,9 +1683,19 @@ function fieldValues(L, list, now, store) {
     // à un angle fixe. On arrondit donc à un nombre entier de faisceaux.
     tours = Math.max(1, Math.round(1 / wl));
   }
+  // Décalage de phase RÉPARTI sur la sélection — l'idée des MAtricks de
+  // grandMA. `phase` décale toute la couche ; `spread` étale en plus un décalage
+  // de la première barre à la dernière. C'est ce qui empêche des barres
+  // symétriques de bouger à l'unisson, et ça suit l'ordre de la sélection — donc
+  // l'ordre géométrique si « ordre = axe 3D » est coché.
+  const etale = fini(L.spread, 0) / 360;
+  const denom = Math.max(1, list.length - 1);
   const out = new Map();
 
+  let idx = -1;
   for (const f of list) {
+    idx++;
+    const tf = etale ? t + etale * (idx / denom) : t;
     const p = f.p3 || [0, 0, 0];
     let u;
     switch (forme) {
@@ -1697,12 +1716,26 @@ function fieldValues(L, list, now, store) {
         break;
       }
       case 'boite': {
-        // Coques rectangulaires depuis la source : distance de Tchebychev,
-        // normalisée par les cotes du plateau. Donne des « murs » qui avancent.
-        u = Math.max(Math.abs(p[0] - src[0]) / Math.max(0.1, sc.w / 2),
-                     Math.abs(p[1] - src[1]) / Math.max(0.1, sc.d / 2),
-                     Math.abs(p[2] - src[2]) / Math.max(0.1, sc.h / 2));
-        break;
+        // Pavé MOBILE : on ne mesure pas une distance, on teste l'APPARTENANCE
+        // à un volume qui traverse le plateau une fois par cycle, le long de
+        // l'axe. Un bloc de barres s'allume et se déplace, avec des bords francs.
+        //
+        // ⚠ La version précédente mesurait une distance de Tchebychev, ce qui
+        // donnait des coques rectangulaires. Sur un rig PLAN — le cas courant —
+        // toutes les barres partagent leur profondeur et leur hauteur, si bien
+        // que la distance se réduisait à |dx| : la boîte redevenait la sphère à
+        // un facteur près et les deux formes ne se distinguaient plus à l'œil.
+        // Le pavé, lui, ne ressemble à aucune autre forme, même sur une ligne.
+        const trav = ((((tf % 1) + 1) % 1) - 0.5) * ext;
+        const q = Math.max(
+          Math.abs(p[0] - (src[0] + a[0] * trav)) / demiPave[0],
+          Math.abs(p[1] - (src[1] + a[1] * trav)) / demiPave[1],
+          Math.abs(p[2] - (src[2] + a[2] * trav)) / demiPave[2]);
+        // Netteté : à 100 les bords sont francs ; en deçà le pavé garde un
+        // cœur plein et s'estompe vers l'extérieur.
+        const coeur = duty / 100;
+        out.set(f.id, q <= coeur ? 1 : (q >= 1 ? 0 : 1 - (q - coeur) / (1 - coeur)));
+        continue;
       }
       case 'bruit': {
         // Le bruit rend DÉJÀ une valeur : il ne traverse pas la forme d'onde,
@@ -1716,10 +1749,10 @@ function fieldValues(L, list, now, store) {
         // Z : un feu qui descend, ce n'est pas un feu. Le motif avance d'un grain
         // par cycle dans la direction de l'axe.
         const k = 1 / grainBruit;
-        const g = t * grainBruit;
-        out.set(f.id, etaler(bruit3((p[0] + a[0] * g) * k,
-                                    (p[1] + a[1] * g) * k,
-                                    (p[2] + a[2] * g) * k)));
+        const gf = tf * grainBruit;
+        out.set(f.id, etaler(bruit3((p[0] + a[0] * gf) * k,
+                                    (p[1] + a[1] * gf) * k,
+                                    (p[2] + a[2] * gf) * k)));
         continue;
       }
       default: {   // plan / balayage
@@ -1740,7 +1773,7 @@ function fieldValues(L, list, now, store) {
     // ici. L'interface le masque donc pour ce moteur, plutôt que d'afficher une
     // case sans effet.
     if (L.mirrorH) u = Math.abs(u - (L.axisX ?? 0.5));
-    const d = (((t - (cyclique ? u * tours : u / wl)) % 1) + 1) % 1;
+    const d = (((tf - (cyclique ? u * tours : u / wl)) % 1) + 1) % 1;
     let v;
     if (duty >= 100) {
       // Chemin d'origine, laissé intact au bit près : c'est lui que le test de
@@ -1785,7 +1818,18 @@ function hexToRgb(h) {
  * `palette` prend le dessus dès qu'elle a au moins deux arrêts. Sans elle, on
  * retombe exactement sur colorA → colorB : aucun projet existant ne bouge.
  */
-function mixColor(L, v) {
+function mixColor(L, v, f) {
+  // D'où vient la position dans la palette ? Par défaut du motif (la valeur
+  // calculée). Mais la brancher sur la PROFONDEUR ou la HAUTEUR est ce qui fait
+  // lire un volume par la couleur : chaud près, froid loin. L'œil juge la
+  // distance autant par la teinte que par l'intensité — c'est la seconde moitié
+  // du depth-cue, et ça ne coûte qu'une substitution.
+  const src = 'motif';
+  if (src !== 'motif' && f && f.p3) {
+    const sc = state.scene;
+    v = src === 'prof' ? Math.min(1, Math.max(0, (f.p3[1] + sc.d / 2) / Math.max(0.1, sc.d)))
+                       : Math.min(1, Math.max(0, f.p3[2] / Math.max(0.1, sc.h)));
+  }
   const pal = Array.isArray(L.palette) && L.palette.length >= 2 ? L.palette : null;
   if (!pal) {
     const a = hexToRgb(L.colorA), b = hexToRgb(L.colorB);
@@ -1936,7 +1980,7 @@ function computeMix(layers, fixtures, now, store) {
       const fusion = FUSIONS[L.blend] || FUSIONS.htp;
       if (L.target === 'color') {
         anyCol = true;
-        const c = mixColor(L, v);
+        const c = mixColor(L, v, parId.get(id));
         const cur = col.get(id);
         col.set(id, cur ? [fusion(cur[0], c[0]), fusion(cur[1], c[1]), fusion(cur[2], c[2])] : c);
       } else {
