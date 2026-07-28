@@ -503,7 +503,23 @@ E += [h1("1. Présentation"),
         "la PREMIÈRE barre à la DERNIÈRE : 360° = un cycle complet réparti sur la sélection. Des "
         "barres symétriques cessent de bouger à l'unisson. Combiné à « ordre = axe 3D », la "
         "vague traverse la scéno selon un axe réel, avec un seul réglage."),
-      h2("8.6 — Une recette qui marche"),
+      h2("8.6 — Le modulateur : faire respirer un réglage"),
+      p("Chaque couche a un modulateur. On lui désigne UN réglage — niveau, largeur, "
+        "vitesse, netteté, course, profondeur, décalage — et il le fait aller et venir "
+        "tout seul entre deux bornes, en boucle. Quatre formes : sinus (respiration), "
+        "triangle, rampe, créneau. La période va de un dixième de seconde à deux minutes."),
+      note("Il ne modifie JAMAIS le réglage affiché : il se superpose. Le curseur reste là "
+           "où vous l'avez laissé, et couper le modulateur vous rend la main immédiatement — "
+           "sans redémarrer quoi que ce soit. C'est aussi pourquoi un projet enregistré "
+           "pendant qu'un modulateur tourne garde VOS valeurs, pas celles de l'instant."),
+      p("Les bornes s'écrivent dans l'unité du réglage visé — pour cent, degrés, "
+        "multiplicateur. Une valeur hors plage est ramenée dans la plage, exactement comme "
+        "si vous l'aviez saisie à la main : le modulateur ne peut rien casser."),
+      li("Netteté qui respire lentement : le motif s'épaissit et s'affine, la scène « inspire »."),
+      li("Course en rampe : la source repart du début à chaque tour — un balayage régulier."),
+      li("Profondeur en sinus très lent : le lointain apparaît et disparaît, la scène "
+         "gagne et perd son volume."),
+      h2("8.7 — Une recette qui marche"),
       li("Une couche « champ / plan » sur l'axe de la profondeur, netteté 20 %, en fond."),
       li("Profondeur à 60 % : le lointain s'efface."),
       li("Palette Distance branchée sur la profondeur : le fond devient froid."),

@@ -643,6 +643,35 @@
         <button data-deck="">Toujours</button><button data-deck="a">A</button><button data-deck="b">B</button>
       </div>
     </label>
+    <label class="row" title="Fait respirer un réglage tout seul, en boucle, au lieu de le tenir à la main. Un modulateur par couche. Il ne modifie JAMAIS le réglage affiché : il se superpose, donc on retrouve sa valeur en le coupant."><span>Modulateur</span>
+      <select id="lfoParam">
+        <option value="">— aucun —</option>
+        <option value="level">Niveau couche</option>
+        <option value="floor">Niveau bas</option>
+        <option value="width">Largeur de vague</option>
+        <option value="speed">Vitesse</option>
+        <option value="duty">Netteté du motif</option>
+        <option value="course">Course de la source</option>
+        <option value="prof">Profondeur</option>
+        <option value="phase">Décalage</option>
+        <option value="spread">Décalage réparti</option>
+      </select>
+    </label>
+    <div id="blocLfo" style="display:none">
+      <label class="row" title="Forme de la boucle. Sinus respire, triangle monte et descend droit, rampe repart d'un coup à chaque tour, créneau alterne entre les deux bornes."><span>Forme</span>
+        <select id="lfoForme">
+          <option value="sine">Sinus (respiration)</option>
+          <option value="triangle">Triangle</option>
+          <option value="rampe">Rampe</option>
+          <option value="square">Créneau</option>
+        </select>
+      </label>
+      <label class="row" title="Durée d'un aller-retour complet, de 0,1 s à 2 min."><span>Période</span>
+        <input type="range" id="lfoPeriode" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Les deux bornes entre lesquelles le réglage va et vient, DANS SON UNITÉ À LUI — pour cent, degrés, multiplicateur… Une valeur hors plage est ramenée dans la plage, comme si vous l'aviez saisie à la main."><span>De → à</span>
+        <input type="number" id="lfoMin" step="0.01" style="width:5.5em">
+        <input type="number" id="lfoMax" step="0.01" style="width:5.5em"></label>
+    </div>
     <label class="row" title="Intensité maximale de cette couche — pour doser le mix entre plusieurs chasers"><span>Niveau couche</span>
       <input type="range" id="level" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Les barres « éteintes » restent à ce niveau : le chase court AU-DESSUS d'un fond allumé au lieu de partir du noir."><span>Niveau bas</span>
@@ -1219,6 +1248,21 @@ function render() {
     // 3D : sans p3, `mixColor` retombe sur le motif de lui-même.
     $('#rowPalSrc').style.display = (pal && L.target === 'color') ? '' : 'none';
     $('#palSrc').value = L.palSrc || 'motif';
+  }
+  {
+    const m = L.lfo || null;
+    if (document.activeElement !== $('#lfoParam')) $('#lfoParam').value = m ? m.param : '';
+    $('#blocLfo').style.display = m ? '' : 'none';
+    if (m) {
+      if (document.activeElement !== $('#lfoForme')) $('#lfoForme').value = m.forme;
+      setSlider('#lfoPeriode', periodeVersCurseur(m.periodeMs),
+        v => { const ms = curseurVersPeriode(v);
+               return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
+      // On n'écrase pas un champ en cours de saisie : sinon taper « 0,5 » est
+      // impossible, le rendu suivant remplaçant « 0, » par « 0 ».
+      if (document.activeElement !== $('#lfoMin')) $('#lfoMin').value = m.min;
+      if (document.activeElement !== $('#lfoMax')) $('#lfoMax').value = m.max;
+    }
   }
   setSlider('#prof', L.prof || 0, v => v ? v + ' %' : 'à plat');
   // Réparti : seulement sur le champ, seul moteur qui en tient compte. Le montrer
@@ -1899,6 +1943,36 @@ $$('.seg button[data-eng]').forEach(b => b.onclick = () => setL({ engine: b.data
 $('#blend').onchange = (e) => setL({ blend: e.target.value }).then(poll);
 $('#palette').onchange = (e) => setL({ palette: e.target.value || null }).then(poll);
 $('#palSrc').onchange = (e) => setL({ palSrc: e.target.value }).then(poll);
+// Période : courbe logarithmique, comme les autres durées de l'app. Un curseur
+// linéaire de 100 ms à 2 min passerait les trois quarts de sa course au-dessus
+// de 30 s, là où tout se joue entre 1 et 10 s.
+function curseurVersPeriode(v) {
+  return Math.round(100 * Math.pow(120000 / 100, Math.max(0, Math.min(100, v)) / 100));
+}
+function periodeVersCurseur(ms) {
+  return Math.round(100 * Math.log(Math.max(100, ms) / 100) / Math.log(120000 / 100));
+}
+const lfoCourant = () => {
+  const L = sel();
+  return (L && L.lfo) || { on: true, param: '', forme: 'sine', periodeMs: 4000, min: 0, max: 1 };
+};
+$('#lfoParam').onchange = (e) => setL({
+  lfo: e.target.value ? { ...lfoCourant(), on: true, param: e.target.value } : null,
+}).then(poll);
+$('#lfoForme').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), forme: e.target.value } }).then(poll);
+{
+  const el = $('#lfoPeriode');
+  el.oninput = () => setSlider('#lfoPeriode', +el.value,
+    v => { const ms = curseurVersPeriode(v);
+           return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
+  el.onchange = () =>
+    setL({ lfo: { ...lfoCourant(), periodeMs: curseurVersPeriode(+el.value) } }).then(poll);
+}
+$('#lfoMin').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), min: +e.target.value } }).then(poll);
+$('#lfoMax').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), max: +e.target.value } }).then(poll);
 {
   const el = $('#spread');
   el.oninput = () => setSlider('#spread', +el.value, v => v ? v + '°' : 'à l’unisson');

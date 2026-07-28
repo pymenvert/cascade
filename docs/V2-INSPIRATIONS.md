@@ -61,7 +61,7 @@ vocabulaire qui nous concerne directement :
 | Palette multi-arrêts | partout | ✅ **jusqu'à 8 arrêts**, 5 palettes prêtes (nouveau) |
 | Palette branchée sur l'espace | gradients 3D Smode | ✅ **la palette suit le motif, la profondeur ou la hauteur** (nouveau) |
 | Crossfader entre deux decks | Madrix | ✅ **deux jeux de couches et un fader**, pilotable en OSC (nouveau) |
-| Modulateurs branchables | Smode | ❌ |
+| Modulateurs branchables | Smode | ✅ **un LFO par couche**, sur neuf réglages continus (nouveau) |
 | Grille de scènes à déclencher | Storage Places | ⚠ 16 presets, mais sans grille visuelle |
 
 ---
@@ -162,11 +162,31 @@ demande à un fader qu'on baisse. Sous cette forme, à poids nul, le fond ressor
 intact quel que soit le mode. Un test dédié le verrouille, et une mutation
 vérifie que ce test attrape bien la mauvaise formule.
 
-### 4. Des modulateurs branchables
+### 4. ~~Des modulateurs branchables~~ — ✅ FAIT le 2026-07-28 (partiellement)
 
-Un LFO ou un suiveur audio qu'on branche sur n'importe quel réglage. C'est la
-brique la plus puissante de Smode, et la plus coûteuse : il faut un système de
-liaison générique. À garder pour une v2.1.
+**Un modulateur par couche**, branchable sur neuf réglages continus : niveau,
+niveau bas, largeur, vitesse, netteté, course, profondeur, décalage, décalage
+réparti. Quatre formes (sinus, triangle, rampe, créneau), période de 0,1 s à
+2 min sur une échelle logarithmique.
+
+Deux décisions qui font la solidité de la chose :
+
+- **Il n'écrit jamais dans l'état.** Le moteur travaille sur une COPIE modulée
+  de la couche. Un modulateur qui poserait ses valeurs dans `state` les ferait
+  sauvegarder, exporter et mémoriser dans les presets — on retrouverait un
+  projet figé sur l'instant où on a cliqué. Ici l'interface continue d'afficher
+  ce que le régisseur a réglé, et le couper rend la main immédiatement.
+- **La valeur passe par le même nettoyage qu'une saisie à la main.** Aucun
+  modulateur ne peut sortir un réglage de sa plage, même avec des bornes
+  délirantes — testé avec min −50 et max 900.
+
+La liste des paramètres est **fermée**, et c'est volontaire : laisser moduler
+`target`, `bars` ou `groupId` reviendrait à fabriquer des états incohérents
+plusieurs fois par seconde.
+
+**Ce qui manque encore** : le suiveur audio (pas d'entrée son côté serveur), un
+modulateur global qui piloterait plusieurs couches à la fois, et la synchro de
+la période sur le tempo Link plutôt qu'en millisecondes.
 
 ### 5. Une grille de scènes
 

@@ -36,7 +36,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 232 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 240 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -61,9 +61,9 @@ Livré et testé : page Scène 3D et manipulation souris · moteur Champ 3D
 (5 formes, netteté, course, bruit dirigé) · vues par axe avec bascule de
 dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette à
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
-crossfader A/B · coupure de secours · renvoi de disposition · démos · repère 3D.
+crossfader A/B · modulateur (LFO) par couche · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**232 tests, 16 mutations sur 16 détectées.** Manuel PDF, README, CHANGELOG et
+**240 tests, 18 mutations sur 18 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 
@@ -75,8 +75,8 @@ Trois garde-fous à connaître avant de toucher au code :
   palette spatiale morte en silence ;
 - `build-manuel.py` refuse de générer si un caractère manque à la police.
 
-Ce qui reste, par ordre de valeur : modulateurs branchables (LFO/audio), grille
-visuelle des 16 presets, les trois mesures MadMapper non faites (empreinte d'une
+Ce qui reste, par ordre de valeur : suiveur audio et modulateur global (le
+modulateur par couche existe), grille visuelle des 16 presets, les trois mesures MadMapper non faites (empreinte d'une
 barre en pixels, pivot de `output/rot`, DMX Filtering), et « dessiner les
 fixtures » — qui attend d'abord un `Export Fixture Definitions…` depuis
 MadMapper. Détail dans `docs/V2-INSPIRATIONS.md` et `docs/V2-AXES-PISTES.md`.

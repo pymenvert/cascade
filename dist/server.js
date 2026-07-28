@@ -66,6 +66,7 @@ function defaultLayer(name) {
     colorA: '#ff2000', colorB: '#0040ff',
     palette: null,          // null = les deux couleurs ci-dessus (comportement v1)
     deck: null,             // null = toujours jouée | 'a' | 'b' — voir le crossfader
+    lfo: null,              // { on, param, forme, periodeMs, min, max } — voir appliquerLFO
     palSrc: 'motif',        // motif | prof | haut — d'où vient la place dans la palette
     spread: 0,              // décalage de phase étalé sur la sélection, en degrés
     // ── v1.3 : fonctions de chase des consoles lumière ──
@@ -170,7 +171,7 @@ const LAYER_KEYS = ['name', 'enabled', 'engine', 'target', 'bars', 'groupId', 'p
   'curve', 'waveform', 'stepMs', 'speed', 'width', 'group', 'mirrorH', 'mirrorV',
   'axisX', 'axisY', 'fadeInPct', 'fadeOutPct', 'invert', 'level', 'colorA', 'colorB',
   'phase', 'swing', 'floor', 'blocks', 'oneShot', 'sparkle',
-  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette', 'palSrc', 'spread', 'deck'];
+  'field', 'axAz', 'axEl', 'srcX', 'srcY', 'srcZ', 'ordre3d', 'duty', 'course', 'blend', 'prof', 'palette', 'palSrc', 'spread', 'deck', 'lfo'];
 
 function loadConfig() {
   let saved = null;
@@ -297,6 +298,7 @@ function sanitizeLayerSet(set) {
       case 'prof': o.prof = Math.round(cnum(v, 0, 100, 0)); break;
       case 'spread': o.spread = Math.round(cnum(v, 0, 1440, 0)); break;
       case 'deck': o.deck = (v === 'a' || v === 'b') ? v : null; break;
+      case 'lfo': o.lfo = sanitizeLFO(v); break;
       case 'course': o.course = cnum(v, 0, 200, 0); break;
       case 'fadeInPct': o.fadeInPct = cnum(v, 0, 100, 20); break;
       case 'fadeOutPct': o.fadeOutPct = cnum(v, 0, 400, 80); break;
@@ -316,6 +318,67 @@ function sanitizeLayerSet(set) {
   }
   return o;
 }
+/**
+ * Ce qu'un modulateur a le droit de piloter.
+ *
+ * Liste FERMÉE, et c'est volontaire : laisser choisir n'importe quelle clé
+ * ouvrirait la porte à moduler `bars`, `groupId` ou `target`, c'est-à-dire à
+ * fabriquer des états incohérents plusieurs fois par seconde. Ces neuf-là sont
+ * les réglages continus qui gagnent vraiment à respirer.
+ */
+const LFO_PARAMS = ['level', 'floor', 'width', 'speed', 'duty', 'course',
+                    'prof', 'phase', 'spread'];
+const LFO_FORMES = ['sine', 'triangle', 'square', 'rampe'];
+
+function sanitizeLFO(v) {
+  if (!v || typeof v !== 'object') return null;
+  if (!LFO_PARAMS.includes(v.param)) return null;
+  return {
+    on: !!v.on,
+    param: v.param,
+    forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
+    // Bornes larges : de la respiration lente (2 min) au frémissement (100 ms).
+    periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 4000)),
+    min: fini(v.min, 0),
+    max: fini(v.max, 1),
+  };
+}
+
+/**
+ * Applique le modulateur d'une couche et rend une COPIE modulée.
+ *
+ * ⚠ L'état n'est jamais écrit. Un modulateur qui poserait ses valeurs dans
+ * `state` les ferait sauvegarder, exporter et mémoriser dans les presets : on
+ * retrouverait un projet figé sur l'instant où on a cliqué. Ici la couche
+ * d'origine ne bouge pas, et l'interface continue d'afficher ce que le régisseur
+ * a réglé — pas ce que le modulateur en fait à cet instant.
+ *
+ * La valeur passe par `sanitizeLayerSet`, donc elle subit EXACTEMENT les mêmes
+ * bornes qu'une saisie à la main : aucun modulateur ne peut sortir un réglage
+ * de sa plage, même avec des min/max délirants.
+ */
+function appliquerLFO(L, now, store = engines) {
+  const m = L.lfo;
+  if (!m || !m.on || !LFO_PARAMS.includes(m.param)) return L;
+  const e = eng(L.id, store);
+  // Horloge intégrée, comme la phase des moteurs continus : changer la période
+  // ne doit pas téléporter le modulateur au milieu de son cycle.
+  if (e.lfoU == null) { e.lfoU = 0; e.lfoLast = now; }
+  const dt = Math.min(1000, Math.max(0, now - e.lfoLast));
+  e.lfoLast = now;
+  e.lfoU = (e.lfoU + dt / Math.max(100, m.periodeMs)) % 1;
+
+  const u = e.lfoU;
+  let f;
+  if (m.forme === 'square') f = u < 0.5 ? 1 : 0;
+  else if (m.forme === 'triangle') f = 1 - 2 * Math.abs(u - 0.5);
+  else if (m.forme === 'rampe') f = u;
+  else f = 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+
+  const brut = m.min + (m.max - m.min) * f;
+  return { ...L, ...sanitizeLayerSet({ [m.param]: brut }) };
+}
+
 function sanitizeLayer(raw) {
   const L = defaultLayer(raw && typeof raw.name === 'string' ? raw.name.slice(0, 24) : undefined);
   Object.assign(L, sanitizeLayerSet(raw || {}));
@@ -1981,8 +2044,10 @@ function computeMix(layers, fixtures, now, store) {
   const parId = new Map(enabled.map(f => [f.id, f]));
   const lum = new Map(), col = new Map();
   let anyInt = false, anyCol = false;
-  for (const L of layers) {
-    if (!L.enabled) continue;
+  for (const L0 of layers) {
+    if (!L0.enabled) continue;
+    // La couche vue par le moteur est la couche MODULÉE. `L0` reste intacte.
+    const L = appliquerLFO(L0, now, store);
     const poids = poidsDeck(L);
     // À poids nul la couche n'a AUCUN effet — pas même un masque noir. C'est ce
     // que donne aussi la formule ci-dessous, mais autant ne pas calculer.

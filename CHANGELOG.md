@@ -96,6 +96,14 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   la profondeur, la couleur d'une barre ne dépend que de sa distance au public :
   chaud devant, froid derrière. C'est la seconde moitié du depth-cue, la
   perspective agissant sur l'intensité et celle-ci sur la teinte.
+- **Modulateur par couche** — un LFO branchable sur neuf réglages continus
+  (niveau, niveau bas, largeur, vitesse, netteté, course, profondeur, décalage,
+  décalage réparti), quatre formes, période de 0,1 s à 2 min. Il n'écrit jamais
+  dans l'état : le moteur travaille sur une copie modulée, donc l'interface
+  affiche toujours le réglage du régisseur et le couper rend la main. Sa valeur
+  subit le même nettoyage qu'une saisie, donc il ne peut pas sortir un réglage
+  de sa plage. La liste des paramètres modulables est fermée — moduler `target`
+  ou `bars` fabriquerait des états incohérents plusieurs fois par seconde.
 - **Crossfader entre deux jeux de couches** — l'outil de conduite de Madrix.
   Chaque couche se range dans le jeu A, le jeu B, ou nulle part (« Toujours »,
   le défaut). Un fader passe de l'un à l'autre, et une console peut le tenir :
@@ -142,15 +150,15 @@ et chacun a son test dans `tests/regressions.test.js`.
 
 ### Tests
 
-232 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+240 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — **16 mutations, 16 détectées**.
+s'en aperçoit — **18 mutations, 18 détectées**.
 
 Un garde-fou a été ajouté après incident : un commit était parti avec un
 cassage volontaire encore en place, et toute la suite restait verte — c'est
 normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
-le code source contient toujours la forme saine de chacun des seize endroits
+le code source contient toujours la forme saine de chacun des dix-huit endroits
 que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25
