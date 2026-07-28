@@ -666,8 +666,22 @@
           <option value="square">Créneau</option>
         </select>
       </label>
-      <label class="row" title="Durée d'un aller-retour complet, de 0,1 s à 2 min."><span>Période</span>
+      <label class="row" title="Cale la période sur le cycle de la couche au lieu de la fixer en secondes. Elle suit alors le tap tempo, la vitesse globale et Ableton Link toute seule — le modulateur ne dérive plus contre la musique."><span>Caler sur le tempo</span>
+        <input type="checkbox" id="lfoSync"></label>
+      <label class="row" id="rowLfoPeriode" title="Durée d'un aller-retour complet, de 0,1 s à 2 min."><span>Période</span>
         <input type="range" id="lfoPeriode" min="0" max="100" step="1"><output></output></label>
+      <label class="row" id="rowLfoCycles" style="display:none" title="Combien de cycles de la couche dure un aller-retour du modulateur. 1 = il respire au rythme du chase ; 4 = une fois toutes les quatre mesures du motif."><span>Durée</span>
+        <select id="lfoCycles">
+          <option value="0.25">¼ cycle</option>
+          <option value="0.5">½ cycle</option>
+          <option value="1">1 cycle</option>
+          <option value="2">2 cycles</option>
+          <option value="4">4 cycles</option>
+          <option value="8">8 cycles</option>
+          <option value="16">16 cycles</option>
+          <option value="32">32 cycles</option>
+        </select>
+      </label>
       <label class="row" title="Les deux bornes entre lesquelles le réglage va et vient, DANS SON UNITÉ À LUI — pour cent, degrés, multiplicateur… Une valeur hors plage est ramenée dans la plage, comme si vous l'aviez saisie à la main."><span>De → à</span>
         <input type="number" id="lfoMin" step="0.01" style="width:5.5em">
         <input type="number" id="lfoMax" step="0.01" style="width:5.5em"></label>
@@ -1255,6 +1269,12 @@ function render() {
     $('#blocLfo').style.display = m ? '' : 'none';
     if (m) {
       if (document.activeElement !== $('#lfoForme')) $('#lfoForme').value = m.forme;
+      $('#lfoSync').checked = !!m.sync;
+      // Un seul des deux réglages de durée est montré : afficher une période en
+      // secondes que le serveur ignore ferait chercher longtemps.
+      $('#rowLfoPeriode').style.display = m.sync ? 'none' : '';
+      $('#rowLfoCycles').style.display = m.sync ? '' : 'none';
+      if (document.activeElement !== $('#lfoCycles')) $('#lfoCycles').value = String(m.cycles);
       setSlider('#lfoPeriode', periodeVersCurseur(m.periodeMs),
         v => { const ms = curseurVersPeriode(v);
                return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
@@ -1969,6 +1989,10 @@ $('#lfoForme').onchange = (e) =>
   el.onchange = () =>
     setL({ lfo: { ...lfoCourant(), periodeMs: curseurVersPeriode(+el.value) } }).then(poll);
 }
+$('#lfoSync').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), sync: e.target.checked } }).then(poll);
+$('#lfoCycles').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), cycles: +e.target.value } }).then(poll);
 $('#lfoMin').onchange = (e) =>
   setL({ lfo: { ...lfoCourant(), min: +e.target.value } }).then(poll);
 $('#lfoMax').onchange = (e) =>

@@ -515,6 +515,10 @@ E += [h1("1. Présentation"),
       p("Les bornes s'écrivent dans l'unité du réglage visé — pour cent, degrés, "
         "multiplicateur. Une valeur hors plage est ramenée dans la plage, exactement comme "
         "si vous l'aviez saisie à la main : le modulateur ne peut rien casser."),
+      li("Caler sur le tempo : la période devient un multiple du cycle de la couche "
+         "au lieu d'une durée en secondes. Elle suit alors le tap tempo, la vitesse "
+         "globale et Ableton Link toute seule — le modulateur ne dérive plus contre la "
+         "musique quand on change de morceau."),
       li("Netteté qui respire lentement : le motif s'épaissit et s'affine, la scène « inspire »."),
       li("Course en rampe : la source repart du début à chaque tour — un balayage régulier."),
       li("Profondeur en sinus très lent : le lointain apparaît et disparaît, la scène "

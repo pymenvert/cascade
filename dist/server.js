@@ -339,6 +339,10 @@ function sanitizeLFO(v) {
     forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
     // Bornes larges : de la respiration lente (2 min) au frémissement (100 ms).
     periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 4000)),
+    // Calé sur le tempo : la période devient un multiple du cycle de la couche,
+    // donc elle suit le tap tempo et Ableton Link toute seule.
+    sync: !!v.sync,
+    cycles: cnum(v.cycles, 0.25, 64, 4),
     min: fini(v.min, 0),
     max: fini(v.max, 1),
   };
@@ -361,12 +365,17 @@ function appliquerLFO(L, now, store = engines) {
   const m = L.lfo;
   if (!m || !m.on || !LFO_PARAMS.includes(m.param)) return L;
   const e = eng(L.id, store);
+  // ⚠ La période est calculée sur la couche NON MODULÉE. Sinon un modulateur
+  // branché sur `speed` changerait sa propre cadence à chaque image : une
+  // boucle de rétroaction, et un modulateur qui s'emballe tout seul.
+  const periode = m.sync ? Math.max(100, m.cycles * periodeCouche(L))
+                         : Math.max(100, m.periodeMs);
   // Horloge intégrée, comme la phase des moteurs continus : changer la période
   // ne doit pas téléporter le modulateur au milieu de son cycle.
   if (e.lfoU == null) { e.lfoU = 0; e.lfoLast = now; }
   const dt = Math.min(1000, Math.max(0, now - e.lfoLast));
   e.lfoLast = now;
-  e.lfoU = (e.lfoU + dt / Math.max(100, m.periodeMs)) % 1;
+  e.lfoU = (e.lfoU + dt / periode) % 1;
 
   const u = e.lfoU;
   let f;
@@ -1285,10 +1294,22 @@ const engines = new Map();
  * Changer la période change la VITESSE, jamais la position. Et `resync` peut
  * enfin la remettre à zéro — ce que le bouton GO promettait sans le faire.
  */
+/**
+ * Durée d'un cycle complet de la couche, en millisecondes.
+ *
+ * C'est LE dénominateur commun du tempo : il suit `stepMs` (donc le tap tempo
+ * et Ableton Link, qui écrivent dedans), le groupe, la vitesse de la couche et
+ * la vitesse globale. Un modulateur calé là-dessus reste accroché à la musique
+ * sans qu'on ait à lui refaire ses réglages.
+ */
+function periodeCouche(L) {
+  const gs = Math.max(0.05, state.global.speed);
+  return Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
+}
+
 function phaseContinue(L, now, store = engines) {
   const e = eng(L.id, store);
-  const gs = Math.max(0.05, state.global.speed);
-  const period = Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
+  const period = periodeCouche(L);
   if (e.u == null) { e.u = 0; e.uLast = now; }
   // Un écart négatif ou délirant (horloge système reculée, machine en veille)
   // ne doit pas propulser la phase n'importe où : on borne à une seconde.
@@ -2108,9 +2129,21 @@ function computeMix(layers, fixtures, now, store) {
  * autres sortaient à 1. Sur scène, c'est un plein feu involontaire.
  * Défaut présent depuis la v1.
  */
+/**
+ * Niveau d'une fixture dans un mix, avant master et courbe.
+ *
+ * ⚠ La décision se prend PAR BARRE, jamais globalement. La version précédente
+ * testait `mix.anyInt` — vrai dès qu'une couche d'intensité existait N'IMPORTE
+ * OÙ — puis lisait `lum.get(id) || 0`. Conséquence mesurée : un wash de couleur
+ * sur les contres s'éteignait d'un coup dès qu'on ajoutait un chase sur les
+ * barres du sol. Les contres n'étaient dans aucune couche d'intensité, donc
+ * absents de `lum`, donc noirs — alors qu'une couche couleur les pilotait.
+ */
 function mixLevel(mix, id) {
-  if (mix.anyInt) return mix.lum.get(id) || 0;
-  return (mix.anyCol && mix.col.has(id)) ? 1 : 0;
+  if (mix.lum.has(id)) return mix.lum.get(id);
+  // Pilotée seulement en couleur : on tient l'intensité à fond, sinon la
+  // couleur ne se verrait pas. C'est la règle v1, appliquée barre par barre.
+  return mix.col.has(id) ? 1 : 0;
 }
 
 function tick() {

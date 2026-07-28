@@ -32,15 +32,23 @@ const enLigne = (n) => Array.from({ length: n }, (_, i) => ({
 }));
 
 describe('Modulateur — faire respirer un réglage', () => {
-  let h, id;
+  let h;
   before(async () => {
     h = await start();
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
-    id = (await h.state()).layers[0].id;
   });
   after(async () => { await h.stop(); });
 
-  const setL = (set) => h.post('/api/layer', { id, set });
+  /**
+   * ⚠ L'identifiant est relu à CHAQUE appel, et ce n'est pas de la prudence
+   * gratuite : `/api/import` recrée les couches avec de nouveaux identifiants.
+   * Un id capturé dans `before()` devient alors mort, `/api/layer` ne trouve
+   * plus rien, et tout réglage posé ensuite part silencieusement dans le vide —
+   * le test suivant mesure l'état laissé par le précédent en croyant mesurer le
+   * sien. Piège déjà rencontré ailleurs dans ce projet.
+   */
+  const setL = async (set) =>
+    h.post('/api/layer', { id: (await h.state()).layers[0].id, set });
 
   /** Couche « tout allumé », sans animation : on mesure un niveau, pas un motif. */
   const plate = (extra) => setL({
@@ -185,7 +193,7 @@ describe('Modulateur — faire respirer un réglage', () => {
 
   test('le modulateur voyage avec le projet et les presets', async () => {
     const m = { on: true, param: 'width', forme: 'rampe',
-                periodeMs: 3000, min: 2, max: 12 };
+                periodeMs: 3000, sync: false, cycles: 4, min: 2, max: 12 };
     await setL({ lfo: m });
     await h.post('/api/preset', { action: 'save', slot: 4, name: 'Souffle' });
     const exp = await h.get('/api/export');
@@ -194,12 +202,47 @@ describe('Modulateur — faire respirer un réglage', () => {
     let L = (await h.state()).layers[0];
     assert.deepEqual(L.lfo, m, 'le modulateur doit survivre à l’export/import');
 
-    await h.post('/api/layer', { id: L.id, set: { lfo: null } });
+    await setL({ lfo: null });
     await h.post('/api/preset', { action: 'recall', slot: 4 });
     await sleep(120);
     assert.deepEqual((await h.state()).layers[0].lfo, m,
       'le preset doit restaurer le modulateur');
-    await h.post('/api/layer', { id: (await h.state()).layers[0].id, set: { lfo: null } });
+    await setL({ lfo: null });
+  });
+
+  test('calé sur le tempo, il suit le tempo — sans qu’on le retouche', async () => {
+    // Tout le reste de Cascade est accroché au tempo : un modulateur réglé en
+    // millisecondes dérive contre la musique dès qu'on change de morceau.
+    // Calé, sa période devient un multiple du cycle de la couche, lequel suit
+    // déjà `stepMs` — donc le tap tempo et Ableton Link, qui écrivent dedans.
+    //
+    // La mesure : le modulateur pilote le niveau en créneau, on compte les
+    // bascules. En doublant la vitesse de la couche, il doit y en avoir deux
+    // fois plus. En millisecondes, il n'y en aurait pas une de plus.
+    const bascules = async (speed) => {
+      await plate({ speed, stepMs: 1000, group: 1, level: 1,
+                    lfo: { on: true, param: 'level', forme: 'square',
+                           sync: true, cycles: 1, periodeMs: 60000,
+                           min: 0.1, max: 1 } });
+      await h.post('/api/start');
+      const v = await suivre('bar0', 2100);
+      await h.post('/api/stop');
+      let n = 0;
+      for (let i = 1; i < v.length; i++) if (Math.abs(v[i] - v[i - 1]) > 0.5) n++;
+      return n;
+    };
+
+    const lent = await bascules(1);      // cycle de 1 s -> ~4 bascules en 2,1 s
+    const vite = await bascules(2);      // cycle de 0,5 s -> ~8
+    assert.ok(lent >= 2, 'trop peu de bascules à vitesse 1 : ' + lent);
+    assert.ok(vite > lent * 1.5,
+      'doubler la vitesse doit à peu près doubler la cadence du modulateur : '
+      + lent + ' → ' + vite);
+
+    // Et la période en millisecondes est bel et bien IGNORÉE quand on est calé :
+    // elle vaut 60 s ci-dessus, ce qui n'aurait donné aucune bascule.
+    assert.ok(lent > 0, 'la période en ms ne doit pas primer sur la synchro');
+    await setL({ lfo: null });
   });
 
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {

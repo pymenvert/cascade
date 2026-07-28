@@ -184,9 +184,18 @@ La liste des paramètres est **fermée**, et c'est volontaire : laisser moduler
 `target`, `bars` ou `groupId` reviendrait à fabriquer des états incohérents
 plusieurs fois par seconde.
 
-**Ce qui manque encore** : le suiveur audio (pas d'entrée son côté serveur), un
-modulateur global qui piloterait plusieurs couches à la fois, et la synchro de
-la période sur le tempo Link plutôt qu'en millisecondes.
+**La période se cale sur le tempo** (ajouté le même jour) : au lieu de
+millisecondes, elle devient un multiple du cycle de la couche — lequel suit déjà
+`stepMs`, donc le tap tempo, la vitesse globale et Ableton Link. Un modulateur
+réglé en secondes dérive contre la musique dès qu'on change de morceau ; calé,
+il reste accroché sans qu'on le retouche. ⚠ La période est calculée sur la
+couche NON modulée : sinon un modulateur branché sur `speed` changerait sa
+propre cadence à chaque image, et s'emballerait tout seul.
+
+**Ce qui manque encore** : le suiveur audio (pas d'entrée son côté serveur — la
+piste réaliste est le Web Audio du navigateur, qui pousserait un niveau au
+serveur, et qui respecte la contrainte zéro-dépendance), et un modulateur global
+qui piloterait plusieurs couches à la fois.
 
 ### 5. Une grille de scènes
 

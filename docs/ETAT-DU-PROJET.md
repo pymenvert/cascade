@@ -24,6 +24,45 @@
 2. **Ableton Link** (Pulse, Live, Traktor…) via **Carabiner** (Deep Symmetry) — binaire officiel embarquant la lib Link, exposé en TCP local port 17000, téléchargé par les lanceurs dans `runtime/` (`carabiner.exe` / `carabiner`). Zéro dépendance npm conservée (client `net` maison, parse EDN par regex `:bpm`/`:peers`). Toggle **⧉ ABLETON LINK** dans le panneau Vitesse ; BPM session → `stepMs` de **toutes** les couches (1 beat = 1 pas, borné 30–2000 ms), chaque couche garde sa « Vitesse » ×0.1–×4. Quand Link actif : slider Temps/pas, TAP, ÷2, ×2 désactivés côté UI, `tap()` neutralisé côté serveur. `state.settings.linkEnabled` persisté (réactivé au boot). API : `POST /api/link {enabled}` ; état dans `/api/state` → `link {active, connected, bpm, peers, error}` ; OSC : `/cascade/link 0-1`. Cascade lance Carabiner lui-même (spawn, `windowsHide`), le tue au disable/quit/exit ; se connecte d'abord au cas où un Carabiner tourne déjà ; ~20 tentatives à 700 ms puis erreur propre (binaire absent → message « relance le lanceur »).
 3. **Charte graphique** reprise du manuel : orange signature `#f2900f` (`--accent`), anthracite profond, titres de sections orange espacés avec filet fin (`h2` border-bottom), panneaux radius 14 + ombre, TAP orange plein avec glow, `--accent2` devenu gris-bleu neutre (axes miroirs, hints), footer façon PDF (filet orange centré + signature orange). `button[disabled]`/`input[disabled]` à .35.
 
+## Branche v2 — moteur de champ 3D (en cours)
+
+⚠ **`main` est la 1.6.0 ; le front de développement est `v2`.** Elle contient
+tout ce qui suit PLUS un moteur de champ 3D : les barres ont une position en
+mètres (`p3`) et un champ scalaire les traverse selon une forme, un axe, une
+source, une étendue, une netteté, une course, une dérive. S'y ajoutent les
+modes de fusion, la perspective atmosphérique, la palette à N arrêts, les
+vues, la scène 3D et le décalage réparti.
+
+**Formes du champ** : `plan` · `sphere` · `cylindre` · `boite` · `bruit`.
+
+⚠ **`boite` = pavé MOBILE, pas des coques.** On ne mesure pas une distance :
+on teste l'appartenance à un volume qui traverse le plateau une fois par cycle
+le long de l'axe. Bords francs, un bloc de barres qui se déplace. La version
+précédente mesurait une distance de Tchebychev — mesuré sur un rig plan :
+66 % de valeurs intermédiaires contre 68 % pour la sphère, autrement dit les
+deux formes étaient **indiscernables** là où ça compte, toutes les barres
+partageant leur profondeur et leur hauteur. `duty` commande la dureté du bord,
+`width` la taille du pavé.
+
+⚠ **`mixLevel` décide BARRE PAR BARRE, jamais globalement.** Il testait
+`mix.anyInt` — vrai dès qu'une couche d'intensité existait n'importe où — puis
+lisait `lum.get(id) || 0`. Mesuré : un wash de couleur sur les contres tombait
+à zéro dès qu'on ajoutait un chase sur le sol. Ne jamais revenir à un test
+global ; `regressions.test.js` le verrouille.
+
+⚠ **Une couche seule joue toujours, quel que soit son mode de fusion.** Un
+fond absent est NEUTRE : sans cette règle, une couche en multiplication
+s'annulerait elle-même et on croirait à une panne. Vérifié à la mesure pour
+`htp`, `sub`, `mul` et `min` — ce n'est pas un défaut, c'est le comportement
+voulu.
+
+⚠ **Les tests sont sensibles à la charge.** La suite lance une dizaine de
+serveurs et un navigateur en parallèle. Un test qui mesure une grandeur qui
+évolue doit avoir un cycle LONG devant le bruit de charge. Et un test qui
+échoue saute son nettoyage : quand deux échecs apparaissent ensemble, le
+second est souvent une victime. Élargir une fenêtre au hasard a déjà fait
+passer une suite de 1 à 19 échecs — c'est une passe à faire posément.
+
 ## Nouveautés v1.6.0 (2026-07-25)
 
 ### Synchro de phase Ableton Link
@@ -400,8 +439,13 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 
 **Autres pistes :**
 
-- Sync phase Link (aligner les pas sur les beats via `beat-at-time`, resync auto sur le temps fort) — v1.2 ne suit que le BPM.
 - Horloge MIDI en alternative à Link.
 - Séquenceur pas-à-pas dessinable (grille barres × pas).
 - Thème clair.
-- Rendre `dist/` un vrai build généré au lieu d'une copie manuelle.
+
+⚠ Deux pistes de cette liste ont été FAITES et y traînaient encore :
+la **synchro de phase Link** (livrée en 1.6.0 — les pas sont calés sur la
+grille de beats, pas seulement sur le BPM) et le **`dist/` généré**
+(`sync-dist.js`, avec un test qui échoue si la copie diverge). Ce fichier est
+censé être lu en premier à chaque reprise : le laisser mentir coûte une
+demi-journée à celui qui reprend.

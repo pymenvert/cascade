@@ -443,6 +443,54 @@ describe('Défauts corrigés — ils ne doivent jamais revenir', () => {
     assert.equal((await h.state()).global.coupure, false);
   });
 
+  test('un wash de couleur ne s’éteint pas quand un chase démarre ailleurs', async () => {
+    // MESURÉ avant correction : couche couleur sur bar2+bar3 → elles éclairent
+    // à 1,00. On ajoute une couche d'INTENSITÉ sur bar0+bar1, qui ne touche
+    // pas les contres — et bar2/bar3 tombent à 0,00. En conduite : on pose un
+    // chase sur le sol et le wash du fond meurt, sans que rien ne l'explique.
+    //
+    // La cause : `mixLevel` testait `mix.anyInt`, vrai dès qu'une couche
+    // d'intensité existait N'IMPORTE OÙ, puis lisait `lum.get(id) || 0`. Les
+    // contres, absents de `lum`, retombaient à zéro. La décision se prend
+    // maintenant barre par barre.
+    await h.post('/api/fixtures', { fixtures: enLigne(4) });
+    const etat = await h.state();
+    const idCouleur = etat.layers[0].id;
+    await h.post('/api/layer', { id: idCouleur, set: {
+      engine: 'steps', target: 'color', pattern: 'all', mode: 'onoff',
+      bars: ['b2', 'b3'], level: 1, floor: 0, colorA: '#ff0000', colorB: '#ff0000' } });
+
+    const lire = async () => {
+      await h.post('/api/blackout');
+      await sleep(90);
+      h.clearOsc();
+      await h.post('/api/start');
+      await sleep(320);
+      const n = niveaux(h.osc());
+      await h.post('/api/stop');
+      return n;
+    };
+
+    const seule = await lire();
+    assert.ok(seule.get('bar2') > 0.9 && seule.get('bar3') > 0.9,
+      'la couche couleur seule doit éclairer ses barres : ' + JSON.stringify([...seule]));
+
+    // On ajoute une couche d'intensité qui ne pilote QUE les deux autres barres
+    const r = await h.post('/api/layers', { action: 'add' });
+    const idInt = r.body.layers[r.body.layers.length - 1].id;
+    await h.post('/api/layer', { id: idInt, set: {
+      engine: 'steps', target: 'intensity', pattern: 'all', mode: 'onoff',
+      bars: ['b0', 'b1'], level: 1, floor: 0 } });
+
+    const melange = await lire();
+    assert.ok(melange.get('bar0') > 0.9 && melange.get('bar1') > 0.9,
+      'le chase doit éclairer ses barres : ' + JSON.stringify([...melange]));
+    assert.ok(melange.get('bar2') > 0.9 && melange.get('bar3') > 0.9,
+      'le wash de couleur ne doit PAS s’éteindre : ' + JSON.stringify([...melange]));
+
+    await h.post('/api/layers', { action: 'remove', id: idInt });
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

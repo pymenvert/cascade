@@ -36,7 +36,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 240 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 242 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -63,7 +63,7 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateur (LFO) par couche · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**240 tests, 18 mutations sur 18 détectées.** Manuel PDF, README, CHANGELOG et
+**242 tests, 19 mutations sur 19 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 

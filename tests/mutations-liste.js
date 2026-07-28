@@ -122,6 +122,12 @@ const MUTATIONS = [
     vers: '  return { ...L, [m.param]: brut };',
   },
   {
+    nom: 'le modulateur cale sur le tempo retombe sur les millisecondes',
+    cible: 'tests/modulateur.test.js',
+    de: '  const periode = m.sync ? Math.max(100, m.cycles * periodeCouche(L))',
+    vers: '  const periode = false ? Math.max(100, m.cycles * periodeCouche(L))',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

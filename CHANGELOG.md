@@ -98,7 +98,9 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   perspective agissant sur l'intensité et celle-ci sur la teinte.
 - **Modulateur par couche** — un LFO branchable sur neuf réglages continus
   (niveau, niveau bas, largeur, vitesse, netteté, course, profondeur, décalage,
-  décalage réparti), quatre formes, période de 0,1 s à 2 min. Il n'écrit jamais
+  décalage réparti), quatre formes, période de 0,1 s à 2 min — ou **calée sur
+  le tempo**, la période devenant un multiple du cycle de la couche, donc suivant
+  le tap tempo, la vitesse globale et Ableton Link toute seule. Il n'écrit jamais
   dans l'état : le moteur travaille sur une copie modulée, donc l'interface
   affiche toujours le réglage du régisseur et le couper rend la main. Sa valeur
   subit le même nettoyage qu'une saisie, donc il ne peut pas sortir un réglage
@@ -150,15 +152,15 @@ et chacun a son test dans `tests/regressions.test.js`.
 
 ### Tests
 
-240 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+242 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — **18 mutations, 18 détectées**.
+s'en aperçoit — **19 mutations, 19 détectées**.
 
 Un garde-fou a été ajouté après incident : un commit était parti avec un
 cassage volontaire encore en place, et toute la suite restait verte — c'est
 normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
-le code source contient toujours la forme saine de chacun des dix-huit endroits
+le code source contient toujours la forme saine de chacun des dix-neuf endroits
 que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25
