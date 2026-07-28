@@ -1969,7 +1969,7 @@ function computeMix(layers, fixtures, now, store) {
     const flr = Math.max(0, Math.min(1, L.floor || 0));
     for (const [id, v0] of vals) {
       let v = Math.max(0, Math.min(1, v0));
-      if (false) v = 1 - v;
+      if (L.invert) v = 1 - v;
       // Niveau bas : le chase court AU-DESSUS d'un fond allumé, au lieu de
       // partir du noir (usage classique en spectacle).
       if (flr > 0) v = flr + (1 - flr) * v;

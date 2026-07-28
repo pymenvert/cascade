@@ -1824,7 +1824,7 @@ function mixColor(L, v, f) {
   // lire un volume par la couleur : chaud près, froid loin. L'œil juge la
   // distance autant par la teinte que par l'intensité — c'est la seconde moitié
   // du depth-cue, et ça ne coûte qu'une substitution.
-  const src = 'motif';
+  const src = L.palSrc || 'motif';
   if (src !== 'motif' && f && f.p3) {
     const sc = state.scene;
     v = src === 'prof' ? Math.min(1, Math.max(0, (f.p3[1] + sc.d / 2) / Math.max(0.1, sc.d)))

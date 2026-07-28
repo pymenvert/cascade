@@ -57,8 +57,9 @@ vocabulaire qui nous concerne directement :
 | Fusion entre couches | mix modes Madrix | ✅ **7 modes** (nouveau) |
 | Depth-cue | brouillard Smode | ✅ **perspective atmosphérique** (nouveau) |
 | Blocs / symétries | MAtricks | ✅ `blocks`, miroirs, `ordre3d` |
-| Décalage de phase réparti | Phasers, MAtricks | ⚠ `phase` est **globale à la couche**, pas répartie sur la sélection |
+| Décalage de phase réparti | Phasers, MAtricks | ✅ **`spread`**, de 0 à 1440°, étalé sur la sélection (nouveau) |
 | Palette multi-arrêts | partout | ✅ **jusqu'à 8 arrêts**, 5 palettes prêtes (nouveau) |
+| Palette branchée sur l'espace | gradients 3D Smode | ✅ **la palette suit le motif, la profondeur ou la hauteur** (nouveau) |
 | Crossfader entre deux decks | Madrix | ❌ on a un fondu entre presets, pas un crossfader tenu à la main |
 | Modulateurs branchables | Smode | ❌ |
 | Grille de scènes à déclencher | Storage Places | ⚠ 16 presets, mais sans grille visuelle |
@@ -113,18 +114,35 @@ dégradé rouge → bleu ne contient **aucun** vert.
 « Distance » est chaude près et froide loin : c'est la seconde moitié du
 depth-cue — l'œil lit la distance par la couleur autant que par l'intensité.
 
-### 1 bis. Ce que la palette n'a pas encore
+### 1 bis. ~~La palette branchée sur l'espace~~ — ✅ FAIT le 2026-07-28
 
-La **brancher sur la profondeur** plutôt que sur le temps. Aujourd'hui elle suit
-la valeur du champ ; il faudrait un choix « la palette suit : le motif / la
-profondeur / la hauteur ». Petit code, gros effet.
+Réglage **« La palette suit »** : *le motif* (comportement d'avant, défaut), *la
+profondeur*, ou *la hauteur*. Branchée sur la profondeur, la couleur de chaque
+barre ne dépend plus que de sa distance au public : chaud devant, froid derrière,
+et ça ne bouge pas quand le motif tourne.
 
-### 2. Le décalage de phase RÉPARTI sur la sélection
+**C'est la seconde moitié du depth-cue.** La perspective atmosphérique agit sur
+l'intensité ; celle-ci agit sur la teinte. L'œil se sert des deux pour juger une
+distance, et les avoir ensemble change franchement la lecture d'un volume.
 
-Aujourd'hui `phase` décale toute la couche. Chez grandMA, la phase s'étale sur la
-sélection : la première barre à 0°, la dernière à N°. Combiné à `ordre3d`, ça
-donne une vague qui traverse la scéno **selon un axe réel**, avec un seul
-réglage. Peu de code, gros effet.
+Le test qui le verrouille ne dépend d'aucune convention d'axe : **la profondeur
+ne bouge pas**, donc branchée dessus la couleur doit rester FIGÉE pendant que le
+champ tourne. Branchée sur le motif elle doit voyager. Impossible de confondre.
+
+### 2. ~~Le décalage de phase RÉPARTI sur la sélection~~ — ✅ FAIT le 2026-07-28
+
+Réglage **« Décalage réparti »**, de 0 à 1440°. `phase` décale toute la couche ;
+`spread` étale en plus un décalage de la première barre à la dernière. 360° =
+un cycle complet réparti sur toute la sélection. Combiné à `ordre3d`, la vague
+traverse la scéno **selon un axe réel**, avec un seul réglage.
+
+Il n'agit que sur le **champ** — le seul moteur qui en tient compte — et
+l'interface cache le réglage ailleurs plutôt que d'afficher un curseur inerte.
+
+Le test place toutes les barres au **même point 3D** : le champ leur donne alors
+forcément la même valeur, donc toute différence en sortie ne peut venir que du
+décalage. Et il ajoute une preuve en créneau, où la symétrie de la sinusoïde ne
+peut rien masquer.
 
 ### 3. Un crossfader entre deux jeux de couches
 
