@@ -119,6 +119,25 @@ describe('Interface — garde-fous du source', () => {
     assert.equal(r.status, 0, (r.stdout || '') + (r.stderr || ''));
   });
 
+  test('aucun mutant de test n’est resté dans server.js', () => {
+    // Le 28/07/2026, un commit est parti avec un cassage volontaire encore en
+    // place : `const src = 'motif'` au lieu de `L.palSrc || 'motif'`. La palette
+    // spatiale était morte, et TOUTE LA SUITE RESTAIT VERTE — c'est normal, un
+    // mutant tue une fonction, pas un test. Rien ne le signalait.
+    //
+    // Ce test ferme le trou : il vérifie que le code source contient toujours la
+    // forme SAINE de chaque endroit que l'outil de mutation sait casser. Si un
+    // mutant survit à un `finally` interrompu, il est attrapé avant le commit.
+    const MUTATIONS = require('./mutations-liste.js');
+    const restes = MUTATIONS.filter(m => !SERVEUR.includes(m.de));
+    assert.equal(restes.length, 0,
+      'la forme saine a disparu de server.js — un mutant est peut-être resté :\n'
+      + restes.map(m => '  - ' + m.nom + '\n      attendu : ' + m.de.trim()).join('\n'));
+    // Et le garde-fou doit lui-même être vivant : une liste vide passerait tout.
+    assert.ok(MUTATIONS.length >= 14,
+      'la liste des mutations a maigri : ' + MUTATIONS.length);
+  });
+
   test('les sémantiques non négociables sont toujours en place', () => {
     // STOP ne doit envoyer aucun OSC
     assert.match(SERVEUR, /if \(!state\.global\.running\)[\s\S]{0,400}?return;/,
