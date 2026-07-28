@@ -20,7 +20,7 @@ from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
                                 Preformatted, KeepTogether)
 from reportlab.lib.styles import ParagraphStyle
 
-VERSION = "1.6"
+VERSION = "2.0"
 ORANGE = HexColor("#E8890B")
 DARK = HexColor("#33333B")
 GREY = HexColor("#6A6A74")
@@ -254,11 +254,17 @@ E += [h1("1. Présentation"),
       li("Vague : onde continue (sinus, triangle ou carré) qui glisse sur les positions réelles "
          "des barres. « Pas par cycle » règle la durée d'un cycle, « Largeur de vague » "
          "l'étalement de l'onde."),
+      li("Champ 3D : l'effet devient une fonction de la position de chaque barre DANS LE VOLUME "
+         "— plan incliné, sphère, cylindre, pavé, bruit. Tout le chapitre 7 lui est consacré."),
       h2("4.2 — Cible"),
       li("Intensité : la couche pilote la luminosité des barres."),
       li("Couleur : un dégradé entre deux couleurs (A → B) voyage sur les barres via les canaux "
          "RGB. S'il n'y a que des couches couleur, l'intensité est maintenue au master pour "
          "rester visible."),
+      li("Palette : au lieu de deux couleurs, un dégradé à plusieurs arrêts — Feu, Glace, "
+         "Coucher de soleil, Forêt, Distance. Deux couleurs ne peuvent pas faire un feu "
+         "(noir → rouge → orange → jaune → blanc) : il faut passer par des teintes du milieu. "
+         "Voir aussi § 8.2, où la palette se branche sur la profondeur."),
       h2("4.3 — Patterns"),
       li("Pas à pas : G›D, D›G, ping-pong, aléatoire, pair/impair, tous (tous = pulse global "
          "avec un fade)."),
@@ -284,7 +290,7 @@ E += [h1("1. Présentation"),
          "un groupe (voir 4.7), ou une sélection manuelle. En sélection manuelle, cliquer "
          "les barres dans la vue spatiale (les exclues passent en pointillés)."),
 
-      h2("4.7 — Groupes de barres"),
+      h2("4.6 — Groupes de barres"),
       p("Un groupe nomme un ensemble de barres : « sol », « contres », « portique ». Ils se "
         "gèrent dans le panneau Fixtures : « + Groupe » pour en créer un, clic sur un groupe "
         "pour choisir ses barres dans la vue spatiale (elles se cerclent d'orange), "
@@ -299,7 +305,7 @@ E += [h1("1. Présentation"),
       li("Un groupe vidé, ou supprimé, ramène les couches qui le suivaient sur toutes les "
          "barres : mieux vaut éclairer trop que rester dans le noir sans comprendre pourquoi."),
 
-      h2("4.6 — Groove et découpe"),
+      h2("4.7 — Groove et découpe"),
       p("Ces réglages viennent des consoles lumière : ils transforment un chase correct en "
         "chase qui a du caractère. Tous sont neutres par défaut — vous ne les subissez pas. "
         "Ils sont regroupés sous un repli « Groove et découpe » pour ne pas encombrer la "
@@ -373,16 +379,172 @@ E += [h1("1. Présentation"),
            "simplement le lanceur Cascade avec une connexion internet."),
 
 # ── 6. Vue spatiale ──────────────────────────────────────────────────────────
-      h1("6. Vue spatiale"),
-      li("Glisser une barre pour la placer comme sur scène ; double-clic/tap : pivoter de 90°."),
+      h1("6. La scène : placer les barres dans l'espace"),
+      p("Cascade a deux pages, en haut à gauche : CONDUITE (la régie) et SCÈNE (la scénographie "
+        "en trois dimensions). La 3D est la vérité ; le plan de la page Conduite en est la vue "
+        "de face. Déplacer une barre dans l'une la déplace dans l'autre."),
+      h2("6.1 — Le repère, en mètres"),
+      p("X va de jardin à cour, Y donne la profondeur (le public est du côté des Y négatifs), "
+        "Z la hauteur. L'origine est au centre du plateau, au sol : la convention des plans de "
+        "feu. Renseignez les dimensions réelles de votre plateau dans le panneau Scène — tous "
+        "les réglages de profondeur s'y rapportent, et c'est ce qui leur permet de garder leur "
+        "sens quand vous changez de salle."),
+      note("Un projet fait en 1.x est migré sans bouger d'un pixel : Cascade déduit une "
+           "position 3D de chaque barre à partir de son placement 2D."),
+      h2("6.2 — À la souris"),
+      li("Glisser une barre la déplace au sol (magnétisme 5 cm)."),
+      li("Maj + glisser la fait monter ou descendre — c'est ainsi qu'on accroche un contre."),
+      li("Alt + glisser l'oriente (magnétisme 5°)."),
+      li("Glisser le vide fait tourner la caméra ; la molette approche et éloigne."),
+      li("Ctrl+Z défait le dernier geste. Les boutons Face / Dessus / Côté / 3-4 cadrent d'un "
+         "clic ; les trois premières sont orthographiques, sans perspective, pour que la vue "
+         "de face coïncide exactement avec la page Conduite."),
+      h2("6.3 — Les outils de placement"),
       li("Importer depuis MadMapper : positions, rotations et tailles réelles, automatiquement."),
       li("Ligne / Colonne : alignements rapides. Miroir H / V : retourne toute la disposition."),
-      li("Ordre = G→D / H→B : réordonne le chase selon le placement."),
+      li("Ordre = G→D / H→B, ou « ordre = axe 3D » : le chase suit alors la géométrie réelle "
+         "du plateau au lieu de l'ordre de la liste."),
       li("Le numéro sur chaque barre = sa position dans l'ordre du chase ; les barres s'allument "
-         "en temps réel (couleur comprise)."),
+         "en temps réel, couleur comprise, pendant le spectacle."),
+      li("« Inverser la LED » : à cocher pour une barre câblée à l'envers. Sans ça, un dégradé "
+         "part dans le mauvais sens sur une barre sur deux — et ça ne se voit qu'en salle."),
+      h2("6.4 — Renvoyer la disposition vers MadMapper"),
+      p("Un bouton, avec confirmation, et rien d'autre. Déplacer une barre dans Cascade n'envoie "
+        "aucune géométrie à MadMapper : le placement des surfaces est le travail du régisseur, "
+        "on ne l'écrase pas dans son dos. Le renvoi est une opération de montage, pas de "
+        "conduite."),
+      PageBreak(),
+
+# ── 7. Le champ 3D ───────────────────────────────────────────────────────────
+      h1("7. Le moteur « Champ 3D »"),
+      p("Un chase classique demande « quelle barre s'allume maintenant ? ». Le champ 3D pose une "
+        "autre question : « quelle est la valeur de cet effet, ici, dans le volume ? ». Chaque "
+        "barre lit la valeur du champ à l'endroit où elle se trouve réellement. Deux barres au "
+        "même endroit sortent pareil ; deux barres éloignées sortent différemment, sans qu'on "
+        "ait rien à programmer barre par barre."),
+      p("Ce que le champ produit n'est qu'une grandeur, qui traverse ensuite EXACTEMENT la même "
+        "chaîne que les autres moteurs : forme d'onde, niveau bas, niveau de couche, couleur, "
+        "mixage HTP, master, courbe de gradateur, Ableton Link. Un plan orienté sur l'axe X "
+        "rend d'ailleurs les mêmes valeurs qu'une vague « G › D » — c'est une généralisation, "
+        "pas un second logiciel."),
+      h2("7.1 — Les cinq formes"),
+      li("Plan : une nappe qui balaie le volume, sur l'axe que vous choisissez (azimut et "
+         "élévation). C'est la forme à essayer en premier ; sur l'axe de la profondeur, elle "
+         "traverse la scène du public vers le fond."),
+      li("Sphère : une onde qui part d'un point et grandit. Le point se règle, et « Centrer la "
+         "source » le remet au milieu du plateau."),
+      li("Cylindre : le phare. L'onde tourne autour d'un axe — un balayage circulaire."),
+      li("Pavé : des coquilles rectangulaires emboîtées autour de la source. Plus anguleux que "
+         "la sphère, il épouse mieux une scéno en cadre."),
+      li("Bruit 3D : des taches organiques qui dérivent dans le volume. « Grain » règle leur "
+         "taille, et le mouvement suit l'axe choisi."),
+      h2("7.2 — Netteté et course"),
+      li("Netteté (5 à 100 %) : quelle part de la longueur d'onde le motif occupe. À 100 % il "
+         "remplit tout, et la moitié du plateau reste allumée en permanence. Serrez-la à 15 % "
+         "et vous obtenez une lame fine qui traverse — c'est ce qui rend une comète possible."),
+      li("Course : la source se déplace le long de l'axe au lieu de rester fixe. Sphère + course "
+         "+ netteté serrée = une comète qui traverse le plateau."),
+      h2("7.3 — Le repère dans la vue 3D"),
+      p("Quand une couche « champ » est sélectionnée, la scène affiche l'axe en flèche, la "
+        "source en croix, et sa course en trait épais. Un réglage abstrait devient un objet "
+        "qu'on voit bouger : c'est le moyen le plus rapide de comprendre ce qu'on règle."),
+      h2("7.4 — Les quatre démos"),
+      p("Le bouton Démo installe en un clic une configuration complète : Profondeur, Comète, "
+        "Phare, Feu. Avec les réglages d'usine, un champ rend presque exactement une vague, et "
+        "on peut croire que rien ne marche. Les démos existent pour montrer ce que le moteur "
+        "sait faire avant de commencer à le régler soi-même."),
+      PageBreak(),
+
+# ── 8. La profondeur ─────────────────────────────────────────────────────────
+      h1("8. Faire ressortir la profondeur"),
+      p("Le champ 3D place les effets dans l'espace, mais l'espace ne se VOIT pas pour autant : "
+        "deux barres à cinq mètres l'une derrière l'autre, éclairées au même niveau, se lisent "
+        "comme une seule surface. Ce chapitre réunit les quatre réglages qui font apparaître le "
+        "volume. Ils se combinent, et c'est ensemble qu'ils sont convaincants."),
+      h2("8.1 — Perspective atmosphérique"),
+      p("Curseur « Profondeur », de 0 à 100 % par couche : les barres du lointain sortent plus "
+        "sombres. C'est ce que fait l'air dans un vrai théâtre, et le brouillard dans un moteur "
+        "3D. L'atténuation est calculée sur la cote du plateau que vous avez renseignée, donc "
+        "le réglage garde son sens dans une autre salle. C'est le réglage à essayer en premier."),
+      h2("8.2 — La palette suit la profondeur"),
+      p("Avec une palette, un second réglage décide d'où vient la couleur de chaque barre : du "
+        "MOTIF (l'animation, comme avant), de la PROFONDEUR, ou de la HAUTEUR. Branchée sur la "
+        "profondeur, la couleur ne dépend plus que de la distance au public : chaud devant, "
+        "froid derrière, et ça ne bouge pas quand le motif tourne."),
+      note("C'est la seconde moitié du même mécanisme : la perspective agit sur l'intensité, "
+           "la palette sur la teinte. L'œil se sert des deux pour juger une distance, et les "
+           "avoir ensemble change franchement la lecture d'un volume. La palette « Distance » "
+           "est faite pour ça."),
+      h2("8.3 — Les modes de fusion"),
+      p("Jusqu'ici les couches se mixaient toujours en HTP — la plus lumineuse gagne. C'est le "
+        "réflexe des consoles, parfait pour empiler des chases, mais ça interdit de MÉLANGER. "
+        "Sept modes sont désormais disponibles par couche :"),
+      li("HTP (défaut) : la plus lumineuse gagne. Aucun projet existant ne change de rendu."),
+      li("Multiplication : la couche devient un MASQUE. Un plan en profondeur posé en "
+         "multiplication au-dessus d'une nappe ne laisse passer la lumière que dans la tranche "
+         "que le plan éclaire. C'est la façon la plus directe de sculpter une profondeur."),
+      li("Addition : deux nappes s'additionnent sans s'écraser — superpositions denses."),
+      li("Soustraction : une couche creuse un trou dans une autre — un vide qui traverse."),
+      li("Écran, Minimum, Remplacement : pour les cas particuliers."),
+      note("Sauf pour HTP, addition et multiplication, l'ORDRE des couches compte : la couche "
+           "du bas est le fond, celles du dessus s'y appliquent. L'infobulle le rappelle."),
+      h2("8.4 — Le décalage réparti"),
+      p("« Décalage » décale toute la couche. « Décalage réparti » étale en plus un décalage de "
+        "la PREMIÈRE barre à la DERNIÈRE : 360° = un cycle complet réparti sur la sélection. Des "
+        "barres symétriques cessent de bouger à l'unisson. Combiné à « ordre = axe 3D », la "
+        "vague traverse la scéno selon un axe réel, avec un seul réglage."),
+      h2("8.5 — Une recette qui marche"),
+      li("Une couche « champ / plan » sur l'axe de la profondeur, netteté 20 %, en fond."),
+      li("Profondeur à 60 % : le lointain s'efface."),
+      li("Palette Distance branchée sur la profondeur : le fond devient froid."),
+      li("Une seconde couche en multiplication, forme sphère, course activée : une bulle "
+         "claire circule et ne révèle la texture que là où elle passe."),
+      PageBreak(),
+
+# ── 9. Les vues ──────────────────────────────────────────────────────────────
+      h1("9. Les vues : choisir l'axe de projection"),
+      p("MadMapper ignore la troisième dimension. Une barre joue ce qu'elle lit À L'ENDROIT OÙ "
+        "ELLE EST POSÉE dans la composition. Donc « projeter la texture sur l'axe de mon "
+        "choix » revient à une seule question : où chaque barre va-t-elle lire ? Il n'y a pas "
+        "d'autre levier — c'est mesuré, pas supposé."),
+      h2("9.1 — Comment ça marche"),
+      p("Chaque barre physique existe en plusieurs copies dans le projet MadMapper, TOUTES À LA "
+        "MÊME ADRESSE DMX, chacune placée selon une projection différente : une pour la vue de "
+        "face, une pour la vue de dessus, une pour le côté. Les copies d'une même vue vivent "
+        "dans un DOSSIER portant le nom de la vue. Basculer d'un axe à l'autre, c'est allumer "
+        "un dossier et éteindre les autres — un seul message, et rien ne se déplace pendant le "
+        "spectacle."),
+      note("Deux barres à la même adresse ne perturbent NI le DMX NI votre contrôleur : "
+           "MadMapper résout le conflit avant d'émettre, et ce qui sort de la carte réseau est "
+           "un univers Art-Net parfaitement ordinaire. Un PixLite, un BSP ou n'importe quel "
+           "nœud reçoit ses 512 octets sans jamais savoir qu'il y a eu des copies en amont."),
+      h2("9.2 — Créer et conduire les vues"),
+      li("« Créer les surfaces » calcule où chaque barre doit aller pour une projection donnée "
+         "et vous donne la liste à reproduire dans MadMapper — c'est un travail de montage, "
+         "qu'on fait une fois."),
+      li("« Ranger » recalcule le placement d'une vue existante."),
+      li("En conduite, un bouton par vue. Le fondu est réglable : le dossier sortant baisse "
+         "pendant que l'entrant monte."),
+      li("Un voyant dit si le dossier existe vraiment côté MadMapper. Après un redémarrage, "
+         "Cascade avoue qu'il ne sait pas quelle vue est active plutôt que de deviner."),
+      li("La case « à moi » protège une vue que vous avez dessinée vous-même — la vue "
+         "« dépliée », par exemple. Cascade ne la recalculera jamais."),
+      h2("9.3 — Les deux pièges"),
+      li("Une barre posée HORS de toute zone de composition joue du noir, sans que rien ne le "
+         "signale. C'est la panne fantôme la plus probable : si une vue reste éteinte, c'est "
+         "la première chose à vérifier."),
+      li("Le nombre de fixtures est multiplié par le nombre de vues — 24 barres × 3 vues = 72 "
+         "fixtures dans le projet. Nommez vos dossiers proprement dès le début."),
+      h2("9.4 — La coupure de secours"),
+      p("Quand une texture joue, BLACKOUT ne suffit pas : il met à zéro ce que Cascade pilote, "
+        "mais la texture continue d'alimenter les barres par d'autres chemins. La COUPURE met "
+        "la sortie DMX de MadMapper elle-même à zéro. C'est la seule voie qui coupe vraiment."),
+      note("Elle est volontairement séparée de BLACKOUT, et un bandeau rouge impossible à "
+           "manquer reste affiché tant qu'elle est active — pour qu'on ne cherche jamais "
+           "pourquoi « plus rien ne s'allume »."),
 
 # ── 7. Presets et projets ────────────────────────────────────────────────────
-      h1("7. Presets, projets et sauvegarde"),
+      h1("10. Presets, projets et sauvegarde"),
       li("Presets (1-16), barre du haut : photographient toutes les couches. Sauver puis clic "
          "sur un slot = mémorise ; clic simple = rappel instantané en live."),
       li("Fondu entre presets (panneau Vitesse, réglage « Fondu presets ») : à 0 le rappel "
@@ -407,14 +569,14 @@ E += [h1("1. Présentation"),
          "n'est perdu dans tous les cas : c'est une commodité pour tenir sa bibliothèque à jour."),
 
 # ── 8. MIDI / OSC ────────────────────────────────────────────────────────────
-      h1("8. Contrôle MIDI et OSC"),
-      h2("8.1 — MIDI (bouton clavier, en haut)"),
+      h1("11. Contrôle MIDI et OSC"),
+      h2("11.1 — MIDI (bouton clavier, en haut)"),
       p("Sur Chrome ou Edge, avec le contrôleur branché sur l'ordinateur : cliquer Learn sur une "
         "cible puis bouger un potard ou appuyer une touche. Le mapping est enregistré "
         "définitivement. Cibles : master, vitesses, start/stop/blackout, tap, temps/pas, niveau, "
         "pattern, miroirs, couche on/off et les 16 presets. Les cibles « couche sél. » suivent "
         "la couche en cours d'édition."),
-      h2("8.2 — OSC entrant (TouchOSC, console, QLab…)"),
+      h2("11.2 — OSC entrant (TouchOSC, console, QLab…)"),
       p("Envoyer sur le port 7000 (réglable) de la machine où tourne l'app. Valeurs normalisées "
         "0-1 ; pour les vitesses, 0.5 = ×1. Les nouveaux réglages de chase sont pilotables de "
         "la même façon : /cascade/presetfade règle le fondu entre presets (0 à 10 s), et "
@@ -429,7 +591,7 @@ E += [h1("1. Présentation"),
       PageBreak()]
 
 # ── 9. Dépannage ─────────────────────────────────────────────────────────────
-E.append(h1("9. Dépannage"))
+E.append(h1("12. Dépannage"))
 rows = [
     ["Problème", "Solution"],
     ["Rien ne bouge dans MadMapper",
@@ -489,7 +651,7 @@ t.setStyle(TableStyle([
 E.append(t)
 
 # ── 10. Notes techniques ─────────────────────────────────────────────────────
-E += [h1("10. Raccourcis clavier et gestes"),
+E += [h1("13. Raccourcis clavier et gestes"),
       p("Le bouton « ? » en haut de l'interface (ou la touche ? ou H) affiche cette liste "
         "à tout moment. Les raccourcis sont ignorés pendant une saisie de texte et lorsqu'une "
         "fenêtre de dialogue est ouverte."),
@@ -504,7 +666,7 @@ E += [h1("10. Raccourcis clavier et gestes"),
       li("Glisser une barre dans la vue spatiale : la déplacer."),
       note("Sur iPad, un double-tap remplace partout le double-clic."),
 
-      h1("11. Notes techniques"),
+      h1("14. Notes techniques"),
       li("Aucune installation système : le moteur Node.js portable et le module Link vivent "
          "dans le dossier de l'app."),
       li("Le dossier est autonome : copier le dossier = installer l'app ailleurs."),
@@ -524,5 +686,62 @@ E += [h1("10. Raccourcis clavier et gestes"),
       Spacer(1, 2 * mm),
       Paragraph("Pierre-Yves Mansour — Collectif WSK", S["sig"])]
 
+def _controle_glyphes(flowables, fichiers):
+    """Un glyphe absent de la police sort en CARRÉ VIDE, et ça ne se voit qu'une
+    fois le PDF sous les yeux — souvent après l'avoir envoyé. On refuse donc de
+    générer un manuel dont un caractère ne serait pas dessinable.
+
+    Le piège est réel : les symboles ⏻ ⧉ ⚠ ✔ et les exposants Unicode manquent
+    de Segoe UI comme de DejaVu. Les repérer ici évite de relire treize pages."""
+    from reportlab.pdfbase.ttfonts import TTFontFile
+    textes = []
+    def _ramasser(f):
+        for attr in ("text", "_text"):
+            t = getattr(f, attr, None)
+            if isinstance(t, str):
+                textes.append(t)
+        for attr in ("lines", "_cellvalues", "_content"):
+            sous = getattr(f, attr, None)
+            if isinstance(sous, (list, tuple)):
+                for x in sous:
+                    if isinstance(x, str):
+                        textes.append(x)
+                    elif isinstance(x, (list, tuple)):
+                        for y in x:
+                            (_ramasser(y) if hasattr(y, "__dict__") else
+                             textes.append(y) if isinstance(y, str) else None)
+                    elif hasattr(x, "__dict__"):
+                        _ramasser(x)
+    for f in flowables:
+        _ramasser(f)
+    chars = {c for t in textes for c in t if ord(c) > 127}
+    fautifs = {}
+    for chemin in fichiers:
+        try:
+            cmap = set(TTFontFile(chemin).charToGlyph.keys())
+        except Exception:
+            continue
+        for c in chars:
+            if ord(c) not in cmap:
+                fautifs.setdefault(c, []).append(os.path.basename(chemin))
+    if fautifs:
+        # ⚠ La console Windows est en cp1252 : imprimer le caractère fautif ferait
+        # planter le rapport sur une UnicodeEncodeError, juste au moment où on a
+        # besoin de le lire. On n'imprime donc que des codepoints et un extrait
+        # débarrassé de tout non-ASCII.
+        def _sur(t):
+            return "".join(ch if ord(ch) < 128 else "." for ch in t)
+        print("ATTENTION - caracteres absents de la police (ils sortiraient en carre vide) :")
+        for c, ou in sorted(fautifs.items(), key=lambda kv: ord(kv[0])):
+            extrait = next((t for t in textes if c in t), "")
+            i = extrait.index(c)
+            print("  U+%04X absent de %s : ...%s[ICI]%s..."
+                  % (ord(c), ", ".join(ou), _sur(extrait[max(0, i - 30):i]),
+                     _sur(extrait[i + 1:i + 30])))
+        raise SystemExit("Manuel NON généré : corrigez ces caractères d'abord.")
+    print("Glyphes : %d caractères non-ASCII, tous dessinables." % len(chars))
+
+
+_controle_glyphes(E, _f)
 doc.build(E)
 print("OK :", out)
