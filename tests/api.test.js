@@ -12,7 +12,10 @@ describe('API HTTP', () => {
   test('/api/ping identifie Cascade', async () => {
     const r = await h.get('/api/ping');
     assert.equal(r.body.app, 'Cascade');
-    assert.match(r.body.version, /^\d+\.\d+\.\d+$/);
+    // Semver complet, pré-version comprise : la branche v2 s'annonce
+    // « 2.0.0-dev » tant qu'elle n'est pas sortie, et c'est volontaire — une app
+    // qui ment sur sa version est indébogable à distance.
+    assert.match(r.body.version, /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
   });
 
   test('/api/state expose tout ce dont l’interface a besoin', async () => {

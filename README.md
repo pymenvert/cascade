@@ -2,9 +2,11 @@
 
 **Séquenceur LED multi-couches pour MadMapper.** Chases, vagues, couleur, presets, contrôle MIDI et OSC — piloté depuis une page web sur l'ordinateur, une tablette ou un iPad.
 
+**En 2.0, Cascade sort du plan** : la scénographie se dessine en 3D, et un effet devient une fonction de la position réelle de chaque barre dans l'espace.
+
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-1.6.0-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-111-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-2.0.0--dev-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-225-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -59,6 +61,17 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 
 - **Pas à pas** : chase classique — défilement, ping-pong, aléatoire, pair/impair, tous.
 - **Vague** : onde continue (sinus, triangle, carré) calculée sur les positions **réelles** des barres — directionnelle, pulse, radiale.
+- **Champ 3D** *(2.0)* : l'effet est une fonction de la position réelle de chaque barre dans le volume. Cinq formes — plan à axe réglable, sphère, cylindre (le phare), pavé, bruit 3D. Le champ ne produit qu'une grandeur, qui traverse ensuite **exactement** la chaîne existante : forme d'onde, niveau bas, couleur, HTP, master, courbe de gradateur, Ableton Link. Un plan sur l'axe X rend les mêmes valeurs qu'une vague « G › D », et un test le vérifie — c'est une généralisation, pas un second moteur.
+
+### L'espace *(2.0)*
+
+- **Page « Scène »** : la scénographie en 3D à côté de la page Conduite. Caméra orbitale, quatre vues, les barres allumées en direct pendant le show. Glisser une barre la déplace, <kbd>Maj</kbd> limite à la hauteur, <kbd>Alt</kbd> l'oriente, <kbd>Ctrl</kbd>+<kbd>Z</kbd> défait.
+- **Vues** : choisir l'axe sur lequel la texture est projetée — face, dessus, côté. Une vue = un dossier de fixtures MadMapper, et on bascule en n'allumant qu'un dossier : **rien ne se déplace pendant le spectacle**. Fondu réglable entre vues.
+- **Perspective atmosphérique** : les barres du lointain sortent plus sombres. C'est ce qui fait *lire* la profondeur — sans elle, deux barres à cinq mètres l'une derrière l'autre se confondent en une seule surface.
+- **La palette suit la profondeur** : chaud devant, froid derrière. La perspective agit sur l'intensité, la palette sur la teinte, et l'œil se sert des deux pour juger une distance.
+- **Sept modes de fusion** entre couches : HTP (défaut), addition, multiplication, écran, minimum, soustraction, remplacement. En multiplication, une couche devient un **masque** — un plan en profondeur ne laisse passer la texture que dans la tranche qu'il éclaire.
+- **Décalage réparti** : la première barre à 0°, la dernière à N°, étalé sur la sélection. Une vague traverse la scéno selon un axe réel avec un seul réglage.
+- **Coupure de secours** : met la sortie DMX de MadMapper à zéro d'un message. La seule voie qui coupe vraiment quand une texture joue — volontairement séparée de BLACKOUT.
 
 ### Mise en forme du chase
 
@@ -77,7 +90,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 
 ### Le reste
 
-- **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, mixé en HTP avec les couches d'intensité.
+- **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, ou une **palette à 8 arrêts** (Feu, Glace, Coucher de soleil, Forêt, Distance).
 - **Vue spatiale** : barres positionnables au doigt ou importées depuis MadMapper (position, rotation, taille), allumage en temps réel.
 - **Groupes de barres nommés** : « sol », « contres »… Une couche qui suit un groupe se met à jour toute seule quand le groupe change.
 - **16 presets nommables** qui mémorisent les couches *et* la disposition complète — rappel instantané en live. « Refrain » se retrouve plus vite que « P7 ».

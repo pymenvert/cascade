@@ -61,15 +61,7 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   n'accepte que **[0 ; 360[** et, hors plage, ignore le message **sans rien
   dire**. Ces deux pièges ont chacun coûté un bug, tous deux corrigés.
 
-### Corrigé
-
-- Les positions 3D sont bornées à ±500 m : un glissé emballé, ou une requête
-  hostile, expédiait une barre hors d'atteinte de la souris.
-- `setPointerCapture` sous `try/catch` : la capture peut légitimement échouer,
-  et l'exception interrompait le début du geste.
-- Le bruit 3D saturait 24,5 % de ses valeurs aux butées — du clignotement dur
-  au lieu de mouvement organique. Ramené à 3,8 % en mesurant sa distribution
-  réelle plutôt qu'en la devinant.
+### Ajouté (suite)
 
 - **Vues** — choisir l'axe sur lequel une texture est projetée. Une vue = un
   dossier de fixtures MadMapper ; chaque barre y existe en une copie, toutes à la
@@ -85,17 +77,74 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   comète était impossible.
 - **Source mobile** — elle balaie un segment le long de l'axe. Sphère + course +
   netteté serrée = comète.
+- **Sept modes de fusion** entre couches (`htp`, addition, multiplication,
+  écran, minimum, soustraction, remplacement). Cascade ne savait faire que du
+  HTP — le réflexe des consoles, parfait pour empiler des chases, mais qui
+  interdit de *mixer*. La multiplication transforme une couche en **masque** :
+  un plan en profondeur posé sur une nappe ne laisse passer la texture que dans
+  la tranche éclairée. HTP reste le défaut, donc aucun projet existant ne bouge.
+- **Perspective atmosphérique** (0–100 % par couche) — les barres du lointain
+  sortent plus sombres, normalisé sur la cote du plateau pour que le réglage
+  garde son sens dans une autre salle. C'est ce qui fait **lire** la profondeur :
+  sans elle, deux barres à cinq mètres l'une derrière l'autre se confondent en
+  une seule surface.
+- **Palette à N arrêts** (jusqu'à 8), avec cinq palettes prêtes — Feu, Glace,
+  Coucher de soleil, Forêt, Distance. Deux couleurs interdisaient tout dégradé
+  qui ne passe pas par le mélange des extrêmes : pas de feu noir → rouge →
+  orange → jaune → blanc.
+- **« La palette suit »** — le motif, la profondeur, ou la hauteur. Branchée sur
+  la profondeur, la couleur d'une barre ne dépend que de sa distance au public :
+  chaud devant, froid derrière. C'est la seconde moitié du depth-cue, la
+  perspective agissant sur l'intensité et celle-ci sur la teinte.
+- **Décalage réparti** (0–1440°) — l'idée des MAtricks de grandMA. La première
+  barre à 0°, la dernière à N°, étalé sur la sélection. Combiné à « ordre = axe
+  3D », une vague traverse la scéno selon un axe réel avec un seul réglage.
 - **« Inverser la LED »** par barre, pour les barres câblées à l'envers.
 - **Quatre démos** — Profondeur, Comète, Phare, Feu.
 - **Repère du champ dans la vue 3D** : l'axe en flèche, la source en croix, sa
   course en trait épais.
 
+### Corrigé
+
+Quatre de ces défauts existaient **déjà en v1** — donc dans la version qui part
+en spectacle. Chacun a été reproduit sur un vrai serveur avant d'être corrigé,
+et chacun a son test dans `tests/regressions.test.js`.
+
+- **v1 · une couche COULEUR allumait les barres qu'elle ne pilote pas.** Un
+  chase couleur sur trois barres en éclairait douze.
+- **v1 · la phase n'était pas préservée au changement de tempo** pour les
+  moteurs continus. Passer le tempo de 0,01 % téléportait le motif (saut de
+  0,93 cycle mesuré). Remplacé par une horloge de phase intégrée.
+- **v1 · GO / RESYNC ne ramenait pas** les moteurs continus au début du cycle.
+- **v1 · le rappel de preset ne re-dérivait pas la 2D** depuis la 3D.
+- **Le bruit 3D était figé dans le temps** : le mélange de bits dépassait 2⁵³ en
+  virgule flottante et la composante temporelle disparaissait. Corrigé avec
+  `Math.imul`.
+- Le bruit 3D **saturait 24,5 %** de ses valeurs aux butées — du clignotement
+  dur au lieu de mouvement organique. Ramené à 3,8 % en mesurant sa distribution
+  réelle plutôt qu'en la devinant.
+- Le **centre du champ en profondeur** n'était pas le milieu du plateau.
+- Le **cylindre basculait** en traversant certaines élévations, et se déchirait
+  à certaines étendues. Base construite analytiquement depuis l'azimut.
+- La **boîte** était restée proportionnelle à la sphère : sur un rig plat elle
+  ne se distinguait pas. C'est maintenant un vrai pavé mobile.
+- Les positions 3D sont bornées à ±500 m : un glissé emballé, ou une requête
+  hostile, expédiait une barre hors d'atteinte de la souris.
+- `setPointerCapture` sous `try/catch` : la capture peut légitimement échouer,
+  et l'exception interrompait le début du geste.
+
 ### Tests
 
-211 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+225 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — 12 mutations, 12 détectées.
+s'en aperçoit — **14 mutations, 14 détectées**.
+
+Un garde-fou a été ajouté après incident : un commit était parti avec un
+cassage volontaire encore en place, et toute la suite restait verte — c'est
+normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
+le code source contient toujours la forme saine de chacun des quatorze endroits
+que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25
 

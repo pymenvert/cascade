@@ -46,7 +46,9 @@ describe('Interface — garde-fous du source', () => {
   });
 
   test('la version affichée correspond à celle du serveur', () => {
-    const v = /const VERSION = '(\d+)\.(\d+)\.\d+'/.exec(SERVEUR);
+    // Le suffixe de pré-version (« 2.0.0-dev ») fait partie de la version du
+    // serveur, mais pas du pied de page, qui n'affiche que majeure.mineure.
+    const v = /const VERSION = '(\d+)\.(\d+)\.\d+[^']*'/.exec(SERVEUR);
     assert.ok(v, 'VERSION introuvable dans server.js');
     const attendu = `CASCADE v${v[1]}.${v[2]}`;
     assert.ok(UI.includes(attendu), `le pied de page devrait afficher « ${attendu} »`);
