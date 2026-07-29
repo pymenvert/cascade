@@ -9,7 +9,7 @@
  *
  * Comme pour le reste de la suite, on juge sur l'OSC réellement envoyé.
  */
-const { test, before, after, describe } = require('node:test');
+const { test, before, after, afterEach, describe } = require('node:test');
 const assert = require('node:assert');
 const { start, sleep, fixtures } = require('./helpers.js');
 
@@ -39,6 +39,32 @@ describe('Champ 3D', () => {
     await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
   });
   after(async () => { await h.stop(); });
+
+  /**
+   * Filet de nettoyage — il vit ICI, et pas à la fin des corps de test.
+   *
+   * Une assertion qui tombe saute tout ce qui la suit, nettoyage compris : le
+   * test suivant hérite d'un plateau et d'une couche dans un état inconnu. On
+   * remet la scéno ET la couche, parce qu'oublier la couche laisse une forme de
+   * champ ou une source mobile en place — ça suffit à faire tomber le suivant.
+   *
+   * ⚠ Honnêteté : la cascade d'échecs a été CHERCHÉE et n'a pas été reproduite
+   * sur ce fichier. Deux échecs injectés à des endroits qui laissent du désordre
+   * n'ont fait tomber qu'un test chacun, parce que chaque test refait sa propre
+   * installation. Le filet est donc une garantie, pas une correction : il rend
+   * l'indépendance des tests structurelle au lieu de la laisser au hasard des
+   * habitudes d'écriture.
+   */
+  afterEach(async () => {
+    try {
+      await h.post('/api/stop');
+      await h.post('/api/fixtures', { fixtures: enLigne(6) });
+      await h.post('/api/scene', { scene: { w: 10, d: 8, h: 6 } });
+      await base({});
+    } catch (e) {
+      // Le serveur peut être tombé : ne pas masquer l'échec réel avec celui-ci.
+    }
+  });
 
   /**
    * Règle la PREMIÈRE couche, en relisant son identifiant à chaque appel.

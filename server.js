@@ -1793,6 +1793,19 @@ function hash3(x, y, z) {
   // Mesuré : une barre à 1,0000 sur huit relevés, étendue 0,0000. Les tests ne
   // l'avaient pas vu parce qu'ils mesuraient la variation entre barres — qui,
   // elle, fonctionnait très bien.
+  //
+  // ⚠ MESURÉ le 2026-07-29, non corrigé : le multiplicateur de Z, 2147483647,
+  // vaut 2^31 - 1. En arithmétique 32 bits, multiplier par cette valeur revient
+  // à `-z` plus un bit de parité — un multiplicateur DÉGÉNÉRÉ. Sur 199 pas
+  // consécutifs, l'axe Z ne produit que 14 écarts distincts, contre 199 pour X
+  // et 197 pour Y. Or c'est Z qui porte le TEMPS : le bruit 3D se répète dans la
+  // durée. Une constante ordinaire (2654435761) remonte l'axe à 197.
+  //
+  // Pourquoi ce n'est pas corrigé ici : changer le hachage change la
+  // distribution du bruit, donc `BRUIT_EC` juste en dessous doit être remesuré
+  // — et sur l'échantillonnage RÉEL du moteur, pas sur un balayage synthétique.
+  // Un premier essai a fait tomber le test de saturation. C'est une correction à
+  // faire posément, avec sa mesure. Voir le rapport d'audit, hors dépôt.
   let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)
            + Math.imul(z | 0, 2147483647)) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
