@@ -523,7 +523,16 @@ E += [h1("1. Présentation"),
       li("Course en rampe : la source repart du début à chaque tour — un balayage régulier."),
       li("Profondeur en sinus très lent : le lointain apparaît et disparaît, la scène "
          "gagne et perd son volume."),
-      h2("8.7 — Une recette qui marche"),
+      h2("8.7 — Le modulateur global"),
+      p("Le même mécanisme, dans le panneau Global, sur trois réglages : le crossfader, "
+        "le master, ou la vitesse globale. Sur le crossfader, la scène passe d'un jeu à "
+        "l'autre toute seule — elle respire entre deux ambiances sans que personne ne "
+        "tienne le fader. Calé sur le tempo, il prend le cycle de la première couche : "
+        "il n'y a pas de tempo global dans Cascade, chaque couche a le sien."),
+      note("Attention sur le Master : mettre 0 comme borne basse fait passer le show par "
+           "le noir à chaque tour. C'est un effet légitime, donc ce n'est pas interdit — "
+           "mais ça se choisit."),
+      h2("8.8 — Une recette qui marche"),
       li("Une couche « champ / plan » sur l'axe de la profondeur, netteté 20 %, en fond."),
       li("Profondeur à 60 % : le lointain s'efface."),
       li("Palette Distance branchée sur la profondeur : le fond devient froid."),

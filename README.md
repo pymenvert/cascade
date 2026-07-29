@@ -6,7 +6,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-2.0.0--dev-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-242-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-2.0.0--dev-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-248-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -72,6 +72,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **Sept modes de fusion** entre couches : HTP (défaut), addition, multiplication, écran, minimum, soustraction, remplacement. En multiplication, une couche devient un **masque** — un plan en profondeur ne laisse passer la texture que dans la tranche qu'il éclaire.
 - **Décalage réparti** : la première barre à 0°, la dernière à N°, étalé sur la sélection. Une vague traverse la scéno selon un axe réel avec un seul réglage.
 - **Modulateur par couche** : un LFO qui fait respirer un réglage tout seul — niveau, largeur, vitesse, netteté, profondeur… Sa période se cale au choix en secondes ou sur le tempo, donc il ne dérive pas contre la musique. Il ne modifie jamais le réglage affiché, il se superpose : le couper rend la main immédiatement.
+- **Modulateur global** : le même, branché sur le crossfader, le master ou la vitesse. Sur le crossfader, la scène passe d'un jeu à l'autre toute seule.
 - **Crossfader A ↔ B** : rangez vos couches en deux jeux et passez de l'un à l'autre à la main — ou au fader d'une console, en OSC. C'est la différence entre déclencher un preset et *jouer* un passage.
 - **Coupure de secours** : met la sortie DMX de MadMapper à zéro d'un message. La seule voie qui coupe vraiment quand une texture joue — volontairement séparée de BLACKOUT.
 

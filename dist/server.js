@@ -148,6 +148,7 @@ const state = {
   layers: [defaultLayer()],
   global: { running: false, speed: 1, master: 1, param: 'luminosity', dimmer: 'linear',
             xfade: 0,          // 0 = jeu A seul, 1 = jeu B seul
+            modGlobal: null,   // { on, param, forme, periodeMs, sync, cycles, min, max }
             vueActive: null,   // identifiant de la vue allumée, ou null
             // ⚠ Au démarrage, Cascade se SOUVIENT de la vue active mais n'a
             // rien envoyé : il ne sait donc pas ce que MadMapper a réellement.
@@ -377,14 +378,7 @@ function appliquerLFO(L, now, store = engines) {
   e.lfoLast = now;
   e.lfoU = (e.lfoU + dt / periode) % 1;
 
-  const u = e.lfoU;
-  let f;
-  if (m.forme === 'square') f = u < 0.5 ? 1 : 0;
-  else if (m.forme === 'triangle') f = 1 - 2 * Math.abs(u - 0.5);
-  else if (m.forme === 'rampe') f = u;
-  else f = 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
-
-  const brut = m.min + (m.max - m.min) * f;
+  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, e.lfoU);
   return { ...L, ...sanitizeLayerSet({ [m.param]: brut }) };
 }
 
@@ -405,6 +399,7 @@ function sanitizeGlobal(g) {
   if ('speed' in g) o.speed = cnum(g.speed, 0.05, 5, 1);
   if ('master' in g) o.master = cnum(g.master, 0, 1, 1);
   if ('xfade' in g) o.xfade = cnum(g.xfade, 0, 1, 0);
+  if ('modGlobal' in g) o.modGlobal = sanitizeModGlobal(g.modGlobal);
   if ('param' in g) o.param = safeParam(g.param, 'luminosity');
   if ('dimmer' in g && ENUMS.dimmer.includes(g.dimmer)) o.dimmer = g.dimmer;
   if ('presetFade' in g) o.presetFade = Math.round(cnum(g.presetFade, 0, MAX_FADE_MS, 0));
@@ -414,6 +409,80 @@ function sanitizeGlobal(g) {
   if ('vueActive' in g) o.vueIncertaine = !!g.vueActive;
   return o;
 }
+/**
+ * Ce qu'un modulateur global a le droit de piloter. Trois réglages, pas plus.
+ *
+ * `xfade` est le seul vraiment intéressant : un crossfader qui va et vient tout
+ * seul, c'est une scène qui respire entre deux ambiances sans qu'on la tienne.
+ * `master` et `speed` sont là par cohérence — mais ⚠ un modulateur sur le master
+ * peut faire tomber un show dans le noir : ses bornes sont celles du réglage, et
+ * c'est au régisseur de ne pas mettre 0 en bas.
+ */
+const MODG_PARAMS = ['xfade', 'master', 'speed'];
+
+function sanitizeModGlobal(v) {
+  if (!v || typeof v !== 'object') return null;
+  if (!MODG_PARAMS.includes(v.param)) return null;
+  return {
+    on: !!v.on,
+    param: v.param,
+    forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
+    periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 8000)),
+    sync: !!v.sync,
+    cycles: cnum(v.cycles, 0.25, 64, 8),
+    min: fini(v.min, 0),
+    max: fini(v.max, 1),
+  };
+}
+
+/**
+ * Valeur COURANTE d'un réglage global : celle du modulateur s'il en pilote un,
+ * sinon celle que le régisseur a posée.
+ *
+ * ⚠ Passer par cette fonction partout où un réglage global est lu, sinon le
+ * modulateur agirait à certains endroits et pas à d'autres — un crossfader
+ * modulé qui bougerait le mixage mais pas l'affichage, par exemple.
+ */
+let modGlobalVal = null;
+function globalEff(cle) {
+  return (modGlobalVal && cle in modGlobalVal) ? modGlobalVal[cle] : state.global[cle];
+}
+
+/** Forme d'onde commune aux deux modulateurs, sur une phase 0..1. */
+function ondeLFO(forme, u) {
+  if (forme === 'square') return u < 0.5 ? 1 : 0;
+  if (forme === 'triangle') return 1 - 2 * Math.abs(u - 0.5);
+  if (forme === 'rampe') return u;
+  return 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+}
+
+/**
+ * Recalcule le modulateur global. Comme celui des couches, il n'écrit JAMAIS
+ * dans `state` : sa valeur vit dans `modGlobalVal`, le temps d'une image.
+ * Le régisseur retrouve donc ses réglages intacts en le coupant.
+ */
+const engGlobal = { u: null, last: 0 };
+function calculerModGlobal(now) {
+  modGlobalVal = null;
+  const m = state.global.modGlobal;
+  if (!m || !m.on || !MODG_PARAMS.includes(m.param)) { engGlobal.u = null; return; }
+  // Calé sur le tempo : on prend le cycle de la PREMIÈRE couche. Il n'y a pas de
+  // tempo « global » dans Cascade — chaque couche a le sien — et la première est
+  // la référence la plus prévisible pour un régisseur.
+  const ref = state.layers[0];
+  const periode = (m.sync && ref) ? Math.max(100, m.cycles * periodeCouche(ref))
+                                  : Math.max(100, m.periodeMs);
+  if (engGlobal.u == null) { engGlobal.u = 0; engGlobal.last = now; }
+  const dt = Math.min(1000, Math.max(0, now - engGlobal.last));
+  engGlobal.last = now;
+  engGlobal.u = (engGlobal.u + dt / periode) % 1;
+  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, engGlobal.u);
+  // Mêmes bornes qu'une saisie à la main : le modulateur ne peut rien sortir de
+  // sa plage, même avec des min/max délirants.
+  const propre = sanitizeGlobal({ [m.param]: brut });
+  if (m.param in propre) modGlobalVal = { [m.param]: propre[m.param] };
+}
+
 function sanitizeSettings(s) {
   const o = { ...state.settings };
   if (!s || typeof s !== 'object') return o;
@@ -1303,7 +1372,7 @@ const engines = new Map();
  * sans qu'on ait à lui refaire ses réglages.
  */
 function periodeCouche(L) {
-  const gs = Math.max(0.05, state.global.speed);
+  const gs = Math.max(0.05, globalEff('speed'));
   return Math.max(60, (L.stepMs * Math.max(1, L.group)) / (Math.max(0.05, L.speed) * gs));
 }
 
@@ -2056,7 +2125,7 @@ function attenuationProfondeur(f, force, scene) {
  */
 function poidsDeck(L) {
   if (L.deck !== 'a' && L.deck !== 'b') return 1;
-  const x = Math.max(0, Math.min(1, fini(state.global.xfade, 0)));
+  const x = Math.max(0, Math.min(1, fini(globalEff('xfade'), 0)));
   return L.deck === 'a' ? 1 - x : x;
 }
 
@@ -2156,6 +2225,10 @@ function tick() {
     runtime.colors = state.fixtures.map(() => null);
     return;
   }
+  // Le modulateur global d'abord : tout ce qui suit lit des réglages qu'il
+  // peut piloter. Après le retour anticipé de l'arrêt, donc il ne tourne pas
+  // dans le vide et STOP relâche vraiment tout.
+  calculerModGlobal(now);
   const live = computeMix(state.layers, state.fixtures, now, engines);
 
   // Fondu entre presets : la scène sortante continue de tourner et décroît
@@ -2170,7 +2243,7 @@ function tick() {
 
   const force = now - lastForceAll > 1000;
   if (force) lastForceAll = now;
-  const m = state.global.master;
+  const m = globalEff('master');
   const dim = DIMMERS[state.global.dimmer] || DIMMERS.linear;
   runtime.levels = []; runtime.colors = [];
   for (const f of state.fixtures) {
@@ -2632,6 +2705,11 @@ const server = http.createServer(async (req, res) => {
         // garder ferait pointer Cascade sur des dossiers qui n'existent pas.
         state.vues = [];
         state.global.vueActive = null;
+        // Un projet neuf ne doit pas hériter d'automatismes du précédent : un
+        // modulateur global qui continuerait de faire bouger le crossfader sur
+        // une scéno vierge, c'est un réglage fantôme qu'on cherche longtemps.
+        state.global.modGlobal = null;
+        state.global.xfade = 0;
         stopFonduVue();
         state.projectName = 'Sans titre';
         saveConfig();

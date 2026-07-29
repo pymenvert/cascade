@@ -192,10 +192,20 @@ il reste accroché sans qu'on le retouche. ⚠ La période est calculée sur la
 couche NON modulée : sinon un modulateur branché sur `speed` changerait sa
 propre cadence à chaque image, et s'emballerait tout seul.
 
-**Ce qui manque encore** : le suiveur audio (pas d'entrée son côté serveur — la
-piste réaliste est le Web Audio du navigateur, qui pousserait un niveau au
-serveur, et qui respecte la contrainte zéro-dépendance), et un modulateur global
-qui piloterait plusieurs couches à la fois.
+**Un modulateur GLOBAL** existe aussi, sur trois réglages : le crossfader, le
+master et la vitesse globale. Le premier est le vrai sujet — un fader qui va et
+vient tout seul, c'est une scène qui respire entre deux ambiances sans qu'on la
+tienne. Même architecture : il n'écrit pas dans l'état, sa valeur ne vit que le
+temps d'une image, et elle passe par `sanitizeGlobal`.
+
+⚠ Sur le master, des bornes descendant à 0 font passer le show par le noir à
+chaque tour. C'est dit dans l'infobulle ; on ne l'interdit pas, parce que c'est
+un effet légitime.
+
+**Ce qui manque encore** : le suiveur audio. Pas d'entrée son côté serveur, et la
+contrainte zéro-dépendance l'interdit là ; la piste réaliste est le Web Audio du
+navigateur, qui analyserait l'entrée et pousserait un niveau au serveur — même
+mécanique que le MIDI, déjà fait côté page.
 
 ### 5. Une grille de scènes
 

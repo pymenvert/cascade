@@ -757,6 +757,41 @@
       <input type="range" id="master" min="0" max="100" step="1"><output></output></label>
     <label class="row" id="rowXfade" title="Passe du jeu A au jeu B, à la main. Les couches rangées dans un jeu (réglage « Jeu » de chaque couche) suivent le fader ; les autres jouent toujours. C'est la différence entre déclencher un preset — un saut — et JOUER un passage. Pilotable par une console : /chaser/xfade 0-1."><span>Crossfader A ↔ B</span>
       <input type="range" id="xfade" min="0" max="100" step="1"><output></output></label>
+    <label class="row" title="Fait bouger un réglage global tout seul, en boucle. Sur le crossfader, la scène respire entre les deux jeux sans qu'on la tienne. Il ne modifie jamais le réglage affiché : le couper rend la main."><span>Modulateur global</span>
+      <select id="mgParam">
+        <option value="">— aucun —</option>
+        <option value="xfade">Crossfader A ↔ B</option>
+        <option value="master">Master</option>
+        <option value="speed">Vitesse globale</option>
+      </select>
+    </label>
+    <div id="blocMg" style="display:none">
+      <label class="row" title="Forme de la boucle."><span>Forme</span>
+        <select id="mgForme">
+          <option value="sine">Sinus (respiration)</option>
+          <option value="triangle">Triangle</option>
+          <option value="rampe">Rampe</option>
+          <option value="square">Créneau</option>
+        </select>
+      </label>
+      <label class="row" title="Cale la période sur le cycle de la PREMIÈRE couche — il n'y a pas de tempo global dans Cascade, chaque couche a le sien."><span>Caler sur le tempo</span>
+        <input type="checkbox" id="mgSync"></label>
+      <label class="row" id="rowMgPeriode" title="Durée d'un aller-retour complet."><span>Période</span>
+        <input type="range" id="mgPeriode" min="0" max="100" step="1"><output></output></label>
+      <label class="row" id="rowMgCycles" style="display:none" title="Combien de cycles de la première couche dure un aller-retour."><span>Durée</span>
+        <select id="mgCycles">
+          <option value="1">1 cycle</option>
+          <option value="2">2 cycles</option>
+          <option value="4">4 cycles</option>
+          <option value="8">8 cycles</option>
+          <option value="16">16 cycles</option>
+          <option value="32">32 cycles</option>
+        </select>
+      </label>
+      <label class="row" title="Les deux bornes, dans l'unité du réglage visé. ⚠ Sur le Master, mettre 0 en bas fait passer le show par le noir à chaque tour."><span>De → à</span>
+        <input type="number" id="mgMin" step="0.01" style="width:5.5em">
+        <input type="number" id="mgMax" step="0.01" style="width:5.5em"></label>
+    </div>
     <label class="row" title="Temps de fondu au rappel d'un preset. À 0, le changement est sec (comportement d'origine). Sinon, la scène sortante continue de jouer et décroît pendant que la nouvelle monte."><span>Fondu presets</span>
       <input type="range" id="presetFade" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Réponse du gradateur. Les LED DMX sont souvent trop brutales en linéaire : « carrée » affine les bas de fondu, « racine » remonte les niveaux faibles."><span>Courbe dimmer</span>
@@ -1347,6 +1382,23 @@ function render() {
     : 'Aucune couche n’est rangée dans un jeu : le fader n’a rien à faire passer. '
       + 'Réglez « Jeu » sur A ou B dans une couche.';
   $$('#segDeck button').forEach(b => b.classList.toggle('active', (L.deck || '') === b.dataset.deck));
+  {
+    const g = S.global.modGlobal || null;
+    if (document.activeElement !== $('#mgParam')) $('#mgParam').value = g ? g.param : '';
+    $('#blocMg').style.display = g ? '' : 'none';
+    if (g) {
+      if (document.activeElement !== $('#mgForme')) $('#mgForme').value = g.forme;
+      $('#mgSync').checked = !!g.sync;
+      $('#rowMgPeriode').style.display = g.sync ? 'none' : '';
+      $('#rowMgCycles').style.display = g.sync ? '' : 'none';
+      if (document.activeElement !== $('#mgCycles')) $('#mgCycles').value = String(g.cycles);
+      setSlider('#mgPeriode', periodeVersCurseur(g.periodeMs),
+        v => { const ms = curseurVersPeriode(v);
+               return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
+      if (document.activeElement !== $('#mgMin')) $('#mgMin').value = g.min;
+      if (document.activeElement !== $('#mgMax')) $('#mgMax').value = g.max;
+    }
+  }
   setSlider('#presetFade', fadeToSlider(S.global.presetFade || 0),
     v => { const ms = fadeFromSlider(v); return ms ? (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s') : 'sec'; });
   if (document.activeElement !== $('#dimmer')) $('#dimmer').value = S.global.dimmer || 'linear';
@@ -1988,6 +2040,24 @@ $('#lfoForme').onchange = (e) =>
            return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
   el.onchange = () =>
     setL({ lfo: { ...lfoCourant(), periodeMs: curseurVersPeriode(+el.value) } }).then(poll);
+}
+const mgCourant = () => (S && S.global && S.global.modGlobal)
+  || { on: true, param: '', forme: 'sine', periodeMs: 8000, sync: false, cycles: 8, min: 0, max: 1 };
+const posterMg = (chg) => post('/api/global', { modGlobal: { ...mgCourant(), ...chg } }).then(poll);
+$('#mgParam').onchange = (e) => post('/api/global', {
+  modGlobal: e.target.value ? { ...mgCourant(), on: true, param: e.target.value } : null,
+}).then(poll);
+$('#mgForme').onchange = (e) => posterMg({ forme: e.target.value });
+$('#mgSync').onchange = (e) => posterMg({ sync: e.target.checked });
+$('#mgCycles').onchange = (e) => posterMg({ cycles: +e.target.value });
+$('#mgMin').onchange = (e) => posterMg({ min: +e.target.value });
+$('#mgMax').onchange = (e) => posterMg({ max: +e.target.value });
+{
+  const el = $('#mgPeriode');
+  el.oninput = () => setSlider('#mgPeriode', +el.value,
+    v => { const ms = curseurVersPeriode(v);
+           return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' s'; });
+  el.onchange = () => posterMg({ periodeMs: curseurVersPeriode(+el.value) });
 }
 $('#lfoSync').onchange = (e) =>
   setL({ lfo: { ...lfoCourant(), sync: e.target.checked } }).then(poll);

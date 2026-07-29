@@ -136,6 +136,12 @@ const MUTATIONS = [
     vers: '  if (mix.anyInt) return mix.lum.get(id) || 0;',
   },
   {
+    nom: 'le modulateur global n atteint plus le crossfader',
+    cible: 'tests/modulateur.test.js',
+    de: "  const x = Math.max(0, Math.min(1, fini(globalEff('xfade'), 0)));",
+    vers: "  const x = Math.max(0, Math.min(1, fini(state.global.xfade, 0)));",
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

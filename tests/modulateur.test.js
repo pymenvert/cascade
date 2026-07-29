@@ -251,3 +251,116 @@ describe('Modulateur — faire respirer un réglage', () => {
     assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
   });
 });
+
+/**
+ * Le modulateur GLOBAL — celui qui peut tenir le crossfader tout seul.
+ *
+ * Même principe que celui des couches, et la même propriété centrale : il
+ * n'écrit jamais dans l'état, sa valeur ne vit que le temps d'une image.
+ */
+describe('Modulateur global', () => {
+  let h;
+  before(async () => {
+    h = await start();
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+  });
+  after(async () => { await h.stop(); });
+
+  const niveauxDe = async (ms) => {
+    h.clearOsc();
+    await sleep(ms);
+    return niveaux(h.osc());
+  };
+
+  test('par défaut il n’y en a pas', async () => {
+    assert.equal((await h.state()).global.modGlobal, null);
+  });
+
+  test('branché sur le crossfader, il fait passer d’un jeu à l’autre tout seul', async () => {
+    // Deux couches sur des barres différentes, une par jeu. Sans toucher au
+    // fader, les deux groupes doivent s'allumer à tour de rôle.
+    const S = await h.state();
+    const A = S.layers[0].id;
+    await h.post('/api/layers', { action: 'add' });
+    const B = (await h.state()).layers[1].id;
+    const plate = (id, bars, deck) => h.post('/api/layer', { id, set: {
+      engine: 'wave', pattern: 'pulse', waveform: 'square', mode: 'onoff',
+      floor: 1, level: 1, target: 'intensity', blend: 'htp', deck, bars,
+      stepMs: 10000, group: 8, speed: 0.05, width: 8, lfo: null,
+    } });
+    await plate(A, ['c0', 'c1'], 'a');
+    await plate(B, ['c4', 'c5'], 'b');
+    await h.post('/api/global', { master: 1, speed: 1, dimmer: 'linear', xfade: 0,
+      modGlobal: { on: true, param: 'xfade', forme: 'square',
+                   periodeMs: 600, sync: false, cycles: 8, min: 0, max: 1 } });
+    await h.post('/api/start');
+
+    let vuA = false, vuB = false;
+    for (let i = 0; i < 12; i++) {
+      const n = await niveauxDe(90);
+      if (n.get('bar0') > 0.9) vuA = true;
+      if (n.get('bar4') > 0.9) vuB = true;
+    }
+    await h.post('/api/stop');
+    assert.ok(vuA && vuB,
+      'les deux jeux doivent jouer à tour de rôle sans qu’on touche au fader — '
+      + 'jeu A vu : ' + vuA + ', jeu B vu : ' + vuB);
+  });
+
+  test('il n’écrit pas dans l’état, comme celui des couches', async () => {
+    await h.post('/api/global', { xfade: 0.25,
+      modGlobal: { on: true, param: 'xfade', forme: 'sine',
+                   periodeMs: 400, sync: false, cycles: 8, min: 0, max: 1 } });
+    await h.post('/api/start');
+    await sleep(700);
+    const g = (await h.state()).global;
+    await h.post('/api/stop');
+    assert.equal(g.xfade, 0.25,
+      'le fader doit rester où le régisseur l’a laissé, vu ' + g.xfade);
+  });
+
+  test('rien d’hostile ne passe, et les bornes du réglage tiennent', async () => {
+    for (const mauvais of ['running', 'param', 'dimmer', 'presetFade', 'nawak']) {
+      await h.post('/api/global', { modGlobal: { on: true, param: mauvais,
+        forme: 'sine', periodeMs: 1000, min: 0, max: 1 } });
+      assert.equal((await h.state()).global.modGlobal, null,
+        'le réglage « ' + mauvais + ' » ne doit pas être modulable globalement');
+    }
+    await h.post('/api/global', { modGlobal: { on: true, param: 'master',
+      forme: 'zigzag', periodeMs: 1, sync: 1, cycles: 999, min: -9, max: 9 } });
+    const g = (await h.state()).global.modGlobal;
+    assert.equal(g.forme, 'sine', 'une forme inconnue retombe sur le sinus');
+    assert.ok(g.periodeMs >= 100 && g.cycles <= 64,
+      'période et cycles doivent être bornés : ' + JSON.stringify(g));
+
+    // Les bornes délirantes sont ramenées à l'envoi, pas stockées telles quelles
+    // dans le réglage global : c'est `sanitizeGlobal` qui tranche à chaque image.
+    await h.post('/api/start');
+    await sleep(300);
+    await h.post('/api/stop');
+    await h.post('/api/global', { modGlobal: null, master: 1 });
+    assert.equal((await h.state()).global.master, 1,
+      'le master doit revenir à ce que le régisseur a posé');
+  });
+
+  test('il voyage avec le projet', async () => {
+    const m = { on: true, param: 'xfade', forme: 'triangle',
+                periodeMs: 5000, sync: true, cycles: 4, min: 0.2, max: 0.8 };
+    await h.post('/api/global', { modGlobal: m });
+    const exp = await h.get('/api/export');
+    assert.deepEqual(exp.body.global.modGlobal, m, 'il doit être exporté');
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).global.modGlobal, null,
+      'un projet neuf ne doit pas en garder un');
+    await h.post('/api/import', exp.body);
+    assert.deepEqual((await h.state()).global.modGlobal, m,
+      'il doit survivre à l’import');
+    await h.post('/api/global', { modGlobal: null });
+  });
+
+  test('aucune erreur n’a été écrite dans le journal du serveur', () => {
+    const erreurs = h.logs.join('').split('\n').filter(l =>
+      /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
+    assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
+  });
+});

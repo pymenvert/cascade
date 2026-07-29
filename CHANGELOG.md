@@ -106,6 +106,10 @@ dans `docs/V2-TESTS-MADMAPPER.md` et `docs/madmapper-osc-api.md`.
   subit le même nettoyage qu'une saisie, donc il ne peut pas sortir un réglage
   de sa plage. La liste des paramètres modulables est fermée — moduler `target`
   ou `bars` fabriquerait des états incohérents plusieurs fois par seconde.
+- **Modulateur global** — le même mécanisme, sur le crossfader, le master ou la
+  vitesse globale. Sur le crossfader, la scène passe d'un jeu à l'autre toute
+  seule : elle respire entre deux ambiances sans qu'on tienne le fader. Un
+  projet neuf n'en hérite jamais.
 - **Crossfader entre deux jeux de couches** — l'outil de conduite de Madrix.
   Chaque couche se range dans le jeu A, le jeu B, ou nulle part (« Toujours »,
   le défaut). Un fader passe de l'un à l'autre, et une console peut le tenir :
@@ -152,15 +156,15 @@ et chacun a son test dans `tests/regressions.test.js`.
 
 ### Tests
 
-242 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
+248 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — **20 mutations, 20 détectées**.
+s'en aperçoit — **21 mutations, 21 détectées**.
 
 Un garde-fou a été ajouté après incident : un commit était parti avec un
 cassage volontaire encore en place, et toute la suite restait verte — c'est
 normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
-le code source contient toujours la forme saine de chacun des vingt endroits
+le code source contient toujours la forme saine de chacun des vingt-et-un endroits
 que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25
