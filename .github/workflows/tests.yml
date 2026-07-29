@@ -1,0 +1,46 @@
+name: Tests
+
+# Le dépôt n'avait aucune intégration continue jusqu'à la 2.0. Or la suite
+# attrape des choses invisibles en local : une course de timing sur une machine
+# lente, un chemin qui n'existe que sous Windows, un dist/ oublié.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    # La suite tourne en ~1 min en local ; un runner partagé est plus lent, et
+    # certains tests mesurent des durées réelles. On laisse de la marge sans
+    # laisser un blocage tourner une heure.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 : c'est la cible des exécutables (pkg n'accepte que node22-*),
+      # donc c'est sur cette version que la suite doit être verte.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Zéro dépendance npm : il n'y a rien à installer. Si un `npm install`
+      # apparaît ici un jour, c'est que la règle n°2 du projet a sauté.
+      - name: Vérifier qu'il n'y a aucune dépendance
+        run: |
+          node -e "
+            const p = require('./package.json');
+            const d = { ...(p.dependencies || {}), ...(p.devDependencies || {}) };
+            const n = Object.keys(d);
+            if (n.length) { console.error('Dépendances npm introduites : ' + n.join(', ')); process.exit(1); }
+            console.log('aucune dépendance, conforme');
+          "
+
+      # Les tests d'interface pilotent un vrai navigateur via CDP. Sans lui ils
+      # s'annoncent ignorés au lieu d'échouer — mais on préfère les faire tourner.
+      - name: Vérifier la présence d'un navigateur
+        run: which google-chrome chromium chromium-browser 2>/dev/null || echo "aucun navigateur — les tests d'UI seront ignorés"
+
+      - name: Suite complète
+        run: npm test

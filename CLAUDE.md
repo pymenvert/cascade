@@ -57,9 +57,17 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 Pym. **Le développement continue sur `main`** — la branche `v2` n'a plus de
 raison d'être.
 
-⚠ Le dépôt n'a **aucun workflow GitHub** : ni CI, ni release automatique. Taguer
-ne construit rien. Les exécutables se font à la main (`node build.js`) et
-s'attachent à la main sur la page de release.
+**Intégration continue et release, depuis la 2.0** (le dépôt n'avait rien avant) :
+
+- `.github/workflows/tests.yml` — `npm test` sur chaque push vers `main` et sur
+  chaque PR. Vérifie aussi qu'**aucune dépendance npm** n'a été introduite.
+- `.github/workflows/release.yml` — pousser un tag `vX.Y.Z` construit les quatre
+  exécutables et publie la release avec eux en pièces jointes. La description
+  vient du CHANGELOG via `tools/notes-version.js`, jamais d'un texte recopié.
+  Republier : onglet Actions → Release → « Run workflow », en donnant le tag.
+
+⚠ **Attendre la CI verte avant de taguer.** Elle attrape ce qui est invisible en
+local : courses de timing sur runner lent, chemins spécifiques à Windows.
 
 Livré et testé : page Scène 3D et manipulation souris · moteur Champ 3D
 (5 formes, netteté, course, bruit dirigé) · vues par axe avec bascule de

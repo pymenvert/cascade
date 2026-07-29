@@ -1,0 +1,80 @@
+name: Release
+
+# Pousser un tag `vX.Y.Z` construit les quatre exécutables et publie la release
+# avec eux en pièces jointes. Avant la 2.0, tout ça se faisait à la main : on
+# construisait sur son poste et on glissait les fichiers dans le navigateur.
+#
+# Pour republier une release existante (assets manquants, build à refaire) :
+# onglet Actions -> Release -> « Run workflow » et donner le tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag à publier (ex. v2.0.0)'
+        required: true
+
+permissions:
+  contents: write        # nécessaire pour créer la release et y attacher les binaires
+
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # pkg télécharge ~250 Mo de binaires Node la 1re fois
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ⚠ On NE publie PAS sans que la suite soit verte. Livrer un exécutable
+      # qui n'a pas été testé, c'est exactement ce qu'on cherche à éviter.
+      - name: Suite complète
+        run: npm test
+
+      - name: Construire les quatre exécutables
+        run: node build.js
+
+      # Le nom du tag vient soit du push, soit de la saisie manuelle.
+      - name: Déterminer le tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "nom=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # La description vient du CHANGELOG, jamais d'un texte recopié à côté :
+      # un texte parallèle finit toujours par diverger de la vérité.
+      - name: Extraire la description depuis le CHANGELOG
+        run: node tools/notes-version.js "${{ steps.tag.outputs.nom }}" > notes.md
+
+      - name: Vérifier que les quatre binaires sont là
+        run: |
+          n=$(ls build/Cascade-${{ steps.tag.outputs.version }}-* 2>/dev/null | wc -l)
+          if [ "$n" -ne 4 ]; then
+            echo "Attendu 4 exécutables, trouvé $n :"; ls -la build/ || true; exit 1
+          fi
+          ls -la build/
+
+      # `gh` est préinstallé sur les runners : pas d'action tierce à faire
+      # confiance, ce qui va avec l'esprit zéro-dépendance du projet.
+      # `create` échoue si la release existe déjà (tag poussé avant ce workflow) :
+      # dans ce cas on se contente d'y attacher les binaires.
+      - name: Publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.nom }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release $TAG existe déjà — mise à jour."
+            gh release edit "$TAG" --title "Cascade $VERSION" --notes-file notes.md
+            gh release upload "$TAG" build/Cascade-$VERSION-* --clobber
+          else
+            gh release create "$TAG" build/Cascade-$VERSION-* \
+              --title "Cascade $VERSION" --notes-file notes.md
+          fi
