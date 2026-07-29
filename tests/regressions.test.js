@@ -12,6 +12,7 @@
  */
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const { start, sleep } = require('./helpers.js');
 
 const niveaux = (msgs) => {
@@ -430,14 +431,35 @@ describe('Défauts corrigés — ils ne doivent jamais revenir', () => {
     await h.post('/api/stop');
   });
 
-  test('la coupure survit à un redémarrage, pour que l’interface puisse le dire', async () => {
+  test('la coupure survit à un VRAI redémarrage', async () => {
     // Si Cascade redémarre alors que la coupure est engagée, MadMapper reste
     // noir. Oublier l'état laisserait le régisseur chercher pourquoi rien ne
     // s'allume — c'est exactement le genre de mystère qui coûte un spectacle.
+    // ⚠ Ce test ne redémarrait RIEN : il vérifiait l'export puis rebasculait la
+    // coupure. Le titre promettait un redémarrage, le corps n'en faisait pas —
+    // donc le comportement annoncé n'était pas couvert. Il l'est maintenant
+    // pour de vrai : un serveur NEUF, nourri de la configuration écrite sur le
+    // disque par le premier.
     await h.post('/api/coupure', { on: true });
-    await sleep(150);
+    // ⚠ L'écriture de la configuration est différée de 500 ms (anti-usure du
+    // disque). Attendre moins, c'est lire un fichier qui n'existe pas encore.
+    await sleep(900);
     const exp = await h.get('/api/export');
     assert.equal(exp.body.global.coupure, true, 'l’état doit être exporté');
+
+    const conf = fs.readFileSync(h.cfgFile, 'utf8');
+    assert.match(conf, /"coupure"\s*:\s*true/,
+      'la coupure doit être écrite sur le disque, sinon rien ne peut survivre');
+
+    const h2 = await start(conf);
+    try {
+      assert.equal((await h2.state()).global.coupure, true,
+        'au redémarrage, Cascade doit retrouver la coupure engagée — sinon le '
+        + 'régisseur cherche pourquoi MadMapper reste noir');
+    } finally {
+      await h2.stop();
+    }
+
     await h.post('/api/coupure', { on: false });
     await sleep(100);
     assert.equal((await h.state()).global.coupure, false);

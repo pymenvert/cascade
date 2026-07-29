@@ -1248,8 +1248,11 @@ describe('Champ 3D', () => {
   test('une palette hostile est nettoyée, jamais acceptée telle quelle', async () => {
     await setL({ palette: ['pas une couleur', '#00ff00', 42, '#0000ff'] });
     let L = (await h.state()).layers[0];
-    assert.ok(Array.isArray(L.palette) && L.palette.length === 2,
-      'seules les couleurs valides doivent rester : ' + JSON.stringify(L.palette));
+    // ⚠ Vérifier le CONTENU, pas seulement le compte : garder deux arrêts serait
+    // aussi le cas si le nettoyage gardait les mauvais.
+    assert.deepEqual(L.palette, ['#00ff00', '#0000ff'],
+      'seules les couleurs valides doivent rester, et CELLES-LÀ : '
+      + JSON.stringify(L.palette));
     // Un seul arrêt valide ne fait pas une palette
     await setL({ palette: ['#00ff00', 'nope'] });
     assert.equal((await h.state()).layers[0].palette, null,

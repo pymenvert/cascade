@@ -180,6 +180,12 @@ const MUTATIONS = [
     vers: '           + Math.imul(z | 0, 2147483647)) | 0;',
   },
   {
+    nom: 'la coupure n est plus retrouvee au redemarrage',
+    cible: 'tests/regressions.test.js',
+    de: "  if ('coupure' in g) o.coupure = !!g.coupure;",
+    vers: "  if ('coupure' in g) o.coupure = false;",
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",
