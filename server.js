@@ -737,6 +737,37 @@ function sanitizeVues(list) {
   return out;
 }
 
+/**
+ * Nettoie l'adresse OSC d'une fixture. Trouvé à l'audit de la 2.0.0, en
+ * envoyant des adresses hostiles et en lisant ce qui sortait vraiment.
+ *
+ * Trois défauts, tous silencieux :
+ *
+ *  - un **octet nul** tronque l'adresse à l'encodage. `/fixtures/bar\0zzz`
+ *    partait comme `/fixtures/bar` — on pilotait un autre nœud que celui
+ *    affiché, sans le moindre signe. Les caractères de contrôle sont retirés.
+ *  - une adresse **sans `/` initial** n'est pas une adresse OSC valide.
+ *    `fixtures/bar0` partait tel quel. On préfixe : l'intention est évidente.
+ *  - une adresse **vide** produisait `/luminosity`, un message à la racine de
+ *    MadMapper. Elle rend maintenant la chaîne vide, et `sendLum`/`sendRGB`
+ *    n'envoient rien : une fixture sans adresse ne pilote rien, ce qui est la
+ *    seule lecture honnête.
+ *
+ * ⚠ Ce qui n'est PAS traité ici, faute de mesure : les caractères de motif OSC
+ * (`* ? [ ] { }`). Ils sont réservés et un serveur conforme les développe — une
+ * seule fixture nommée « Bar * » commanderait alors TOUT le rig. On ne les
+ * réécrit pas, parce qu'on ne sait pas encore si MadMapper les développe ou les
+ * traite littéralement, et qu'une réécriture casserait une fixture qui marche.
+ * Voir le rapport d'audit (hors dépôt) : c'est une mesure à faire sur MadMapper.
+ */
+function adresseOsc(brut) {
+  const propre = String(brut || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200);
+  if (!propre) return '';
+  const avecSlash = propre.startsWith('/') ? propre : '/' + propre;
+  // `/` seul ne désigne rien : autant le traiter comme une absence d'adresse.
+  return avecSlash === '/' ? '' : avecSlash;
+}
+
 function sanitizeFixtures(list, scene) {
   if (!Array.isArray(list)) return [];
   const s = scene || state.scene;
@@ -748,7 +779,7 @@ function sanitizeFixtures(list, scene) {
     const o = {
       id: (f && typeof f.id === 'string' ? f.id.slice(0, 40) : '') || 'fx' + Date.now() + '_' + i,
       name: String((f && f.name) || 'Fixture ' + (i + 1)).slice(0, 64),
-      address: String((f && f.address) || '').slice(0, 200),
+      address: adresseOsc(f && f.address),
       enabled: !f || f.enabled !== false,
       x: f && typeof f.x === 'number' && Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : null,
       y: f && typeof f.y === 'number' && Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : null,
@@ -2027,6 +2058,10 @@ const runtime = { levels: [], colors: [] }; // pour la préview web
 
 function q255(v) { return Math.round(Math.max(0, Math.min(1, v)) * 255) / 255; }
 function sendLum(f, v, force) {
+  // Sans adresse, il n'y a rien à piloter. Avant l'audit de la 2.0.0, une
+  // fixture sans adresse envoyait `/luminosity` — un message à la racine de
+  // MadMapper, adressé à personne en particulier.
+  if (!f.address) return;
   const q = q255(v);
   if (lastLum.get(f.id) !== q || force) {
     oscSend(`${f.address}/${state.global.param}`, [{ type: 'f', value: q }]);
@@ -2034,6 +2069,7 @@ function sendLum(f, v, force) {
   }
 }
 function sendRGB(f, c, force) {
+  if (!f.address) return;
   const q = c.map(q255);
   const last = lastRGB.get(f.id);
   if (!last || last[0] !== q[0] || last[1] !== q[1] || last[2] !== q[2] || force) {

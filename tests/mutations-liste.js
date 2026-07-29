@@ -142,6 +142,21 @@ const MUTATIONS = [
     vers: "  const x = Math.max(0, Math.min(1, fini(state.global.xfade, 0)));",
   },
   {
+    nom: 'l adresse d une fixture n est plus nettoyee (octet nul, slash absent)',
+    cible: 'tests/adresses.test.js',
+    de: "      address: adresseOsc(f && f.address),",
+    vers: "      address: String((f && f.address) || '').slice(0, 200),",
+  },
+  {
+    nom: 'une fixture sans adresse envoie a nouveau a la racine',
+    cible: 'tests/adresses.test.js',
+    // ⚠ Motif sur UNE ligne : un motif multi-ligne ne matche pas selon les
+    // fins de ligne du fichier. `indexOf` prend la première occurrence,
+    // celle de `sendLum` — c'est celle que le test mesure.
+    de: '  if (!f.address) return;',
+    vers: '  if (false) return;',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",
