@@ -296,6 +296,11 @@ describe('Champ 3D', () => {
     // …et la vague 2D, elle, ne peut pas les distinguer : c'est la limite qu'on lève
     await base({ engine: 'wave', pattern: 'lr', stepMs: 300, group: 1, speed: 1 });
     const vague = await ecartMax('bar0', 'bar1');
+    // ⚠ Le contrôle des relevés n'est pas décoratif ICI plus qu'ailleurs : cette
+    // assertion demande que l'écart soit PETIT. Sans relevé, `ecart` vaut 0 et
+    // elle passe à vide — un test qui ne mesure rien conclut que tout va bien.
+    // C'est le piège propre aux assertions « en dessous d'un seuil ».
+    assert.ok(vague.vus >= 6, 'trop peu de relevés : ' + vague.vus);
     assert.ok(vague.ecart < 0.02,
       'la vague 2D devrait les traiter à l’identique — écart max ' + vague.ecart);
     await h.post('/api/fixtures', { fixtures: enLigne(6) });
