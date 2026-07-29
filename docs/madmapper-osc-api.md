@@ -319,3 +319,39 @@ perdu qui laisse une barre à côté, pas de risque d'écraser le mapping.
 même temps ne donnent pas de la bouillie mais un résultat déterministe. C'est un
 mode de défaillance bénin — utile à savoir, mais Cascade doit quand même
 garantir qu'un seul jeu est visible, et le vérifier par relecture.
+
+## Les caractères de motif OSC — mesuré le 2026-07-29
+
+**Question tranchée : MadMapper ne développe PAS les motifs d'adresse.**
+
+En OSC, `* ? [ ] { }` sont réservés et un serveur conforme les développe : un
+message vers `/fixtures/*/luminosity` devrait atteindre toutes les fixtures.
+L'audit de la 2.0 avait laissé la question ouverte, faute de l'application.
+
+**Protocole** : sept fixtures posées à 0,20 par messages individuels (le témoin
+— il prouve que le canal UDP fonctionne), puis un seul message vers
+`/fixtures/*/luminosity` à 0,85, puis relecture.
+
+**Résultat** : les sept sont restées à 0,20. **Aucune** n'a bougé. Restauration
+conforme.
+
+### Ce que ça change
+
+La crainte était qu'une fixture nommée « Bar * » commande tout le rig depuis une
+seule couche. **Elle est levée.** MadMapper prend l'adresse au pied de la
+lettre : le nom du nœud est le nom du nœud, astérisque compris.
+
+Donc **envoyer l'adresse verbatim, ce que fait Cascade, est correct** — c'est
+même la seule façon d'atteindre une fixture dont le nom contient un de ces
+caractères. Aucune réécriture n'est souhaitable : elle rendrait au contraire la
+fixture inatteignable.
+
+⚠ Le seul mode de défaillance restant est bénin et visible : une adresse qui ne
+correspond à aucun nœud ne fait rien du tout. Une barre muette, pas un plateau
+qui s'allume.
+
+### ⚠ Piège de campagne, confirmé le même jour
+
+**L'entrée OSC de MadMapper est un réglage PAR PROJET.** Elle était sur **8010**
+et non 8000. Toujours lancer « Trouver le port » avant une campagne — le voyant
+reste éteint sans que rien n'explique pourquoi.
