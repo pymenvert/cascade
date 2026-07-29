@@ -16,7 +16,7 @@ const os = require('os');
 const { exec, spawn } = require('child_process');
 
 const APP_NAME = 'Cascade';
-const VERSION = '2.0.0-dev';
+const VERSION = '2.0.0';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
 const MAX_LAYERS = 8;

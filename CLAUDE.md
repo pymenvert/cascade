@@ -2,7 +2,7 @@
 
 App web (Node.js zéro dépendance + page unique) qui pilote les fixtures DMX de
 MadMapper en OSC : multi-chasers, vagues, couleur, presets, MIDI/OSC, Ableton
-Link. v1.6.0 sur `main`, 2.0.0-dev sur `v2` · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
+Link. **2.0.0** · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
 
 ## À lire EN PREMIER
 
@@ -51,11 +51,15 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 - Manuel : `python docs/build-manuel.py <dossier>` (reportlab ; les polices sont
   détectées automatiquement selon la plateforme).
 
-## Où en est la v2 (branche `v2`, au 2026-07-28)
+## La 2.0 est SORTIE (2026-07-28)
 
-`main` reste la **1.6.0** intacte. La branche `v2` s'annonce **2.0.0-dev** —
-délibérément, tant qu'elle n'est pas sortie. **Elle n'est pas fusionnée, et
-c'est la décision de Pym, pas la tienne.**
+`v2` a été fusionnée dans `main` et taguée `v2.0.0`, sur décision explicite de
+Pym. **Le développement continue sur `main`** — la branche `v2` n'a plus de
+raison d'être.
+
+⚠ Le dépôt n'a **aucun workflow GitHub** : ni CI, ni release automatique. Taguer
+ne construit rien. Les exécutables se font à la main (`node build.js`) et
+s'attachent à la main sur la page de release.
 
 Livré et testé : page Scène 3D et manipulation souris · moteur Champ 3D
 (5 formes, netteté, course, bruit dirigé) · vues par axe avec bascule de

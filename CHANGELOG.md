@@ -4,10 +4,16 @@ Toutes les évolutions notables de Cascade. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [sémantique](https://semver.org/lang/fr/).
 
-## [2.0.0-dev] — en cours, branche `v2`
+## [2.0.0] — 2026-07-28
 
-Version « espace » : Cascade sort du plan. La v1.6.0 reste disponible et
-inchangée sur `main` — rien de ce qui suit ne modifie un show existant.
+Version « espace » : Cascade sort du plan. Un effet devient une fonction de la
+position réelle de chaque barre dans le volume, et la scénographie se dessine
+en trois dimensions.
+
+Rien de ce qui suit ne modifie le rendu d'un show existant : tous les nouveaux
+réglages sont neutres par défaut, et un projet 1.x est migré sans bouger d'un
+pixel. Les quatre défauts marqués **v1** ci-dessous étaient en revanche présents
+dans la 1.6.0 — c'est la raison la plus sérieuse de passer à cette version.
 
 ### Ajouté
 
