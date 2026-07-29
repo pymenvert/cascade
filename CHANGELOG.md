@@ -160,6 +160,21 @@ et chacun a son test dans `tests/regressions.test.js`.
 - `setPointerCapture` sous `try/catch` : la capture peut légitimement échouer,
   et l'exception interrompait le début du geste.
 
+### Intégration continue
+
+Le dépôt n'avait **aucun workflow GitHub** — jamais. Les exécutables se
+construisaient sur un poste et s'attachaient à la main dans le navigateur.
+
+- `tests.yml` : la suite sur chaque push vers `main` et chaque PR. Elle vérifie
+  aussi qu'aucune dépendance npm n'a été introduite — la règle du zéro
+  dépendance ne se surveille pas toute seule.
+- `release.yml` : pousser un tag `vX.Y.Z` construit les quatre exécutables et
+  publie la release avec eux. Il refuse de publier si la suite n'est pas verte,
+  et vérifie que les quatre fichiers sont là plutôt que de sortir une release
+  amputée. La description vient du CHANGELOG, extraite par
+  `tools/notes-version.js` : un texte de release recopié à côté finit toujours
+  par diverger.
+
 ### Tests
 
 248 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
