@@ -128,6 +128,14 @@ const MUTATIONS = [
     vers: '  const periode = false ? Math.max(100, m.cycles * periodeCouche(L))',
   },
   {
+    // La forme EXACTE d'avant le correctif du 28/07 : un wash de couleur
+    // s'éteignait dès qu'un chase d'intensité démarrait sur d'autres barres.
+    nom: 'le niveau se decide globalement, plus barre par barre (defaut v1)',
+    cible: 'tests/regressions.test.js',
+    de: '  if (mix.lum.has(id)) return mix.lum.get(id);',
+    vers: '  if (mix.anyInt) return mix.lum.get(id) || 0;',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

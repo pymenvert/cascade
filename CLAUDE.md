@@ -63,7 +63,7 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateur (LFO) par couche · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**242 tests, 19 mutations sur 19 détectées.** Manuel PDF, README, CHANGELOG et
+**242 tests, 20 mutations sur 20 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 

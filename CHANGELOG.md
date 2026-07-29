@@ -155,12 +155,12 @@ et chacun a son test dans `tests/regressions.test.js`.
 242 tests (contre 129 en 1.6.0), dont le pilotage d'un vrai navigateur avec de
 véritables événements de souris injectés par CDP, et un **outil de mutation**
 (`npm run test:mutation`) qui casse le code exprès pour vérifier que la suite
-s'en aperçoit — **19 mutations, 19 détectées**.
+s'en aperçoit — **20 mutations, 20 détectées**.
 
 Un garde-fou a été ajouté après incident : un commit était parti avec un
 cassage volontaire encore en place, et toute la suite restait verte — c'est
 normal, un mutant tue une fonction, pas un test. Un test vérifie désormais que
-le code source contient toujours la forme saine de chacun des dix-neuf endroits
+le code source contient toujours la forme saine de chacun des vingt endroits
 que l'outil sait casser.
 
 ## [1.6.0] — 2026-07-25
