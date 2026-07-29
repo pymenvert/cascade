@@ -82,7 +82,7 @@ const MUTATIONS = [
   {
     nom: 'etalement du bruit revenu a la version rejetee',
     cible: 'tests/champ3d.test.js',
-    de: "const BRUIT_MOY = 0.5, BRUIT_EC = 0.1809;",
+    de: "const BRUIT_MOY = 0.5, BRUIT_EC = 0.2000;",
     vers: "const BRUIT_MOY = 0.5, BRUIT_EC = 0.11;",
   },
   {
@@ -170,6 +170,14 @@ const MUTATIONS = [
     cible: 'tests/disposition2d.test.js',
     de: '      if (deuxDContredit(f, o)) set2D(o, f.x, f.y, f.rot, s);',
     vers: '      if (false) set2D(o, f.x, f.y, f.rot, s);',
+  },
+  {
+    // Le multiplicateur degenere d'avant le 29/07 : 2^31-1 revient a -z plus un
+    // bit de parite, et c'est l'axe Z qui porte le temps.
+    nom: 'l axe Z du bruit retrouve son multiplicateur degenere',
+    cible: 'tests/hachage.test.js',
+    de: '           + Math.imul(z | 0, 2654435761)) | 0;',
+    vers: '           + Math.imul(z | 0, 2147483647)) | 0;',
   },
   {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',

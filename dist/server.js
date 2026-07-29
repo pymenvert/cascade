@@ -1794,20 +1794,15 @@ function hash3(x, y, z) {
   // l'avaient pas vu parce qu'ils mesuraient la variation entre barres — qui,
   // elle, fonctionnait très bien.
   //
-  // ⚠ MESURÉ le 2026-07-29, non corrigé : le multiplicateur de Z, 2147483647,
-  // vaut 2^31 - 1. En arithmétique 32 bits, multiplier par cette valeur revient
-  // à `-z` plus un bit de parité — un multiplicateur DÉGÉNÉRÉ. Sur 199 pas
-  // consécutifs, l'axe Z ne produit que 14 écarts distincts, contre 199 pour X
-  // et 197 pour Y. Or c'est Z qui porte le TEMPS : le bruit 3D se répète dans la
-  // durée. Une constante ordinaire (2654435761) remonte l'axe à 197.
-  //
-  // Pourquoi ce n'est pas corrigé ici : changer le hachage change la
-  // distribution du bruit, donc `BRUIT_EC` juste en dessous doit être remesuré
-  // — et sur l'échantillonnage RÉEL du moteur, pas sur un balayage synthétique.
-  // Un premier essai a fait tomber le test de saturation. C'est une correction à
-  // faire posément, avec sa mesure. Voir le rapport d'audit, hors dépôt.
+  // ⚠ Le multiplicateur de Z était 2147483647, soit 2^31 - 1. En arithmétique
+  // 32 bits, multiplier par cette valeur revient à `-z` plus un bit de parité :
+  // un multiplicateur DÉGÉNÉRÉ. L'avalanche qui suit brouillait assez la sortie
+  // pour que rien ne se voie à l'œil, mais la mesure est sans appel — sur 199
+  // pas consécutifs, l'axe Z ne donnait que 14 écarts distincts, contre 199 pour
+  // X et 197 pour Y. Or c'est Z qui porte le TEMPS : le bruit se répétait dans
+  // la durée. `tests/hachage.test.js` verrouille la propriété.
   let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)
-           + Math.imul(z | 0, 2147483647)) | 0;
+           + Math.imul(z | 0, 2654435761)) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
 }
@@ -1843,7 +1838,15 @@ function bruit3(x, y, z) {
  * tombe à 3,8 % de saturation : il reste de vrais noirs et de vrais pleins —
  * c'est ce qui fait vivre un feu — sans que le champ passe son temps aux butées.
  */
-const BRUIT_MOY = 0.5, BRUIT_EC = 0.1809;
+// ⚠ RECALIBRÉ le 2026-07-29, après la correction du multiplicateur de l'axe Z.
+// Un hachage correct élargit la distribution : l'ancien Z, quasi corrélé d'un
+// pas de temps au suivant, faisait converger l'interpolation vers le milieu.
+// À 0,1809 la saturation remontait à 15,2 % — le clignotement dur qu'on avait
+// justement chassé. Calibré sur la mesure RÉELLE du moteur, celle du test de
+// saturation, et non sur un balayage synthétique : celui-ci donnait 0,1844, une
+// valeur qui laissait le test tomber. 0,2000 ramène la saturation à 4,2 %,
+// exactement l'intention des ±2 écarts-types.
+const BRUIT_MOY = 0.5, BRUIT_EC = 0.2000;
 function etaler(v) {
   const r = (v - (BRUIT_MOY - 2 * BRUIT_EC)) / (4 * BRUIT_EC);
   return r < 0 ? 0 : r > 1 ? 1 : r;
