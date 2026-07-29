@@ -565,6 +565,38 @@ function set2D(f, x, y, rot, scene) {
   return set3D(f, [(nx - 0.5) * s.w, f.p3 ? f.p3[1] : 0, (1 - ny) * s.h],
     [Math.cos(r), 0, -Math.sin(r)], f.len3 ?? 1.2, s);
 }
+/**
+ * La 2D reçue contredit-elle la 3D reçue ?
+ *
+ * La page Conduite renvoie TOUT le tableau des fixtures après un déplacement,
+ * `p3` compris — celui du dernier relevé, donc cohérent avec l'ANCIENNE
+ * position. Si les x/y/rot reçus ne correspondent plus à la dérivation de ce
+ * `p3`, c'est que la 2D vient d'être modifiée : c'est elle qui fait foi.
+ *
+ * Sans cette lecture, la 3D écrasait systématiquement la 2D et TOUTE la page
+ * Conduite était morte — glissé, pivoter, Ligne, Colonne, les deux miroirs, et
+ * surtout « Importer depuis MadMapper » qui annonçait « N fixtures placées »
+ * sans que rien ne bouge. Mesuré : POST x 0,8 / y 0,2 / rot 45 avec un p3
+ * présent → l'état répondait x 0,2 / y 0,5 / rot 0.
+ *
+ * On compare à la dérivation plutôt qu'à l'état d'avant : le client renvoie
+ * exactement les valeurs qu'il a reçues, donc l'égalité est exacte quand rien
+ * n'a bougé — aucune dérive de virgule flottante à craindre.
+ */
+function deuxDContredit(recu, derive) {
+  if (!recu) return false;
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  if (num(recu.x) && Math.abs(recu.x - derive.x) > 1e-6) return true;
+  if (num(recu.y) && Math.abs(recu.y - derive.y) > 1e-6) return true;
+  if (num(recu.rot)) {
+    // Écart angulaire le plus court : 359,999° et 0° sont le même angle, et il
+    // faut donc replier la différence dans [-180 ; 180] avant de la mesurer.
+    const ecart = Math.abs((((recu.rot - derive.rot) % 360) + 540) % 360 - 180);
+    if (ecart > 1e-4) return true;
+  }
+  return false;
+}
+
 /** Projet v1 (x/y/rot/len seuls) → espace 3D. Tout arrive dans le plan de face,
  *  exactement là où la vue 2D le montrait : aucun show ne change de rendu. */
 function migre3D(f, scene, lenMax) {
@@ -799,6 +831,11 @@ function sanitizeFixtures(list, scene) {
     const p = f && f.p3, d = f && f.dir3;
     if (Array.isArray(p) && p.length === 3 && Array.isArray(d) && d.length === 3) {
       set3D(o, p, d, f.len3, s);   // la 3D fait foi, la 2D est recalculée
+      // …sauf si la 2D reçue la contredit : elle vient alors d'être modifiée
+      // depuis la page Conduite, et c'est elle qu'il faut suivre. La profondeur
+      // est préservée par `set2D` — déplacer une barre dans le plan de face ne
+      // doit pas la ramener au premier plan.
+      if (deuxDContredit(f, o)) set2D(o, f.x, f.y, f.rot, s);
     } else {
       migre3D(o, s, lenMax);
     }
@@ -2170,16 +2207,23 @@ function computeMix(layers, fixtures, now, store) {
   const parId = new Map(enabled.map(f => [f.id, f]));
   const lum = new Map(), col = new Map();
   let anyInt = false, anyCol = false;
+  // Barres CIBLÉES par au moins une couche d'intensité, qu'elle contribue ou
+  // non. Rempli AVANT le test du poids nul, et c'est tout l'intérêt : voir plus
+  // bas, dans `mixLevel`, pourquoi l'oublier rallumait tout le plateau.
+  const cibles = new Set();
   for (const L0 of layers) {
     if (!L0.enabled) continue;
     // La couche vue par le moteur est la couche MODULÉE. `L0` reste intacte.
     const L = appliquerLFO(L0, now, store);
     const poids = poidsDeck(L);
-    // À poids nul la couche n'a AUCUN effet — pas même un masque noir. C'est ce
-    // que donne aussi la formule ci-dessous, mais autant ne pas calculer.
-    if (poids === 0) continue;
     const list = resolveBars(L, enabled);
     if (!list.length) continue;
+    if (L.target !== 'color') for (const f of list) cibles.add(f.id);
+    // À poids nul la couche n'a AUCUN effet — pas même un masque noir. C'est ce
+    // que donne aussi la formule ci-dessous, mais autant ne pas calculer.
+    // ⚠ Ne PAS retirer ce `continue` : une couche couleur à poids nul écrirait
+    // [0,0,0] dans `col`, et `sendRGB` enverrait du noir au lieu de se taire.
+    if (poids === 0) continue;
     const vals = L.engine === 'field' ? fieldValues(L, list, now, store)
       : L.engine === 'wave' ? waveValues(L, list, now, store)
       : stepValues(L, list, now, store);
@@ -2219,7 +2263,7 @@ function computeMix(layers, fixtures, now, store) {
       }
     }
   }
-  return { lum, col, anyInt, anyCol };
+  return { lum, col, anyInt, anyCol, cibles };
 }
 /** Niveau d'une fixture dans un mix, avant master et courbe.
  *  Couches couleur seules : l'intensité est tenue à fond pour voir la couleur. */
@@ -2246,6 +2290,20 @@ function computeMix(layers, fixtures, now, store) {
  */
 function mixLevel(mix, id) {
   if (mix.lum.has(id)) return mix.lum.get(id);
+  // ⚠ CIBLÉE mais absente de `lum` : une couche d'intensité la pilote, et son
+  // poids de crossfader est nul. Elle vaut ZÉRO, pas le repli couleur.
+  //
+  // Sans cette ligne, poser le fader en butée — la position de repos de TOUT
+  // transfert — rallumait le plateau à plein feu. Mesuré : 0,0980 à xfade 0,90 ;
+  // 0,0118 à 0,99 ; 0,0039 à 0,995 ; puis 1,0000 à 1,00. Le curseur va de 0 à
+  // 100 par pas de 1, donc 1,00 est atteint exactement à chaque transfert, et
+  // `/chaser/xfade 1` fait pareil depuis une console.
+  //
+  // La cause : `computeMix` retire du mix une couche à poids nul au lieu de la
+  // faire contribuer zéro. La barre disparaissait de `lum`, et `mixLevel` ne
+  // pouvait plus distinguer « aucune couche d'intensité ne la pilote » de « la
+  // couche qui la pilote est à poids nul ». C'est `cibles` qui tranche.
+  if (mix.cibles && mix.cibles.has(id)) return 0;
   // Pilotée seulement en couleur : on tient l'intensité à fond, sinon la
   // couleur ne se verrait pas. C'est la règle v1, appliquée barre par barre.
   return mix.col.has(id) ? 1 : 0;

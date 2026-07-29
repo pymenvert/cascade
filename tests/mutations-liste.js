@@ -157,6 +157,21 @@ const MUTATIONS = [
     vers: '  if (false) return;',
   },
   {
+    // ⛔ Bloquant trouvé par relecture adversariale, reproduit à l'identique :
+    // fader en butée = tout le plateau à plein feu.
+    nom: 'le crossfader en butee rallume tout (repli couleur applique a tort)',
+    cible: 'tests/crossfader.test.js',
+    de: '  if (mix.cibles && mix.cibles.has(id)) return 0;',
+    vers: '  if (false) return 0;',
+  },
+  {
+    // ⛔ Bloquant : toute la page Conduite ne déplaçait plus rien.
+    nom: 'la 2D ne gagne plus quand elle contredit la 3D (page Conduite morte)',
+    cible: 'tests/disposition2d.test.js',
+    de: '      if (deuxDContredit(f, o)) set2D(o, f.x, f.y, f.rot, s);',
+    vers: '      if (false) set2D(o, f.x, f.y, f.rot, s);',
+  },
+  {
     nom: 'normalisation par l etendue de l axe remplacee par une constante',
     cible: 'tests/champ3d.test.js',
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",

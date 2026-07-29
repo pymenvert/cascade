@@ -93,6 +93,17 @@ describe('Crossfader — deux jeux de couches', () => {
     // Deux couches sur des barres DIFFÉRENTES : on lit directement qui joue.
     await couchePlate(A, 1, { deck: 'a', bars: ['c0', 'c1'] });
     await couchePlate(B, 1, { deck: 'b', bars: ['c4', 'c5'] });
+
+    // ⚠ Une couche COULEUR permanente, hors des jeux. Sans elle ce test ne
+    // prouvait rien à la butée : `col` restait vide, donc le repli couleur de
+    // `mixLevel` ne pouvait pas se déclencher et l'assertion « à 1, le jeu A
+    // doit être muet » passait pour une mauvaise raison. C'est ce trou qui a
+    // laissé passer le défaut du crossfader en butée. Un wash couleur permanent
+    // est par ailleurs la conduite la plus banale qui soit.
+    await h.post('/api/layers', { action: 'add' });
+    const C = (await h.state()).layers[2].id;
+    await couchePlate(C, 1, { deck: null, bars: null, target: 'color',
+                              colorA: '#ff0000', colorB: '#ff0000' });
     await h.post('/api/start');
 
     await h.post('/api/global', { xfade: 0 });
