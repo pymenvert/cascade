@@ -355,3 +355,31 @@ qui s'allume.
 **L'entrée OSC de MadMapper est un réglage PAR PROJET.** Elle était sur **8010**
 et non 8000. Toujours lancer « Trouver le port » avant une campagne — le voyant
 reste éteint sans que rien n'explique pourquoi.
+
+## Le pivot de `output/rot` — mesuré le 2026-07-29
+
+**La rotation se fait autour du point `output/x, output/y` lui-même.**
+
+Protocole : une fixture à x=960, y=270, rot=0. On écrit rot=90, on relit.
+**x et y n'ont pas bougé d'un pixel** (écart 0,00 sur les deux). Restauration à
+rot=0 vérifiée, position identique.
+
+### Ce que ça change pour le placement
+
+**L'ordre des opérations n'a pas d'importance.** Poser la position puis
+l'orientation, ou l'inverse, donne le même résultat : la rotation ne translate
+pas la fixture. C'est la propriété qu'il fallait pour pouvoir calculer un
+placement — sinon il aurait fallu compenser le déplacement induit par chaque
+rotation, avec la longueur de la barre comme paramètre.
+
+⚠ Ce qui reste non mesuré : si ce point est le centre **géométrique** de la
+barre ou une autre référence. Pour le calcul de placement, ça n'a pas d'effet —
+seule compte l'absence de translation, qui est établie.
+
+### Relevé d'avant
+
+Un relevé complet des 19 contrôles des sept fixtures a été fait avant toute
+écriture, et gardé hors dépôt : `Cascade-RELEVE-GEOMETRIE-2026-07-29.json`.
+**C'est le geste obligatoire de toute campagne de géométrie** : les écritures de
+géométrie ne sont PAS dans la pile d'annulation de MadMapper, et c'est faute de
+ce relevé qu'une surface a été détruite le 27/07.
