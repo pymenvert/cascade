@@ -259,27 +259,49 @@
   .chip.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .chip.off { opacity: .45; }
   .chip input { accent-color: var(--on); }
-  /* Presets */
-  #presets { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;
-    position: relative; padding-bottom: 4px; }
+  /* Presets — une GRILLE de pavés, pas une rangée de boutons. En régie, dans le
+     noir, on vise une case dont on connaît la place ; une rangée qui se replie
+     déplace les slots dès qu'on change la largeur de la fenêtre. 8 colonnes sur
+     poste (2 rangées), 4 sur tablette, pour garder une cible cliquable au doigt. */
+  #presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+    margin-bottom: 12px; position: relative; padding-bottom: 6px; }
+  @media (min-width: 1181px) { #presets { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+  /* Le libellé et le bouton Sauver traversent toute la grille */
+  #presets > span, #presets > button:not(.slot) { grid-column: 1 / -1; }
   /* Fondu en cours : un filet de progression sous la rangée de presets */
   #presets::after { content: ''; position: absolute; left: 0; bottom: 0; height: 2px;
     width: var(--fade, 0%); background: var(--accent); border-radius: 2px;
     opacity: 0; transition: opacity .2s; box-shadow: 0 0 8px var(--glow); }
   #presets.fading::after { opacity: 1; }
-  #presets button.slot { min-width: 34px; padding: 8px 0; font-weight: 700; position: relative;
-    font-variant-numeric: tabular-nums; }
+  #presets button.slot { min-width: 0; padding: 7px 7px 6px; font-weight: 700; position: relative;
+    font-variant-numeric: tabular-nums; display: flex; flex-direction: column;
+    align-items: stretch; gap: 5px; min-height: 54px; text-align: left; }
+  /* Empreinte : une case par barre pilotée par le preset, teintée comme la
+     couche qui la pilote. C'est une couverture, PAS une image du motif — un
+     chase n'allume qu'une barre à la fois, une photo serait presque vide. */
+  #presets .emp { display: flex; gap: 1px; height: 6px; margin-top: auto;
+    border-radius: 2px; overflow: hidden; }
+  #presets .emp i { flex: 1 1 0; min-width: 0; background: var(--border); }
+  /* Ce preset ne pilote plus aucune barre : à dire, surtout pas à masquer */
+  #presets button.slot.muet { border-style: dashed; }
+  /* Le pavé qui joue, et celui d'où l'on vient pendant un fondu */
+  #presets button.slot.joue { border-color: var(--accent); color: var(--accent);
+    box-shadow: 0 0 10px var(--glow); }
+  #presets button.slot.sortante { border-color: var(--accent2); opacity: .7; }
   /* Un slot occupé porte une pastille orange : on lit la banque d'un coup d'œil */
   #presets button.slot:not(.empty)::after { content: ''; position: absolute; top: 4px; right: 4px;
     width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
   /* Preset nommé : le nom prime, le numéro reste lisible pour le MIDI/OSC */
-  #presets button.slot.named { min-width: 0; padding: 6px 12px 6px 9px; display: inline-flex;
-    align-items: baseline; gap: 6px; }
+  /* ⚠ Le pavé nommé garde la colonne : le numéro au-dessus, le nom en dessous,
+     l'empreinte en bas. Repasser en `inline-flex` remettrait l'empreinte sur la
+     même ligne que le nom. L'ordre numéro puis nom est un contrat de test. */
+  #presets button.slot.named { padding: 7px 7px 6px; }
   #presets button.slot.named::after { display: none; }
-  #presets .pnum { font-size: 10px; color: var(--dim); font-weight: 700; }
+  #presets .pnum { font-size: 10px; color: var(--dim); font-weight: 700; line-height: 1; }
   #presets button.slot.named:hover .pnum { color: var(--accent); }
-  #presets .pname { font-size: 12px; font-weight: 600; letter-spacing: .3px;
-    max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #presets button.slot.joue .pnum { color: var(--accent); }
+  #presets .pname { font-size: 12px; font-weight: 600; letter-spacing: .3px; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #presets button.empty { opacity: .4; font-weight: 400; }
   #presets button.savemode { border-color: var(--off); color: var(--off);
     animation: blinkSave 1s steps(2, start) infinite; }
@@ -374,6 +396,7 @@
     <tr><td>Double-clic</td><td>Sur une ligne de réglage : retour à la valeur par défaut</td></tr>
     <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
     <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
+    <tr><td>Grille de presets</td><td>La bande de couleur montre les barres que le preset <b>pilote</b> — une couverture, pas une image du motif. Bord en pointillé : ce preset ne pilote plus aucune barre. Pavé orange : le dernier rappelé.</td></tr>
     <tr><td>Glisser</td><td>Une barre dans la vue spatiale : la déplacer</td></tr>
     <tr><th colspan="2">Page Scène (vue 3D)</th></tr>
     <tr><td>Glisser une barre</td><td>La déplacer · <kbd>Maj</kbd> = en hauteur · <kbd>Alt</kbd> = l'orienter</td></tr>
@@ -474,7 +497,7 @@
   sur un iPad en un scan.</p>
 </div>
 
-<div id="presets"></div>
+<div id="presets" class="grille"></div>
 <div id="preview"></div>
 
 <div class="grid">
@@ -990,6 +1013,25 @@ let selId = null;      // couche sélectionnée
 // null = inactif · {type:'layer'} = pour la couche courante · {type:'group', id}
 let assignMode = null;
 let saveMode = false;  // presets : prochain clic = sauvegarde
+// Empreintes des presets. Elles ne voyagent PAS dans /api/state (poll 120 ms) :
+// on les retire seulement quand le serveur signale que la banque a changé, via
+// son compteur de révision. `infoEnCours` évite d'empiler les requêtes si le
+// réseau traîne ; un échec laisse simplement les pavés sans bande, sans bruit.
+let infoRev = -1, infosPresets = null, infoEnCours = false;
+function chargerInfosPresets() {
+  if (!S || infoEnCours || S.presetsRev === infoRev) return;
+  infoEnCours = true;
+  fetch('/api/presets-info')
+    .then(r => r.json())
+    .then(r => {
+      if (!r || !r.ok) return;
+      infosPresets = r.infos; infoRev = r.rev;
+      const pr = $('#presets');
+      if (pr) pr.dataset.sig = ''; // force un re-rendu des pavés
+    })
+    .catch(() => {}) // hors ligne : les pavés restent lisibles, sans empreinte
+    .finally(() => { infoEnCours = false; });
+}
 
 const post = (url, body = {}) => fetch(url, { method: 'POST',
   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
@@ -1139,8 +1181,13 @@ function render() {
 
   // presets
   const pr = $('#presets');
+  chargerInfosPresets();
   // La signature inclut les NOMS : sinon un renommage ne se verrait jamais.
-  const psig = S.presets.map(p => p || '·').join('') + (saveMode ? 'S' : '');
+  // `infoRev` en fait partie pour que des empreintes fraîchement chargées
+  // déclenchent le re-rendu. En revanche presetActif, fade et fadeDe en sont
+  // EXCLUS, à dessein : ils changent à chaque poll, et les inclure
+  // reconstruirait les 16 pavés huit fois par seconde, en plein spectacle.
+  const psig = S.presets.map(p => p || '·').join('') + '|' + infoRev + (saveMode ? 'S' : '');
   if (pr.dataset.sig !== psig) {
     pr.dataset.sig = psig;
     pr.innerHTML = '<span style="font-size:11px;color:var(--dim);letter-spacing:1px">PRESETS</span>';
@@ -1159,9 +1206,39 @@ function render() {
       } else {
         b.textContent = i + 1;
       }
+      // Empreinte : une case par barre pilotée, teintée comme sa couche.
+      // ⚠ Aucun texte dans ces éléments — le textContent du pavé doit rester
+      // « 1Refrain », c'est un contrat vérifié par les tests d'interface.
+      const info = infosPresets && infosPresets[i];
+      if (info && info.c) {
+        const emp = document.createElement('span');
+        emp.className = 'emp';
+        let peintes = 0;
+        for (const ch of info.c) {
+          const cell = document.createElement('i');
+          if (ch !== '.') {
+            const coul = info.pal[+ch];
+            if (coul) { cell.style.background = coul; peintes++; }
+          }
+          emp.appendChild(cell);
+        }
+        b.appendChild(emp);
+        // Un preset qui ne pilote plus aucune barre : le DIRE. C'est
+        // l'information la plus utile de la grille avant de tirer un pavé —
+        // le masquer laisserait croire à une panne au moment du rappel.
+        if (!peintes) b.classList.add('muet');
+      }
+      // L'infobulle porte ce que l'empreinte ne peut pas montrer : le nombre de
+      // couches actives et leurs moteurs (P = pas-à-pas, V = vague, C = champ).
+      const detail = info
+        ? '\n' + info.a + ' couche' + (info.a > 1 ? 's' : '') + ' active'
+          + (info.a > 1 ? 's' : '') + ' sur ' + info.t
+          + (info.e ? ' — moteurs ' + info.e.split('').join(', ') : '')
+          + (info.c && !/[^.]/.test(info.c) ? '\n⚠ ne pilote aucune barre' : '')
+        : '';
       b.title = saveMode ? 'Enregistrer ici' : (p
         ? 'Rappeler « ' + p +' » : couches + ordre des fixtures + vue spatiale'
-          + '\nDouble-clic : renommer'
+          + detail + '\nDouble-clic : renommer'
         : 'Slot vide');
       b.onclick = () => {
         if (saveMode) {
@@ -1406,6 +1483,18 @@ function render() {
   const barrePresets = $('#presets');
   barrePresets.classList.toggle('fading', S.fade != null);
   barrePresets.style.setProperty('--fade', ((S.fade || 0) * 100).toFixed(1) + '%');
+  // Quel pavé joue, et d'où l'on vient pendant un fondu. Appliqué à CHAQUE poll
+  // mais hors de la signature de rendu : on repeint deux classes, on ne
+  // reconstruit pas les 16 pavés. Les accolades gardent ces locales hors de la
+  // portée de render(), où un `const` en double ferait tomber un garde-fou.
+  {
+    const pads = barrePresets.querySelectorAll('button.slot');
+    const sortant = S.fade != null ? S.fadeDe : null;
+    pads.forEach((b, i) => {
+      b.classList.toggle('joue', S.presetActif === i);
+      b.classList.toggle('sortante', sortant === i && S.presetActif !== i);
+    });
+  }
   $('#bpm').innerHTML = '— <b>' + Math.round(60000 / L.stepMs) + '</b> BPM (pas)';
 
   // Ableton Link : quand il pilote, le tempo manuel est neutralisé

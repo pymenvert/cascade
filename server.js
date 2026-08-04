@@ -19,6 +19,9 @@ const APP_NAME = 'Cascade';
 const VERSION = '2.0.2';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
+// Orange signature de la charte (`--accent` dans public/index.html). Sert aux
+// empreintes de presets, où une couche d'intensité n'a pas de couleur à montrer.
+const ACCENT = '#f2900f';
 const MAX_LAYERS = 8;
 const MAX_FIXTURES = 128;
 const MAX_MIDI_BINDINGS = 256;
@@ -726,7 +729,11 @@ function sanitizePresets(list) {
   if (!Array.isArray(list)) return Array(PRESET_SLOTS).fill(null);
   return list.slice(0, PRESET_SLOTS).map(p =>
     p && typeof p === 'object' && Array.isArray(p.layers) && p.layers.length
-      ? { name: String(p.name || 'P').slice(0, 12),
+      // ⚠ 16, pas 12 : `savePreset` et le renommage coupent tous deux à 16.
+      // Couper plus court ICI rabotait silencieusement tout nom de 13 à 16
+      // caractères — pas à la saisie, mais au redémarrage et à l'import, quand
+      // plus personne ne regarde. « Refrain final 2 » revenait « Refrain fin ».
+      ? { name: String(p.name || 'P').slice(0, 16),
           layers: p.layers.slice(0, MAX_LAYERS).map(sanitizeLayer),
           fixtures: Array.isArray(p.fixtures) ? sanitizeFixtures(p.fixtures) : null }
       : null
@@ -1485,8 +1492,17 @@ function savePreset(i, name) {
   return { name: n || 'P' + (i + 1), layers: deep(state.layers), fixtures: deep(state.fixtures) };
 }
 /** Fondu en cours entre deux presets (null = rappel sec). */
-let fade = null; // { start, dur, layers, fixtures, engines }
+let fade = null; // { start, dur, de, layers, fixtures, engines }
 function cancelFade() { fade = null; }
+
+// ── Repères de la banque de presets, pour l'interface ─────────────────────────
+// Les deux vivent en MÉMOIRE et n'entrent PAS dans `state` : rien à sanitiser,
+// rien à exporter, rien à migrer. `presetActif` = dernier slot rappelé ou
+// enregistré, pour que le régisseur voie quel pavé joue. `presetsRev` = compteur
+// de révision de la banque : l'interface ne recharge les empreintes que
+// lorsqu'il bouge, au lieu de les faire voyager 8 fois par seconde.
+let presetActif = null;
+let presetsRev = 1;
 
 /**
  * Rappelle un preset. Si un temps de fondu est réglé ET qu'un show tourne,
@@ -1506,7 +1522,7 @@ function recallPreset(i, fadeMs) {
     }
     // Un rappel pendant un fondu remplace le précédent : la scène en cours de
     // sortie est abandonnée, sinon il faudrait empiler les fondus à l'infini.
-    fade = { start: Date.now(), dur, layers: deep(state.layers),
+    fade = { start: Date.now(), dur, de: presetActif, layers: deep(state.layers),
              fixtures: deep(state.fixtures), engines: store };
   } else cancelFade();
   state.layers = deep(p.layers);
@@ -1521,10 +1537,65 @@ function recallPreset(i, fadeMs) {
     pruneCaches();
   }
   engines.clear();
+  // Ici et pas dans la route : le rappel arrive AUSSI par OSC (`/chaser/preset`)
+  // et par MIDI. Poser le repère au seul endroit que tous traversent évite de
+  // dupliquer la logique — et d'en oublier une.
+  presetActif = i;
   return true;
 }
 /** Noms des presets pour l'interface : null = slot vide. */
 function presetNames() { return state.presets.map((p, i) => p ? (p.name || 'P' + (i + 1)) : null); }
+
+/**
+ * Empreinte d'un preset, pour la vignette d'un pavé de la grille.
+ *
+ * ⚠ C'est une empreinte de COUVERTURE, pas une photo du motif : elle dit quelles
+ * barres le preset pilote et avec quelles teintes, pas ce qui est allumé à un
+ * instant donné (un chase n'allume qu'une barre à la fois — une photo serait
+ * presque vide et changerait à chaque image).
+ *
+ * Elle passe par `resolveBars`, donc elle ment EXACTEMENT comme mentirait le
+ * moteur : un groupe vidé ramène la couche sur toutes les barres, ici comme en
+ * scène. C'est voulu — une vignette qui corrige le moteur serait pire.
+ *
+ * Aucun moteur n'est instancié, aucun état runtime touché, aucun OSC émis : on
+ * peut l'appeler pendant un show sans rien déranger. Et elle n'est PAS dans
+ * `/api/state`, à dessein : cette réponse part 8 fois par seconde.
+ */
+function infoPreset(p) {
+  if (!p) return null;
+  // Un preset importé d'une vieille config peut n'avoir aucune fixture : on
+  // retombe alors sur le plateau courant, faute de mieux.
+  const fx = (Array.isArray(p.fixtures) && p.fixtures.length ? p.fixtures : state.fixtures)
+    .filter(f => f && f.enabled !== false);
+  // Plafond de 64 cases : au-delà on sous-échantillonne. Une bande de 128 cases
+  // serait illisible, et la charge utile grossirait pour rien.
+  const pas = Math.ceil(fx.length / 64) || 1;
+  const vus = fx.filter((f, i) => i % pas === 0);
+  const rang = new Map(vus.map((f, i) => [f.id, i]));
+  const cases = new Array(vus.length).fill('.');
+  const pal = [];
+  const act = p.layers.filter(L => L.enabled);
+  for (const L of act) {
+    const c = L.target === 'color' ? (L.colorA || '#ff2000') : ACCENT;
+    let k = pal.indexOf(c);
+    if (k < 0) { k = pal.length; pal.push(c); }
+    // ⚠ Résoudre sur `fx` COMPLET, pas sur l'échantillon : `resolveBars` replie
+    // sur toutes les barres quand aucune de la sélection n'est présente, et
+    // sous-échantillonner d'abord déclencherait ce repli à tort.
+    for (const f of resolveBars(L, fx)) {
+      const r = rang.get(f.id);
+      if (r != null) cases[r] = String(k);
+    }
+  }
+  return {
+    a: act.length, t: p.layers.length,
+    e: act.map(L => L.engine === 'steps' ? 'P' : L.engine === 'wave' ? 'V' : 'C').join('').slice(0, 8),
+    pal, c: cases.join(''),
+  };
+}
+/** Empreintes des 16 slots. Servie à la demande, jamais dans `/api/state`. */
+function presetsInfo() { return state.presets.map(infoPreset); }
 
 /** Resync : recale la phase (départ des pas) d'une couche, ou de toutes. */
 /**
@@ -2499,6 +2570,16 @@ const server = http.createServer(async (req, res) => {
     }, null, 2));
   }
 
+  // Empreintes des presets, servies À LA DEMANDE. Volontairement hors de
+  // `/api/state` : celle-ci part 8 fois par seconde, et 16 empreintes y
+  // pèseraient une demi-kilo-octet à chaque fois pour une donnée qui ne bouge
+  // qu'à l'enregistrement. L'interface ne rappelle cette route que lorsque
+  // `presetsRev` change. Aucune écriture, aucun effet de bord — contrairement à
+  // `/api/export`, qui remet `dirtySinceExport` à false.
+  if (url === '/api/presets-info') {
+    return json(res, { ok: true, rev: presetsRev, infos: presetsInfo() });
+  }
+
   if (url === '/api/state') {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
     return json(res, {
@@ -2506,7 +2587,10 @@ const server = http.createServer(async (req, res) => {
       settings: state.settings, scene: state.scene, vues: state.vues,
       fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
-      presets: presetNames(),
+      // `presets` garde sa forme de tableau de 16 chaînes. Les deux repères qui
+      // suivent sont des entiers : ~40 octets, contre ~560 pour les empreintes,
+      // qui vivent sur `/api/presets-info`.
+      presets: presetNames(), presetsRev, presetActif,
       midiMap: state.midiMap,
       link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers,
               error: link.error,
@@ -2518,6 +2602,9 @@ const server = http.createServer(async (req, res) => {
             host: state.settings.mmHost, port: state.settings.mmPort },
       // Progression du fondu entre presets (0-1), pour l'afficher en direct
       fade: fade ? Math.min(1, (Date.now() - fade.start) / fade.dur) : null,
+      // Slot d'où part le fondu (null = on ne sait pas d'où on vient), pour que
+      // la grille montre le pavé sortant en même temps que l'entrant.
+      fadeDe: fade && fade.de != null ? fade.de : null,
       project: { name: state.projectName, dirty: dirtySinceExport, lastExportAt },
       levels: runtime.levels, colors: runtime.colors,
     });
@@ -2552,13 +2639,25 @@ const server = http.createServer(async (req, res) => {
       }
       case '/api/preset': {
         const i = Math.max(0, Math.min(PRESET_SLOTS - 1, body.slot | 0));
-        if (body.action === 'save') state.presets[i] = savePreset(i, body.name);
-        else if (body.action === 'recall') recallPreset(i, body.fadeMs);
-        else if (body.action === 'clear') state.presets[i] = null;
-        else if (body.action === 'rename' && state.presets[i]) {
+        if (body.action === 'save') {
+          state.presets[i] = savePreset(i, body.name);
+          // On vient d'enregistrer la scène courante : c'est bien elle qui joue.
+          presetActif = i;
+          presetsRev++;
+        } else if (body.action === 'recall') {
+          recallPreset(i, body.fadeMs); // pose `presetActif` lui-même
+        } else if (body.action === 'clear') {
+          state.presets[i] = null;
+          if (presetActif === i) presetActif = null;
+          presetsRev++;
+        } else if (body.action === 'rename' && state.presets[i]) {
           const n = String(body.name || '').trim().slice(0, 16);
           state.presets[i].name = n || 'P' + (i + 1);
+          presetsRev++;
         }
+        // ⚠ `recall` n'incrémente PAS `presetsRev` : la banque n'a pas changé,
+        // seule la scène en cours. Recharger les empreintes à chaque rappel
+        // ferait une requête de plus au pire moment, en plein spectacle.
         saveConfig();
         return json(res, { ok: true, presets: presetNames(), layers: state.layers, fixtures: state.fixtures });
       }
@@ -2801,6 +2900,11 @@ const server = http.createServer(async (req, res) => {
         if (typeof body.projectName === 'string' && body.projectName.trim()) {
           state.projectName = body.projectName.trim().slice(0, 40);
         }
+        // La banque entière a changé de spectacle : les empreintes en mémoire de
+        // l'interface ne valent plus rien, et « en cours » sur un slot importé
+        // désignerait une scène qui n'a jamais été jouée.
+        presetActif = null;
+        presetsRev++;
         saveConfig();
         dirtySinceExport = false; // l'état vient d'un fichier : rien à ré-exporter
         return json(res, { ok: true });
@@ -2810,6 +2914,8 @@ const server = http.createServer(async (req, res) => {
         state.layers = [defaultLayer('Chaser 1')];
         layerSeq = 2;
         state.presets = Array(PRESET_SLOTS).fill(null);
+        presetActif = null;
+        presetsRev++;
         if (!body.keepFixtures) { state.fixtures = []; state.groups = []; pruneCaches(); }
         // Les vues portent les noms des dossiers d'un AUTRE spectacle : les
         // garder ferait pointer Cascade sur des dossiers qui n'existent pas.

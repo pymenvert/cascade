@@ -191,6 +191,22 @@ const MUTATIONS = [
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",
     vers: "  const ext = 10;",
   },
+  {
+    // Le rabotage n'arrivait ni à la saisie ni au rappel, mais au RECHARGEMENT
+    // du fichier : « Refrain final 2 » revenait « Refrain fin ».
+    nom: 'le nom de preset est re-tronque a 12 au chargement',
+    cible: 'tests/api.test.js',
+    de: "      ? { name: String(p.name || 'P').slice(0, 16),",
+    vers: "      ? { name: String(p.name || 'P').slice(0, 12),",
+  },
+  {
+    // Si l'empreinte cesse de lire la teinte de la couche, tous les pavés de la
+    // grille se ressemblent — et une grille qui ne distingue rien ne sert plus.
+    nom: 'l empreinte de preset ignore la couleur de la couche',
+    cible: 'tests/api.test.js',
+    de: "    const c = L.target === 'color' ? (L.colorA || '#ff2000') : ACCENT;",
+    vers: "    const c = ACCENT;",
+  },
 ];
 
 module.exports = MUTATIONS;

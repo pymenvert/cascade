@@ -220,6 +220,80 @@ describe('API HTTP', () => {
     await h.post('/api/preset', { action: 'clear', slot: 9 });
   });
 
+  test('un nom de 16 caractères survit au redémarrage', async () => {
+    // Régression : `sanitizePresets` recoupait à 12 alors que la sauvegarde et
+    // le renommage coupent à 16. Le rabotage n'arrivait donc PAS à la saisie,
+    // mais au rechargement du fichier — quand plus personne ne regarde.
+    await h.post('/api/preset', { action: 'save', slot: 9, name: 'ABCDEFGHIJKLMNOP' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    assert.equal((await h.state()).presets[9], 'ABCDEFGHIJKLMNOP');
+    await h.post('/api/preset', { action: 'clear', slot: 9 });
+  });
+
+  test('l’empreinte d’un preset décrit les barres qu’il pilote', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    const id = (await h.state()).layers[0].id;
+    const bars = (await h.state()).fixtures.slice(0, 2).map(f => f.id);
+    await h.post('/api/layer', { id, set: { target: 'color', colorA: '#00ff00', bars } });
+    await h.post('/api/preset', { action: 'save', slot: 3, name: 'Vert' });
+
+    const r = await h.get('/api/presets-info');
+    const info = r.body.infos[3];
+    assert.equal(info.c.length, 4, 'une case par barre active');
+    assert.equal(info.c, '00..', 'seules les deux barres pilotées sont peintes');
+    assert.deepEqual(info.pal, ['#00ff00'], 'la teinte vient de la couche');
+    assert.equal(info.a, 1); assert.equal(info.t, 1);
+    assert.equal(r.body.infos[0], null, 'un slot vide n’a pas d’empreinte');
+
+    // Une couche désactivée ne peint rien.
+    await h.post('/api/layers', { action: 'add' });
+    const l2 = (await h.state()).layers[1].id;
+    await h.post('/api/layer', { id: l2, set: { enabled: false } });
+    await h.post('/api/preset', { action: 'save', slot: 4 });
+    const info4 = (await h.get('/api/presets-info')).body.infos[4];
+    assert.equal(info4.a, 1, 'une seule couche active');
+    assert.equal(info4.t, 2, 'sur deux couches mémorisées');
+    await h.post('/api/layers', { action: 'remove', id: l2 });
+    for (const s of [3, 4]) await h.post('/api/preset', { action: 'clear', slot: s });
+  });
+
+  test('les empreintes ne voyagent PAS dans /api/state', async () => {
+    // C'est tout l'intérêt de l'endpoint séparé : /api/state part 8 fois par
+    // seconde. Si ce test tombe, le coût du poll a été réintroduit.
+    const st = await h.state();
+    assert.ok(!('infos' in st), 'aucune empreinte dans /api/state');
+    assert.ok(Array.isArray(st.presets) && st.presets.length === 16,
+      '`presets` reste un tableau de 16 entrées');
+    assert.ok(st.presets.every(p => p === null || typeof p === 'string'),
+      '`presets` ne contient que des noms');
+    assert.equal(typeof st.presetsRev, 'number');
+  });
+
+  test('presetActif suit ce qui joue, presetsRev ce qui change', async () => {
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).presetActif, null, 'rien ne joue au départ');
+
+    await h.post('/api/preset', { action: 'save', slot: 2 });
+    assert.equal((await h.state()).presetActif, 2, 'enregistrer désigne le slot');
+    const rev = (await h.state()).presetsRev;
+
+    await h.post('/api/preset', { action: 'save', slot: 5 });
+    await h.post('/api/preset', { action: 'recall', slot: 2 });
+    assert.equal((await h.state()).presetActif, 2, 'rappeler désigne le slot');
+    // Un rappel ne change PAS la banque : recharger les empreintes à ce
+    // moment-là ferait une requête de plus au pire moment, en plein spectacle.
+    assert.equal((await h.state()).presetsRev, rev + 1, 'un save, pas le recall');
+
+    await h.post('/api/preset', { action: 'clear', slot: 2 });
+    assert.equal((await h.state()).presetActif, null, 'effacer le slot actif l’oublie');
+    await h.post('/api/preset', { action: 'rename', slot: 5, name: 'Z' });
+    assert.ok((await h.state()).presetsRev > rev + 1, 'renommer change la banque');
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).presetActif, null, 'un projet neuf n’a rien en cours');
+  });
+
   test('un slot de preset hors bornes ne fait pas planter', async () => {
     const r = await h.post('/api/preset', { action: 'recall', slot: 9999 });
     assert.equal(r.body.ok, true);

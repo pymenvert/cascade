@@ -218,6 +218,117 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     for (const s of [0, 1]) await h.post('/api/preset', { action: 'clear', slot: s });
   });
 
+  test('les presets forment une grille de 16 pavés, avec l’empreinte des barres', async () => {
+    const id = (await h.state()).layers[0].id;
+    const bars = (await h.state()).fixtures.slice(0, 2).map(f => f.id);
+    await h.post('/api/layer', { id, set: { target: 'color', colorA: '#00ff00', bars, enabled: true } });
+    await h.post('/api/preset', { action: 'save', slot: 4, name: 'Vert' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const pr = document.querySelector('#presets');
+      const pads = [...pr.querySelectorAll('button.slot')];
+      const p4 = pads[4];
+      return { n: pads.length,
+               affichage: getComputedStyle(pr).display,
+               hauteur: p4.getBoundingClientRect().height,
+               cases: p4.querySelectorAll('.emp i').length,
+               peintes: [...p4.querySelectorAll('.emp i')]
+                 .filter(c => c.style.background).length,
+               texte: p4.textContent };`);
+    assert.equal(vu.n, 16, 'les 16 slots sont là');
+    assert.equal(vu.affichage, 'grid', '#presets doit être une grille');
+    assert.ok(vu.hauteur >= 50, 'un pavé doit être cliquable au doigt, vu ' + vu.hauteur);
+    assert.equal(vu.cases, 6, 'une case par barre du plateau');
+    assert.equal(vu.peintes, 2, 'seules les deux barres pilotées sont peintes');
+    // L'empreinte ne doit ajouter AUCUN texte : le contrat « 5Vert » tient.
+    assert.equal(vu.texte, '5Vert', 'l’empreinte ne doit rien écrire dans le pavé');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 4 });
+  });
+
+  test('le pavé qui joue se voit, et celui d’où l’on vient pendant un fondu', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 6, name: 'Un' });
+    await h.post('/api/preset', { action: 'save', slot: 7, name: 'Deux' });
+    await h.post('/api/preset', { action: 'recall', slot: 6 });
+    await rafraichir();
+    const seul = await nav.evaluate(`
+      await poll();
+      return [...document.querySelectorAll('#presets button.slot')]
+        .map((b, i) => b.classList.contains('joue') ? i : -1).filter(i => i >= 0);`);
+    assert.deepEqual(seul, [6], 'un seul pavé joue, et c’est le bon');
+
+    await h.post('/api/global', { presetFade: 2500 });
+    await h.post('/api/start');
+    await h.post('/api/preset', { action: 'recall', slot: 7 });
+    await sleep(400);
+    const pendant = await nav.evaluate(`
+      await poll();
+      const pads = [...document.querySelectorAll('#presets button.slot')];
+      return { joue: pads.findIndex(b => b.classList.contains('joue')),
+               sortante: pads.findIndex(b => b.classList.contains('sortante')) };`);
+    await h.post('/api/stop');
+    await h.post('/api/global', { presetFade: 0 });
+    assert.equal(pendant.joue, 7, 'le pavé entrant');
+    assert.equal(pendant.sortante, 6, 'le pavé sortant, pendant le fondu');
+    assert.deepEqual(nav.erreurs(), []);
+    for (const s of [6, 7]) await h.post('/api/preset', { action: 'clear', slot: s });
+  });
+
+  test('un preset qui ne pilote plus aucune barre le DIT', async () => {
+    const id = (await h.state()).layers[0].id;
+    // Une couche restreinte à une barre qui n'existe pas : plus rien à piloter.
+    await h.post('/api/layer', { id, set: { bars: ['fantome'], groupId: null } });
+    await h.post('/api/preset', { action: 'save', slot: 8, name: 'Vide' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const b = document.querySelectorAll('#presets button.slot')[8];
+      return { muet: b.classList.contains('muet'), title: b.title };`);
+    assert.equal(vu.muet, true, 'le pavé doit être marqué, pas masqué');
+    assert.match(vu.title, /aucune barre/, 'et l’infobulle doit le dire');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { bars: null } });
+    await h.post('/api/preset', { action: 'clear', slot: 8 });
+  });
+
+  test('un nom de preset hostile ne peut pas injecter de HTML dans la grille', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 10, name: '"><svg onload=1>' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const pr = document.querySelector('#presets');
+      const b = pr.querySelectorAll('button.slot')[10];
+      return { pwn: window.__pwn === undefined ? null : window.__pwn,
+               balises: pr.querySelectorAll('svg, img, script').length,
+               texte: b.textContent };`);
+    assert.equal(vu.pwn, null, 'aucun script ne doit s’exécuter');
+    assert.equal(vu.balises, 0, 'aucune balise injectée dans la grille');
+    assert.match(vu.texte, /svg onload/, 'le nom s’affiche comme du TEXTE');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 10 });
+  });
+
+  test('si les empreintes ne se chargent pas, la grille reste utilisable', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 12, name: 'Sans' });
+    const vu = await nav.evaluate(`
+      const vrai = window.fetch;
+      window.fetch = (u, o) => String(u).includes('/api/presets-info')
+        ? Promise.reject(new Error('coupé')) : vrai(u, o);
+      infosPresets = null; infoRev = -1;
+      for (let i = 0; i < 6; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      window.fetch = vrai;
+      const pads = [...document.querySelectorAll('#presets button.slot')];
+      return { n: pads.length, emp: document.querySelectorAll('#presets .emp').length,
+               texte: pads[12].textContent };`);
+    assert.equal(vu.n, 16, 'les 16 pavés restent là');
+    assert.equal(vu.emp, 0, 'simplement sans empreinte');
+    assert.equal(vu.texte, '13Sans', 'et toujours lisibles');
+    // Le point qui compte : une empreinte manquante ne fait pas de bruit.
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 12 });
+  });
+
   test('l’accueil disparaît dès qu’il y a des barres, et revient sans', async () => {
     await rafraichir();
     const visible = () => nav.evaluate(

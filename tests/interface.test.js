@@ -101,6 +101,9 @@ describe('Interface — garde-fous du source', () => {
       ['bouton d’aide', /id="btnAide"/],
       ['voyant MadMapper', /id="mmLink"/],
       ['bouton QR', /id="btnQR"/],
+      // La classe est statique : un retour accidentel à la rangée de boutons
+      // serait attrapé ici, et pas seulement à l'œil.
+      ['grille de presets', /id="presets" class="grille"/],
     ]) assert.match(UI, motif, quoi + ' introuvable');
   });
 

@@ -477,7 +477,6 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 - Horloge MIDI en alternative à Link. ⚠ À arbitrer avant d'écrire : Web MIDI n'existe que sur Chrome/Edge, et Node n'a pas de MIDI natif sans dépendance.
 - Séquenceur pas-à-pas dessinable (grille barres × pas).
 - Thème clair. ⚠ Va contre une décision de charte déjà prise (sombre retenu pour la scène) → demander à Pym.
-- **Grille visuelle des 16 presets** : aujourd'hui une simple rangée. La brique d'aperçu existe déjà (`renderPreviewCells()`), mais le serveur n'expose que les *noms* (`presetNames()`) — il faudrait enrichir l'état.
 - **Suiveur audio Web Audio**, côté navigateur pour tenir le zéro-dépendance. Rien n'existe encore ; le point d'entrée désigné est `midiApply()`, qui traduit déjà « une valeur 0-1 + un déclencheur » en appels API.
 
 ⚠ **Cette liste a déjà menti trois fois.** Y traînaient, faites : la **synchro de
