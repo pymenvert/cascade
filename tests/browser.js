@@ -16,10 +16,51 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-/** Chemins usuels de Chrome / Edge / Chromium, par plateforme. */
+/**
+ * Binaire Chromium déposé par Playwright, s'il y en a un.
+ *
+ * Les conteneurs (CI, environnements distants) installent Chromium sous
+ * `PLAYWRIGHT_BROWSERS_PATH`, jamais dans `/usr/bin`. Le sous-dossier porte la
+ * révision (`chromium-1194`), donc on balaie plutôt que de deviner. On préfère
+ * le Chromium complet au `headless_shell`, plus étriqué.
+ */
+function playwrightBrowser() {
+  const racine = process.env['PLAYWRIGHT_BROWSERS_PATH'];
+  if (!racine) return null;
+  let entrees;
+  try {
+    entrees = fs.readdirSync(racine).filter((n) => n.startsWith('chromium'));
+  } catch (e) { return null; }
+  // `chromium-1194` avant `chromium_headless_shell-1194`, révision décroissante.
+  entrees.sort((a, b) => (a.includes('headless') - b.includes('headless')) || b.localeCompare(a));
+  const relatifs = process.platform === 'win32' ? ['chrome-win\\chrome.exe']
+    : process.platform === 'darwin' ? ['chrome-mac/Chromium.app/Contents/MacOS/Chromium']
+    : ['chrome-linux/chrome', 'chrome-linux/headless_shell'];
+  for (const e of entrees) {
+    for (const r of relatifs) {
+      const p = path.join(racine, e, r);
+      try { if (fs.existsSync(p)) return p; } catch (err) { /* dossier illisible */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * Chemins usuels de Chrome / Edge / Chromium, par plateforme.
+ *
+ * ⚠ Sans navigateur, toute la suite d'interface s'annonce « ignorée » et la
+ * sortie reste VERTE : 32 tests muets, personne ne le voit. C'est exactement ce
+ * qui se passait sur les conteneurs, où Chromium n'est pas dans `/usr/bin`.
+ * D'où les deux voies ajoutées avant les chemins système : `CASCADE_NAVIGATEUR`
+ * (chemin imposé à la main) puis l'installation Playwright.
+ */
 function findBrowser() {
   const existe = (p) => { try { return p && fs.existsSync(p) ? p : null; } catch (e) { return null; } };
   const premier = (liste) => liste.map(existe).find(Boolean) || null;
+  const impose = existe(process.env['CASCADE_NAVIGATEUR']);
+  if (impose) return impose;
+  const pw = playwrightBrowser();
+  if (pw) return pw;
   if (process.platform === 'win32') {
     const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
     const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
@@ -120,6 +161,10 @@ async function launch() {
 
   const profil = fs.mkdtempSync(path.join(os.tmpdir(), 'cascade-cdp-'));
   const port = await portLibre();
+  // Chromium REFUSE de démarrer en root sans `--no-sandbox` (crbug 638180), et
+  // les conteneurs tournent en root. On ne l'ajoute que dans ce cas précis :
+  // sur une machine de développement ordinaire, le bac à sable reste en place.
+  const racine = typeof process.getuid === 'function' && process.getuid() === 0;
   const child = spawn(bin, [
     '--headless=new',
     '--remote-debugging-port=' + port,
@@ -128,6 +173,7 @@ async function launch() {
     '--disable-extensions', '--disable-background-networking',
     '--disable-features=Translate,MediaRouter',
     '--window-size=1400,1000',
+    ...(racine ? ['--no-sandbox'] : []),
     'about:blank',
   ], { stdio: 'ignore', detached: process.platform !== 'win32' });
 

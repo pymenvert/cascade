@@ -38,9 +38,20 @@ jobs:
           "
 
       # Les tests d'interface pilotent un vrai navigateur via CDP. Sans lui ils
-      # s'annoncent ignorés au lieu d'échouer — mais on préfère les faire tourner.
-      - name: Vérifier la présence d'un navigateur
-        run: which google-chrome chromium chromium-browser 2>/dev/null || echo "aucun navigateur — les tests d'UI seront ignorés"
+      # s'annoncent ignorés SANS faire rougir la suite : 32 tests muets et une
+      # sortie verte. En local c'est un repli acceptable ; en CI c'est un angle
+      # mort, donc ici on échoue franchement.
+      - name: Exiger un navigateur pour les tests d'interface
+        run: |
+          node -e "
+            const { findBrowser } = require('./tests/browser.js');
+            const bin = findBrowser();
+            if (!bin) {
+              console.error('aucun navigateur trouvé : les 32 tests d\'interface seraient ignorés en silence');
+              process.exit(1);
+            }
+            console.log('navigateur : ' + bin);
+          "
 
       - name: Suite complète
         run: npm test
