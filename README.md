@@ -6,7 +6,7 @@
 
 *Pierre-Yves Mansour — Collectif WSK*
 
-![version](https://img.shields.io/badge/version-2.0.1-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-262-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![version](https://img.shields.io/badge/version-2.0.2-orange) ![licence](https://img.shields.io/badge/licence-MIT-blue) ![dépendances](https://img.shields.io/badge/d%C3%A9pendances-aucune-brightgreen) ![tests](https://img.shields.io/badge/tests-262-green) ![plateformes](https://img.shields.io/badge/plateformes-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ---
 
@@ -24,14 +24,15 @@ Téléchargez le fichier de votre système dans la [dernière release](../../rel
 
 | Système | Fichier |
 |---|---|
-| Windows | `Cascade-1.6.0-windows-x64.exe` |
-| macOS (Apple Silicon, M1 et suivants) | `Cascade-1.6.0-macos-apple-silicon` |
-| macOS (Intel) | `Cascade-1.6.0-macos-intel` |
-| Linux | `Cascade-1.6.0-linux-x64` |
+| Windows | `Cascade-<version>-windows-x64.exe` |
+| macOS (Apple Silicon, M1 et suivants) | `Cascade-<version>-macos-apple-silicon` |
+| macOS (Intel) | `Cascade-<version>-macos-intel` |
+| Linux | `Cascade-<version>-linux-x64` |
 
-> **macOS et Linux**, la première fois, dans un Terminal ouvert sur le dossier :
+> **macOS et Linux**, la première fois, dans un Terminal ouvert sur le dossier
+> (remplacez `<version>` par celle que vous avez téléchargée) :
 > ```bash
-> xattr -cr Cascade-1.6.0-macos-apple-silicon && chmod +x Cascade-1.6.0-macos-apple-silicon
+> xattr -cr Cascade-<version>-macos-apple-silicon && chmod +x Cascade-<version>-macos-apple-silicon
 > ```
 > (les binaires ne sont pas signés — sans cela macOS annonce un « fichier endommagé »)
 
