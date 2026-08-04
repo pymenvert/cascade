@@ -6,6 +6,22 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Modifié — le panneau Couches se replie
+
+Le panneau alignait une trentaine de réglages à plat, dont beaucoup ne se
+touchent qu'au montage. Deux replis les rangent, sur le motif de « Groove &
+découpe » déjà en place — la CSS était d'ailleurs écrite au pluriel pour être
+réutilisée :
+
+- **Symétries** — les deux miroirs et leurs axes ;
+- **Mélange & espace** — fusion, profondeur, décalage réparti, jeu du crossfader.
+
+Chacun porte une **pastille** qui compte et nomme ce qui est hors de sa valeur
+neutre : un miroir ou une fusion oubliés derrière un repli fermé deviendraient
+sinon un mystère. Le repli s'ouvre tout seul en **arrivant** sur une couche qui a
+des réglages actifs, et pas à chaque rendu — sans quoi on ne pourrait jamais le
+refermer, piège déjà payé sur « Groove ».
+
 ### Ajouté — suiveur audio : le micro devient une source de modulateur
 
 Le micro se branche là où l'oscillateur était déjà branché. Un modulateur — de

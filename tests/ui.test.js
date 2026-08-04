@@ -1040,6 +1040,62 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.deepEqual(nav.erreurs(), []);
   });
 
+  test('les replis du panneau Couches signalent ce qu’ils cachent', async () => {
+    const id = (await h.state()).layers[0].id;
+    // Tout neutre : aucune pastille, rien n’est caché qui compte.
+    await h.post('/api/layer', { id, set: { mirrorH: false, mirrorV: false,
+      blend: 'htp', prof: 0, spread: 0, deck: null } });
+    await rafraichir();
+    const neutre = await nav.evaluate(`
+      await poll();
+      return { m: document.querySelector('#miroirsBadge').textContent,
+               x: document.querySelector('#melangeBadge').textContent,
+               replis: document.querySelectorAll('#advMiroirs, #advMelange').length };`);
+    assert.equal(neutre.replis, 2, 'les deux replis doivent exister');
+    assert.equal(neutre.m, '', 'rien d’actif : pas de pastille');
+    assert.equal(neutre.x, '', 'rien d’actif : pas de pastille');
+
+    // Des réglages fins posés : la pastille doit les compter ET les nommer,
+    // sinon un miroir oublié derrière un repli fermé devient un mystère.
+    await h.post('/api/layer', { id, set: { mirrorH: true, blend: 'mul', prof: 0.5, deck: 'b' } });
+    await rafraichir();
+    const actif = await nav.evaluate(`
+      await poll();
+      return { m: document.querySelector('#miroirsBadge').textContent,
+               mt: document.querySelector('#miroirsBadge').title,
+               x: document.querySelector('#melangeBadge').textContent,
+               xt: document.querySelector('#melangeBadge').title };`);
+    assert.equal(actif.m, '1 actif');
+    assert.match(actif.mt, /miroir/);
+    assert.equal(actif.x, '3 actifs', 'fusion + profondeur + jeu');
+    assert.match(actif.xt, /fusion mul/);
+    assert.match(actif.xt, /jeu B/);
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { mirrorH: false, blend: 'htp', prof: 0, deck: null } });
+  });
+
+  test('un repli refermé à la main le reste, tant qu’on ne change pas de couche', async () => {
+    // Le piège déjà payé sur « Groove » : rouvrir à chaque rendu empêche
+    // l'utilisateur de refermer quoi que ce soit.
+    const id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { blend: 'mul' } });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      const d = document.querySelector('#advMelange');
+      // On simule l'ARRIVÉE sur la couche : c'est le seul moment où le repli
+      // s'ouvre tout seul. Le marqueur retient la dernière couche affichée.
+      d.open = false; delete d.dataset.vu;
+      await poll();
+      const ouvertAuto = d.open;
+      d.open = false;                       // l'utilisateur referme
+      for (let i = 0; i < 5; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      return { ouvertAuto, resteFerme: !d.open };`);
+    assert.equal(vu.ouvertAuto, true, 'un réglage actif doit ouvrir le repli en arrivant');
+    assert.equal(vu.resteFerme, true, 'et il doit RESTER fermé si on le referme');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { blend: 'htp' } });
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

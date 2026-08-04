@@ -109,6 +109,10 @@ describe('Interface — garde-fous du source', () => {
       ['bouton du micro', /id="btnAudio"/],
       ['source du modulateur de couche', /id="lfoSrc"/],
       ['source du modulateur global', /id="mgSrc"/],
+      ['repli des symétries', /id="advMiroirs"/],
+      ['repli mélange & espace', /id="advMelange"/],
+      ['pastille des symétries', /id="miroirsBadge"/],
+      ['pastille mélange & espace', /id="melangeBadge"/],
     ]) assert.match(UI, motif, quoi + ' introuvable');
   });
 
