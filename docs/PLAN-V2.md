@@ -1,12 +1,14 @@
 # Cascade v2 — plan de version
 
-> **Statut : plan, pas encore du code.** Établi le 2026-07-26 à partir d'une
-> recherche documentée (sources citées dans le texte) et de mesures faites sur
-> la machine de Pym. La v1 reste sur la branche `main` et continue de vivre ;
-> ce chantier se fait sur la branche `v2`.
+> ⚠ **Statut : document HISTORIQUE.** Ce plan a été établi le 2026-07-26, et
+> **la v2 est sortie depuis** (`v2.0.0`, 2026-07-28, fusionnée dans `main` ; la
+> branche `v2` n'existe plus). Il est conservé pour le **raisonnement** — les
+> voies écartées, les mesures qui ont tranché, les justifications de repère et
+> de modèle de données. Pour ce qui est réellement livré, se fier à
+> `CHANGELOG.md` et `docs/ETAT-DU-PROJET.md`, jamais à ce fichier.
 >
-> ⚠ **Rien ne commence avant les vérifications de la section 7**, à faire avec
-> MadMapper ouvert. Trois d'entre elles (T3, T4, T5) peuvent changer le plan.
+> Les mentions « à faire », « pas encore du code » et « branche `v2` » qui
+> subsistent ci-dessous décrivent l'état de juillet, pas l'état courant.
 >
 > 📄 **Suite indispensable : [V2-TEXTURES.md](V2-TEXTURES.md)** — comment faire
 > voyager une vraie texture sur un axe. Ce document-ci conclut « une valeur par
@@ -273,15 +275,15 @@ Banc d'essai du rendu 3D, réutilisable : `C:\Users\PYMENV~1\AppData\Local\Temp\
   - Les axes du glissé sont dérivés de la caméra (`axesEcran()`) au lieu
     d'inverser la projection : ça évite le cas dégénéré de la vue de face, où le
     plan du sol est vu par la tranche.
-- **Étape 4** — à faire, et **conditionnée par T11/T12** (voir
-  `V2-TESTS-MADMAPPER.md`, section « Relevé du 2026-07-26 » : l'entrée OSC de
-  MadMapper est désactivée sur le poste, ces tests restent à faire à la main).
-
 - **Étape 4** ✅ moteur « champ 3D » (`engine: 'field'`), cinq formes :
   - **plan / balayage** — axe réglable en azimut et élévation ;
   - **sphère** — ondes concentriques depuis une source en mètres ;
   - **cylindre** — balayage rotatif autour d'un axe (le « phare ») ;
-  - **boîte** — coques rectangulaires (distance de Tchebychev) ;
+  - **boîte** — ⚠ **pavé MOBILE**, pas des coques : on teste l'appartenance à
+    un volume qui traverse le plateau une fois par cycle. La version « coques
+    rectangulaires (distance de Tchebychev) » décrite ici a été abandonnée —
+    mesurée indiscernable de la sphère (66 % de valeurs intermédiaires contre
+    68 %) sur un rig plan ;
   - **bruit 3D** — value noise trilinéaire écrit à la main, zéro dépendance.
 
   Le champ ne produit qu'une grandeur `u` : elle traverse **exactement** la
@@ -312,9 +314,9 @@ Banc d'essai du rendu 3D, réutilisable : `C:\Users\PYMENV~1\AppData\Local\Temp\
     pas de source, la sphère n'affiche pas d'axe, le bruit ni l'un ni l'autre, et
     la grille de motifs disparaît. Un réglage sans effet passe pour une panne.
 
-- **Reste de la spécification, non fait** : les sources mobiles (comètes,
-  étape 5), la palette à N arrêts, et l'option « ordre = projection sur l'axe »
-  pour le moteur pas-à-pas.
+- ~~**Reste de la spécification, non fait**~~ → ✅ **les trois sont livrés en
+  2.0.0** : sources mobiles, palette à N arrêts, et l'option « ordre = projection
+  sur l'axe » pour le moteur pas-à-pas. Voir `CHANGELOG.md`.
 
 ---
 
@@ -396,8 +398,9 @@ lui-même (couches, niveaux, couleurs) reste dans les presets existants.
    point. Méthode : un dégradé fin sur toute la sortie, déplacements de 5 px, et
    corrélation du profil. C'est le chiffre qui décide si « ranger » peut éviter
    les chevauchements.
-2. **Le pivot de `output/rot`** : autour du centre de la barre, ou d'une
-   extrémité ? Le calcul de placement en dépend directement (T14, jamais fait).
+2. ~~**Le pivot de `output/rot`**~~ → ✅ **mesuré le 2026-07-29** (T14) : la
+   rotation se fait autour du point `output/x, output/y` lui-même (écart 0,00 en
+   x et y), donc l'ordre position/orientation est libre. Plus un préalable.
 3. **Le DMX Filtering** de chaque fixture : c'est lui qui fabrique les
    demi-teintes, et Cascade ne peut ni le lire ni le garantir.
 

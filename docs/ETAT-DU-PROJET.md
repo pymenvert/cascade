@@ -1,15 +1,21 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-07-24 — version **1.6.0**.
+> Dernière mise à jour : 2026-08-04 — version **2.0.1** (+ des correctifs non publiés).
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
-> L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`.
+> L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`. ⚠ Il est donc
+> **absent des clones frais** (sessions distantes, CI) : ne jamais faire dépendre
+> une décision de son contenu sans l'avoir sous les yeux. Même chose pour
+> `../Cascade-RELECTURES.md`.
+>
+> ⚠ Les sections « Nouveautés v1.x » plus bas sont conservées comme **historique**.
+> Pour l'état courant, se fier à `CHANGELOG.md` et à ce préambule.
 
 ## Identité
 
 - **Nom** : Cascade (avant : « Chaser pour MadMapper »). Dossier renommé `Cascade` le 2026-07-09.
 - **Auteur / signature** : Pierre-Yves Mansour — Collectif WSK
-- **Version** : 1.2.0 · **Licence** : MIT · destiné à GitHub
+- **Version** : 2.0.1 · **Licence** : MIT · publié sur GitHub
 - **Quoi** : séquenceur LED multi-couches qui pilote les fixtures DMX de MadMapper en OSC, depuis une page web (ordi, iPad, téléphone). Équivalent de « Chaser » (Hybrid Constructs, pour Resolume), mais pour MadMapper.
 
 ## Nouveautés v1.2 (2026-07-09)
@@ -24,10 +30,12 @@
 2. **Ableton Link** (Pulse, Live, Traktor…) via **Carabiner** (Deep Symmetry) — binaire officiel embarquant la lib Link, exposé en TCP local port 17000, téléchargé par les lanceurs dans `runtime/` (`carabiner.exe` / `carabiner`). Zéro dépendance npm conservée (client `net` maison, parse EDN par regex `:bpm`/`:peers`). Toggle **⧉ ABLETON LINK** dans le panneau Vitesse ; BPM session → `stepMs` de **toutes** les couches (1 beat = 1 pas, borné 30–2000 ms), chaque couche garde sa « Vitesse » ×0.1–×4. Quand Link actif : slider Temps/pas, TAP, ÷2, ×2 désactivés côté UI, `tap()` neutralisé côté serveur. `state.settings.linkEnabled` persisté (réactivé au boot). API : `POST /api/link {enabled}` ; état dans `/api/state` → `link {active, connected, bpm, peers, error}` ; OSC : `/cascade/link 0-1`. Cascade lance Carabiner lui-même (spawn, `windowsHide`), le tue au disable/quit/exit ; se connecte d'abord au cas où un Carabiner tourne déjà ; ~20 tentatives à 700 ms puis erreur propre (binaire absent → message « relance le lanceur »).
 3. **Charte graphique** reprise du manuel : orange signature `#f2900f` (`--accent`), anthracite profond, titres de sections orange espacés avec filet fin (`h2` border-bottom), panneaux radius 14 + ombre, TAP orange plein avec glow, `--accent2` devenu gris-bleu neutre (axes miroirs, hints), footer façon PDF (filet orange centré + signature orange). `button[disabled]`/`input[disabled]` à .35.
 
-## Branche v2 — moteur de champ 3D (en cours)
+## Moteur de champ 3D (livré en 2.0.0)
 
-⚠ **`main` est la 1.6.0 ; le front de développement est `v2`.** Elle contient
-tout ce qui suit PLUS un moteur de champ 3D : les barres ont une position en
+✅ **`v2` a été fusionnée dans `main` et taguée `v2.0.0` le 2026-07-28. La
+branche `v2` n'a plus de raison d'être ; le développement continue sur `main`.**
+Cette section décrit du code **livré**, pas un chantier. Elle contient
+tout ce qui précède PLUS un moteur de champ 3D : les barres ont une position en
 mètres (`p3`) et un champ scalaire les traverse selon une forme, un axe, une
 source, une étendue, une netteté, une course, une dérive. S'y ajoutent les
 modes de fusion, la perspective atmosphérique, la palette à N arrêts, les
@@ -267,7 +275,7 @@ nom de couche, nom de projet, message d'erreur du serveur — se pose par
 `tests/interface.test.js` relit le source et échoue si la règle est enfreinte
 (garde-fou vérifié en réintroduisant volontairement le motif fautif).
 
-### Tests — `npm test` (111 tests, zéro dépendance)
+### Tests — `npm test` (262 tests, zéro dépendance)
 
 `tests/helpers.js` lance un **vrai** serveur en sous-processus (ports libres,
 config jetable) et écoute l'OSC réellement émis avec un décodeur **indépendant**
@@ -278,7 +286,17 @@ paquets hostiles), `madmapper.test.js` (voyant dans les deux sens),
 `charge.test.js` (8 couches × 128 barres, 50 requêtes simultanées, presets en
 rafale, scéno changée 12 fois, START/STOP martelés), `interface.test.js`
 (garde-fous de source : pas d'`innerHTML` avec donnée externe, version cohérente,
-sémantiques non négociables toujours présentes).
+sémantiques non négociables toujours présentes, `dist/` synchrone, aucun mutant
+resté dans `server.js`), et `ui.test.js` (**32 tests dans un vrai navigateur**).
+
+⚠ **Les 32 tests d'interface peuvent ne pas tourner sans que rien ne rougisse.**
+Sans navigateur, `ui.test.js` s'annonce « ignoré » et la suite reste VERTE : on
+lit 230 tests au lieu de 262 et personne ne le voit. **Vérifier le compte, pas la
+couleur.** `tests/browser.js` cherche dans l'ordre : `CASCADE_NAVIGATEUR` (chemin
+imposé), l'installation Playwright (`PLAYWRIGHT_BROWSERS_PATH`), puis les chemins
+système. En CI l'absence de navigateur fait désormais échouer le job.
+En conteneur, Chromium exige `--no-sandbox` parce qu'on y tourne en root : le
+drapeau n'est ajouté que si l'uid vaut 0.
 
 **Endurance mesurée** (4 min, config maximale) : mémoire 64 → 67 Mo avec
 récupération visible à 60 Mo (donc pas de fuite), ~6 450 messages OSC/s,
@@ -316,10 +334,10 @@ focus clavier, `prefers-reduced-motion`.
 
 ```
 Cascade/
-├── server.js               ← moteur + API (source de travail, ~1400 l.)
-├── public/index.html       ← interface complète (source de travail, ~1500 l.)
+├── server.js               ← moteur + API (source de travail, ~3020 l.)
+├── public/index.html       ← interface complète (source de travail, ~3320 l.)
 ├── build.js                ← génère les exécutables des 4 plateformes
-├── tests/                  ← npm test — 55 tests, zéro dépendance
+├── tests/                  ← npm test — 262 tests en 17 fichiers, zéro dép.
 │   ├── helpers.js          ← lance un vrai serveur + faux MadMapper
 │   ├── api.test.js · engine.test.js · control.test.js · madmapper.test.js
 ├── dist/                   ← DISTRIBUABLE : copie autonome à envoyer
@@ -361,20 +379,33 @@ Cascade/
 
 ## Architecture
 
-**Serveur Node.js zéro dépendance** (`server.js`, ~1080 lignes) : encodeur/décodeur OSC maison sur UDP, serveur HTTP + API JSON, client TCP Carabiner, moteur à `setInterval(tick, 25)` (~40 fps). L'interface (`public/index.html`, ~1080 lignes, tout-en-un) fait du polling `/api/state` toutes les 120 ms (`pollTimer`).
+**Serveur Node.js zéro dépendance** (`server.js`, ~3020 lignes) : encodeur/décodeur OSC maison sur UDP, serveur HTTP + API JSON, client TCP Carabiner, moteur à `setInterval(tick, 25)` (~40 fps). L'interface (`public/index.html`, ~3320 lignes, tout-en-un) fait du polling `/api/state` toutes les 120 ms (`pollTimer`).
 
 ### État serveur
 
 - `state.projectName` : nom du projet (≤40 car., défaut « Sans titre ») — export/import/quit
 - `state.settings` : `mmHost, mmPort (8000), feedbackPort (9000), httpPort (3333), oscInPort (7000), linkEnabled (bool)`
-- `state.fixtures[]` : `{ id, name, address, enabled, x, y, rot, len, vert }` (x/y normalisés 0–1)
+> ⚠ Ce schéma a longtemps décrit la v1 alors que la v2 était livrée. La liste
+> qui fait foi est `LAYER_KEYS` dans `server.js` — s'y reporter en cas de doute.
+
+- `state.fixtures[]` : `{ id, name, address, enabled, x, y, rot, len, vert, inverse, p3, dir3 }`
+  (x/y normalisés 0–1 ; `p3`/`dir3` = position et vecteur **en mètres**, v2 ;
+  `inverse` = barre branchée à l'envers, sert à la *génération de vues*, pas au pilotage)
 - `state.layers[]` (max 8, une couche = un séquenceur) :
-  `{ id, name, enabled, engine: 'steps'|'wave', target: 'intensity'|'color', bars: null|[ids],
-     pattern, mode: 'onoff'|'fade', curve, waveform, stepMs, speed, width, group,
-     mirrorH, mirrorV, axisX, axisY, fadeInPct, fadeOutPct, invert, level, colorA, colorB,
-     phase, swing, floor, blocks, oneShot, sparkle }`  ← les 6 derniers = v1.3
-- `state.global` : `{ running, speed, master, param: 'luminosity', dimmer: 'linear' }`
-- `state.presets[16]` : `{ name, layers[], fixtures[] }` — mémorise aussi la disposition
+  `{ id, name, enabled, engine: 'steps'|'wave'|'field', target: 'intensity'|'color',
+     bars: null|[ids], groupId, pattern, mode: 'onoff'|'fade', curve, waveform,
+     stepMs, speed, width, group, mirrorH, mirrorV, axisX, axisY,
+     fadeInPct, fadeOutPct, invert, level, colorA, colorB,
+     phase, swing, floor, blocks, oneShot, sparkle,          ← v1.3
+     field, axAz, axEl, srcX, srcY, srcZ, ordre3d, duty, course,
+     blend, prof, palette, palSrc, spread, deck, lfo }`      ← v2
+- `state.global` : `{ running, speed, master, param: 'luminosity', dimmer: 'linear',
+  xfade, modGlobal, vueActive, vueIncertaine, presetFade, coupure }` (les 6 derniers = v2)
+- `state.vues[]` : dossiers de fixtures MadMapper, une vue = un axe de projection (v2)
+- `state.groups[]` : groupes de barres nommés. **Pas** mémorisés dans les presets
+  (ils appartiennent à la scéno, pas au look), mais voyagent avec le fichier projet
+- `state.presets[16]` : `{ name, layers[], fixtures[] }` — mémorise aussi la disposition.
+  ⚠ `/api/state` n'en expose que les **noms** (`presetNames()`), pas le contenu
 - `state.midiMap` : `{ 'cc:ch:num' | 'note:ch:num' → cible }`
 - `link` (hors state, runtime) : `{ active, connected, bpm, peers, error }` + `linkSock/linkChild/linkRetry`
 
@@ -394,7 +425,9 @@ Cascade/
 ### API HTTP
 
 `GET /api/ping` · `GET /api/state` · `GET /api/export`
-`POST` : `/api/layer {id,set}` · `/api/layers {action:add|remove,id}` · `/api/global {speed,master,param}` · `/api/preset {action:save|recall|clear, slot}` · `/api/resync {id?}` · `/api/link {enabled}` · `/api/quit` · `/api/project {name}` · `/api/start` · `/api/stop` · `/api/blackout` · `/api/tap {id}` · `/api/fixtures {fixtures}` · `/api/discover` · `/api/layout` · `/api/inspect {index}` · `/api/test {index}` · `/api/midimap {map}` · `/api/settings` · `/api/import` · `/api/new {keepFixtures}`
+`POST` : `/api/layer {id,set}` · `/api/layers {action:add|remove,id}` · `/api/global {speed,master,param}` · `/api/preset {action:save|recall|clear|rename, slot, name?, fadeMs?}` · `/api/resync {id?}` · `/api/link {enabled}` · `/api/quit` · `/api/project {name}` · `/api/start` · `/api/stop` · `/api/blackout` · `/api/tap {id}` · `/api/fixtures {fixtures}` · `/api/discover` · `/api/layout` · `/api/inspect {index}` · `/api/test {index}` · `/api/midimap {map}` · `/api/settings` · `/api/import` · `/api/new {keepFixtures}`
+
+Ajoutées en **v2** : `/api/scene` (cotes du plateau) · `/api/fixture3d {id,p3,dir3}` · `/api/geometrie` (renvoi de la disposition vers MadMapper) · `/api/groups` · `/api/vues` · `/api/vue` · `/api/vuecheck` (relecture des dossiers) · `/api/coupure` (coupure de secours) · `/api/demo` · `/api/trouverport`
 
 Toutes les entrées sont validées/bornées (`sanitizeLayerSet`, `sanitizeLayer`, `sanitizeFixtures`, `cnum`, `ENUMS`).
 
@@ -419,7 +452,9 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 2. **Impossible de compiler un vrai `.exe`/`.app`** dans l'environnement : `pkg`, `@yao-pkg/pkg`, `postject` et `nodejs.org/dist` sont bloqués (403 allowlist). GitHub releases (Carabiner) aussi bloqué **dans le sandbox** — mais téléchargeable sur la machine de l'utilisateur (les lanceurs s'en chargent). D'où : lanceurs `.bat`/`.command` qui téléchargent Node portable + Carabiner, et « mode app » via `--app=` de Chrome/Edge.
 3. **macOS + WhatsApp/mail** : le `.command` arrive en quarantaine → « fichier endommagé » / Terminal −128. Fix utilisateur : `xattr -cr <dossier>` puis `chmod +x <.command>`. Documenté dans `LISEZ-MOI.txt` et le manuel. Seule solution définitive : signer + notariser (compte Apple Developer, 99 $/an).
 4. **Manuel PDF** : régénéré en v1.2 (Link, mode app, quitter, sauvegarde). Le script est désormais **conservé** : `docs/build-manuel.py` (`python3 build-manuel.py <dossier_sortie>`, reportlab + polices DejaVu). ⚠️ DejaVu n'a **pas** les glyphes ⏻ (U+23FB) ni ⧉ (U+29C9) ni les exposants/indices Unicode — ils rendent des carrés vides : écrire les mots (« bouton Quitter », « ABLETON LINK »). Copier le PDF généré à la racine **et** dans `dist/`.
-5. **Playwright dans le sandbox** : `waitUntil: 'networkidle'` ne se déclenche jamais (polling 120 ms) → utiliser `domcontentloaded`.
+5. **Playwright dans le sandbox** : `waitUntil: 'networkidle'` ne se déclenche jamais (polling 120 ms) → utiliser `domcontentloaded`. ⚠ Les tests d'interface du dépôt n'utilisent **pas** Playwright : c'est du CDP maison (`tests/browser.js`), pour tenir le zéro-dépendance.
+6. **Une suite verte ne prouve pas que tout a tourné.** `ui.test.js` s'annonce « ignoré » sans navigateur, sans faire rougir quoi que ce soit — 32 tests muets. Lire le **compte** (262), pas la couleur. Même famille que le mutant resté dans `server.js` le 28/07 : les deux fois, la suite était verte.
+7. **Les fichiers hors dépôt n'existent pas partout.** `../Cascade-AUDIT.md` et `../Cascade-RELECTURES.md` sont absents des clones frais (sessions distantes, CI). Une consigne qui en dépend est inapplicable là-bas : recopier dans le dépôt ce qui doit survivre.
 
 ## Historique des décisions
 
@@ -433,19 +468,24 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 
 **Demandées explicitement par Pym (prioritaires — détail dans `CLAUDE.md`) :**
 
-- **Icône systray** : point vert/rouge = serveur en route/arrêté ; clic droit → ouvrir l'interface / démarrer / arrêter. Objectif : pouvoir fermer la fenêtre en laissant le serveur tourner, tout en le voyant. (⚠ zéro-dep : pas de systray en Node pur — solution à discuter.)
-- **Capture ou GIF dans le README** : le seul point des « finitions GitHub » qui reste (nécessite une vraie session avec MadMapper).
-- **Suite de l'audit** (`../Cascade-AUDIT.md` (hors dépôt), section « À faire ») : code d'accès facultatif à 4 chiffres, repli « avancé » du panneau Couches, tests d'interface Playwright, signature/notarisation macOS.
+- **Icône systray** : point vert/rouge = serveur en route/arrêté ; clic droit → ouvrir l'interface / démarrer / arrêter. Objectif : pouvoir fermer la fenêtre en laissant le serveur tourner, tout en le voyant. (⚠ zéro-dep : pas de systray en Node pur — **arbitrage de Pym nécessaire avant d'écrire une ligne** : petit utilitaire par plateforme, PowerShell/AppleScript, ou accepter une dépendance ici.)
+- **Capture ou GIF dans le README** (nécessite une vraie session avec MadMapper). La manip est déjà scénarisée — c'est T16, « le dégradé qui voyage », et son mécanisme est mesuré. Il ne reste que le tournage.
+- **Suite de l'audit** (`../Cascade-AUDIT.md` (hors dépôt), section « À faire ») : code d'accès facultatif à 4 chiffres, repli « avancé » du panneau Couches, signature/notarisation macOS (compte Apple Developer, 99 $/an → décision + dépense).
 
 **Autres pistes :**
 
-- Horloge MIDI en alternative à Link.
+- Horloge MIDI en alternative à Link. ⚠ À arbitrer avant d'écrire : Web MIDI n'existe que sur Chrome/Edge, et Node n'a pas de MIDI natif sans dépendance.
 - Séquenceur pas-à-pas dessinable (grille barres × pas).
-- Thème clair.
+- Thème clair. ⚠ Va contre une décision de charte déjà prise (sombre retenu pour la scène) → demander à Pym.
+- **Grille visuelle des 16 presets** : aujourd'hui une simple rangée. La brique d'aperçu existe déjà (`renderPreviewCells()`), mais le serveur n'expose que les *noms* (`presetNames()`) — il faudrait enrichir l'état.
+- **Suiveur audio Web Audio**, côté navigateur pour tenir le zéro-dépendance. Rien n'existe encore ; le point d'entrée désigné est `midiApply()`, qui traduit déjà « une valeur 0-1 + un déclencheur » en appels API.
 
-⚠ Deux pistes de cette liste ont été FAITES et y traînaient encore :
-la **synchro de phase Link** (livrée en 1.6.0 — les pas sont calés sur la
-grille de beats, pas seulement sur le BPM) et le **`dist/` généré**
-(`sync-dist.js`, avec un test qui échoue si la copie diverge). Ce fichier est
-censé être lu en premier à chaque reprise : le laisser mentir coûte une
-demi-journée à celui qui reprend.
+⚠ **Cette liste a déjà menti trois fois.** Y traînaient, faites : la **synchro de
+phase Link** (livrée en 1.6.0), le **`dist/` généré** (`sync-dist.js`, avec un
+test qui échoue si la copie diverge), et les **tests d'interface** — réputés « à
+faire en Playwright » alors qu'ils existent en CDP maison depuis la 2.0
+(`tests/browser.js`, 32 tests). Ce fichier est censé être lu en premier à chaque
+reprise : le laisser mentir coûte une demi-journée à celui qui reprend.
+
+⚠ **Purger cette liste fait partie du travail de livraison**, au même titre que
+le CHANGELOG.
