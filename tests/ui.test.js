@@ -905,6 +905,141 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.deepEqual(nav.erreurs(), []);
   });
 
+  test('la DSP du suiveur audio, sans le moindre micro', async () => {
+    // `enveloppeAudio` est PURE : on lui donne un spectre fabriqué à la main.
+    // C'est ce qui rend la moitié navigateur vérifiable sans entrée son.
+    const vu = await nav.evaluate(`
+      const grave = new Uint8Array(256); for (let i = 0; i < 20; i++) grave[i] = 200;
+      const rien = new Uint8Array(256);
+      const r = { bande: 'grave', gain: 1, seuil: 0.06, attaque: 12, relache: 260 };
+      let e = { niveau: 0 }, monte = [];
+      for (let i = 0; i < 25; i++) { const o = enveloppeAudio(grave, 16, r, e); e = o.etat; monte.push(o.niveau); }
+      const haut = e.niveau;
+      let descend = [];
+      for (let i = 0; i < 40; i++) { const o = enveloppeAudio(rien, 16, r, e); e = o.etat; descend.push(o.niveau); }
+      // Bande aiguë sur un spectre uniquement grave : doit rester à zéro.
+      let ea = { niveau: 0 };
+      const aigu = enveloppeAudio(grave, 16, { ...r, bande: 'aigu' }, ea).niveau;
+      // Sous le seuil : porte de bruit fermée.
+      const faible = new Uint8Array(256); for (let i = 0; i < 20; i++) faible[i] = 4;
+      const porte = enveloppeAudio(faible, 16, r, { niveau: 0 }).niveau;
+      return { haut, bas: e.niveau, croissant: monte[24] > monte[0],
+               decroissant: descend[39] < descend[0], aigu, porte,
+               borne: monte.concat(descend).every(v => v >= 0 && v <= 1) };`);
+    assert.ok(vu.croissant, 'l’enveloppe doit monter avec le son');
+    assert.ok(vu.haut > 0.5, 'et atteindre un niveau franc, vu ' + vu.haut);
+    assert.ok(vu.decroissant, 'puis redescendre au silence');
+    assert.ok(vu.bas < 0.1, 'jusqu’à presque zéro, vu ' + vu.bas);
+    assert.equal(vu.aigu, 0, 'la bande aiguë ne doit rien voir d’un son grave');
+    assert.equal(vu.porte, 0, 'sous le seuil, la porte de bruit doit fermer');
+    assert.ok(vu.borne, 'l’enveloppe ne doit jamais sortir de 0..1');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le suiveur audio démarre pour de vrai et alimente le poll', async () => {
+    // Chromium est lancé avec un faux périphérique : le chemin NOMINAL est donc
+    // exécuté, permission comprise.
+    const vu = await nav.evaluate(`
+      const vues = [];
+      const vrai = window.fetch;
+      window.fetch = (u, o) => { if (String(u).includes('/api/state')) vues.push(String(u)); return vrai(u, o); };
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 900));
+      for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 80)); }
+      window.fetch = vrai;
+      const actif = suiveur.actif;
+      const largeur = document.querySelector('#audioVu i').style.width;
+      const badge = document.querySelector('#audioBadge').textContent;
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 120));
+      return { actif, largeur, badge, arrete: !suiveur.actif,
+               avecNiveau: vues.filter(u => u.includes('?a=')).length,
+               etat: document.querySelector('#audioEtat').textContent };`);
+    assert.equal(vu.actif, true, 'le micro doit s’ouvrir');
+    assert.ok(vu.avecNiveau > 0, 'le poll doit porter le niveau (?a=)');
+    assert.ok(vu.badge.length > 0, 'le repli doit signaler qu’un micro est ouvert');
+    assert.equal(vu.arrete, true, 'et un second clic doit le refermer');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('micro refusé : Cascade le dit et continue', async () => {
+    const vu = await nav.evaluate(`
+      const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('non', 'NotAllowedError'));
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 400));
+      navigator.mediaDevices.getUserMedia = vrai;
+      return { actif: suiveur.actif, etat: document.querySelector('#audioEtat').textContent,
+               classe: document.querySelector('#btnAudio').classList.contains('active') };`);
+    assert.equal(vu.actif, false, 'aucune écoute ne doit démarrer');
+    assert.equal(vu.classe, false, 'le bouton ne doit pas rester allumé');
+    assert.match(vu.etat, /refus|indisponible/i, 'et l’écran doit l’expliquer');
+    // Le point qui compte : un refus n'est pas une panne, donc pas une erreur.
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le cas iPad : pas de micro hors origine sûre, dit clairement', async () => {
+    const vu = await nav.evaluate(`
+      const vrai = navigator.mediaDevices;
+      Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true });
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 200));
+      const etat = document.querySelector('#audioEtat').textContent;
+      Object.defineProperty(navigator, 'mediaDevices', { value: vrai, configurable: true });
+      // La page doit continuer de poller SANS ?a= : un iPad n'écrase pas l'hôte.
+      const vues = [];
+      const vf = window.fetch;
+      window.fetch = (u, o) => { if (String(u).includes('/api/state')) vues.push(String(u)); return vf(u, o); };
+      await poll();
+      window.fetch = vf;
+      return { etat, actif: suiveur.actif, sansNiveau: vues.every(u => !u.includes('?a=')) };`);
+    assert.equal(vu.actif, false);
+    assert.match(vu.etat, /machine où tourne Cascade/,
+      'la limite doit être dite avec des mots utilisables');
+    assert.equal(vu.sansNiveau, true, 'sans micro, le poll ne doit rien pousser');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('un nom de périphérique hostile ne peut pas injecter de HTML', async () => {
+    const vu = await nav.evaluate(`
+      remplirEntrees([{ deviceId: 'x', label: '<img src=x onerror="window.__pwn=1">' },
+                      { deviceId: 'y', label: '"><svg onload="window.__pwn=1">' }]);
+      await new Promise(r => setTimeout(r, 120));
+      const sel = document.querySelector('#audioEntree');
+      return { pwn: window.__pwn === undefined ? null : window.__pwn,
+               balises: document.querySelectorAll('#advAudio img, #advAudio svg').length,
+               texte: sel.options[1].textContent, n: sel.options.length };`);
+    assert.equal(vu.pwn, null, 'aucun script ne doit s’exécuter');
+    assert.equal(vu.balises, 0, 'aucune balise injectée');
+    assert.match(vu.texte, /img src=x/, 'le nom s’affiche comme du TEXTE');
+    assert.equal(vu.n, 3, 'défaut + les deux entrées');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('en source micro, les réglages qui n’agissent plus disparaissent', async () => {
+    const id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { lfo: { on: true, param: 'level', src: 'lfo', min: 0, max: 1 } } });
+    await rafraichir();
+    const avant = await nav.evaluate(`
+      await poll();
+      return { forme: document.querySelector('#lfoForme').closest('label').style.display,
+               src: document.querySelector('#lfoSrc').value };`);
+    await h.post('/api/layer', { id, set: { lfo: { on: true, param: 'level', src: 'audio', min: 0, max: 1 } } });
+    await rafraichir();
+    const apres = await nav.evaluate(`
+      await poll();
+      return { forme: document.querySelector('#lfoForme').closest('label').style.display,
+               periode: document.querySelector('#rowLfoPeriode').style.display,
+               src: document.querySelector('#lfoSrc').value };`);
+    await h.post('/api/layer', { id, set: { lfo: null } });
+    assert.equal(avant.src, 'lfo');
+    assert.notEqual(avant.forme, 'none', 'en oscillateur, la forme sert');
+    assert.equal(apres.src, 'audio');
+    assert.equal(apres.forme, 'none', 'en micro, la forme d’onde n’agit plus');
+    assert.equal(apres.periode, 'none', 'ni la période');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {
     assert.deepEqual(nav.erreurs(), [], 'erreurs accumulées pendant les tests');
   });

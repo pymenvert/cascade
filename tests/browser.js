@@ -173,6 +173,11 @@ async function launch() {
     '--disable-extensions', '--disable-background-networking',
     '--disable-features=Translate,MediaRouter',
     '--window-size=1400,1000',
+    // Suiveur audio : sans ces deux drapeaux, seul le chemin dégradé serait
+    // testable. Le premier accorde l'accès au micro sans boîte de dialogue, le
+    // second fournit un signal de test — un bip périodique, donc une enveloppe
+    // qui monte ET descend, ce qu'il faut pour observer autre chose qu'un zéro.
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
     ...(racine ? ['--no-sandbox'] : []),
     'about:blank',
   ], { stdio: 'ignore', detached: process.platform !== 'win32' });

@@ -60,7 +60,8 @@ describe('Interface — garde-fous du source', () => {
       assert.match(UI, re, `contrôle #${id} absent de l'interface`);
     }
     // Chaque nouvelle ligne de réglage doit porter un title= explicatif
-    for (const id of ['floor', 'phase', 'swing', 'blocks', 'sparkle']) {
+    for (const id of ['floor', 'phase', 'swing', 'blocks', 'sparkle',
+                      'audioGain', 'audioSeuil', 'audioAttaque', 'audioRelache', 'audioBande']) {
       const bloc = UI.slice(Math.max(0, UI.indexOf(`id="${id}"`) - 400), UI.indexOf(`id="${id}"`));
       assert.match(bloc, /title="/, `le réglage #${id} n'a pas d'infobulle`);
     }
@@ -104,6 +105,10 @@ describe('Interface — garde-fous du source', () => {
       // La classe est statique : un retour accidentel à la rangée de boutons
       // serait attrapé ici, et pas seulement à l'œil.
       ['grille de presets', /id="presets" class="grille"/],
+      ['repli du suiveur audio', /id="advAudio"/],
+      ['bouton du micro', /id="btnAudio"/],
+      ['source du modulateur de couche', /id="lfoSrc"/],
+      ['source du modulateur global', /id="mgSrc"/],
     ]) assert.match(UI, motif, quoi + ' introuvable');
   });
 

@@ -124,7 +124,12 @@ const state = {
               // /getControlValues). D'où ce réglage explicite : sans lui, tout
               // renvoi de disposition entasserait les barres dans le coin
               // supérieur gauche.
-              outW: 1920, outH: 1080 },
+              outW: 1920, outH: 1080,
+              // Suiveur audio — la calibration. L'analyse elle-même vit dans le
+              // navigateur (Web Audio) : le zéro-dépendance interdit une entrée
+              // son côté serveur. Ces réglages voyagent avec la configuration.
+              audioGain: 1, audioSeuil: 0.06,
+              audioAttaque: 12, audioRelache: 260, audioBande: 'grave' },
   fixtures: [],
   // Dimensions du plateau, en MÈTRES. Repère main droite, origine au centre du
   // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
@@ -333,6 +338,13 @@ function sanitizeLayerSet(set) {
 const LFO_PARAMS = ['level', 'floor', 'width', 'speed', 'duty', 'course',
                     'prof', 'phase', 'spread'];
 const LFO_FORMES = ['sine', 'triangle', 'square', 'rampe'];
+// D'où vient le mouvement d'un modulateur. Liste FERMÉE, comme `LFO_PARAMS` :
+// une valeur inconnue retombe sur 'lfo', donc toute config, tout preset et tout
+// export existants se comportent exactement comme avant.
+const MOD_SOURCES = ['lfo', 'audio'];
+// Bandes du suiveur audio. « grave » suit la grosse caisse et la basse, « aigu »
+// les cymbales et les voix, « tout » l'énergie générale.
+const AUDIO_BANDES = ['grave', 'medium', 'aigu', 'tout'];
 
 function sanitizeLFO(v) {
   if (!v || typeof v !== 'object') return null;
@@ -340,6 +352,7 @@ function sanitizeLFO(v) {
   return {
     on: !!v.on,
     param: v.param,
+    src: MOD_SOURCES.includes(v.src) ? v.src : 'lfo',
     forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
     // Bornes larges : de la respiration lente (2 min) au frémissement (100 ms).
     periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 4000)),
@@ -381,7 +394,12 @@ function appliquerLFO(L, now, store = engines) {
   e.lfoLast = now;
   e.lfoU = (e.lfoU + dt / periode) % 1;
 
-  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, e.lfoU);
+  // ⚠ L'horloge ci-dessus avance MÊME en source audio : basculer sur le micro
+  // puis revenir à l'oscillateur reprend la course là où elle en était, au lieu
+  // de téléporter le modulateur au milieu de son cycle.
+  const x = valeurMod(m, e.lfoU, now);
+  if (x == null) return L; // micro péremé : le réglage du régisseur reprend
+  const brut = m.min + (m.max - m.min) * x;
   return { ...L, ...sanitizeLayerSet({ [m.param]: brut }) };
 }
 
@@ -429,6 +447,7 @@ function sanitizeModGlobal(v) {
   return {
     on: !!v.on,
     param: v.param,
+    src: MOD_SOURCES.includes(v.src) ? v.src : 'lfo',
     forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
     periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 8000)),
     sync: !!v.sync,
@@ -451,12 +470,43 @@ function globalEff(cle) {
   return (modGlobalVal && cle in modGlobalVal) ? modGlobalVal[cle] : state.global[cle];
 }
 
+/**
+ * Niveau entendu au micro. Analysé par le NAVIGATEUR (Web Audio), poussé ici en
+ * paramètre du poll : le zéro-dépendance interdit une entrée son côté serveur.
+ *
+ * Volatil, jamais persisté, jamais exporté : c'est une mesure de l'instant, pas
+ * un réglage. Un niveau sauvegardé se retrouverait figé dans un preset.
+ *
+ * ⚠ LA PÉREMPTION REND LA MAIN, elle ne tombe pas à zéro. Sans niveau frais —
+ * onglet fermé, micro débranché, machine en veille — `niveauAudio` rend `null`
+ * et le modulateur laisse le réglage du régisseur intact. Retomber sur `min`
+ * mettrait le paramètre à sa borne basse : sur `master` avec min 0, c'est le
+ * noir en plein spectacle. Le fondu entre les deux évite la marche d'escalier.
+ */
+const audio = { v: 0, at: 0 };
+const AUDIO_TENUE_MS = 250, AUDIO_PEREMPTION_MS = 700;
+function niveauAudio(now) {
+  if (!audio.at) return null;
+  const age = now - audio.at;
+  if (age <= AUDIO_TENUE_MS) return audio.v;
+  if (age >= AUDIO_PEREMPTION_MS) return null;
+  return audio.v * (1 - (age - AUDIO_TENUE_MS) / (AUDIO_PEREMPTION_MS - AUDIO_TENUE_MS));
+}
+
 /** Forme d'onde commune aux deux modulateurs, sur une phase 0..1. */
 function ondeLFO(forme, u) {
   if (forme === 'square') return u < 0.5 ? 1 : 0;
   if (forme === 'triangle') return 1 - 2 * Math.abs(u - 0.5);
   if (forme === 'rampe') return u;
   return 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+}
+
+/**
+ * D'où vient le mouvement : l'oscillateur, ou le micro. Rend `null` quand la
+ * source audio n'a rien de frais — l'appelant laisse alors le réglage tel quel.
+ */
+function valeurMod(m, u, now) {
+  return m.src === 'audio' ? niveauAudio(now) : ondeLFO(m.forme, u);
 }
 
 /**
@@ -479,7 +529,10 @@ function calculerModGlobal(now) {
   const dt = Math.min(1000, Math.max(0, now - engGlobal.last));
   engGlobal.last = now;
   engGlobal.u = (engGlobal.u + dt / periode) % 1;
-  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, engGlobal.u);
+  // L'horloge avance même en source audio (voir `appliquerLFO`).
+  const x = valeurMod(m, engGlobal.u, now);
+  if (x == null) return; // micro péremé : `modGlobalVal` reste null, réglage intact
+  const brut = m.min + (m.max - m.min) * x;
   // Mêmes bornes qu'une saisie à la main : le modulateur ne peut rien sortir de
   // sa plage, même avec des min/max délirants.
   const propre = sanitizeGlobal({ [m.param]: brut });
@@ -499,6 +552,15 @@ function sanitizeSettings(s) {
   for (const k of ['outW', 'outH']) {
     if (k in s) o[k] = Math.round(cnum(s[k], 16, 32768, o[k]));
   }
+  // Calibration du suiveur audio. Elle vit ICI et pas dans le navigateur : la
+  // promesse du projet est que la configuration voyage avec l'exécutable, sur
+  // une clé USB. Un réglage laissé dans le `localStorage` resterait sur la
+  // machine, et le régisseur retrouverait un micro déréglé en arrivant en salle.
+  if ('audioGain' in s) o.audioGain = cnum(s.audioGain, 0.1, 10, 1);
+  if ('audioSeuil' in s) o.audioSeuil = cnum(s.audioSeuil, 0, 0.9, 0.06);
+  if ('audioAttaque' in s) o.audioAttaque = Math.round(cnum(s.audioAttaque, 1, 500, 12));
+  if ('audioRelache' in s) o.audioRelache = Math.round(cnum(s.audioRelache, 20, 3000, 260));
+  if ('audioBande' in s) o.audioBande = AUDIO_BANDES.includes(s.audioBande) ? s.audioBande : 'grave';
   return o;
 }
 /** Les clés MIDI sont bornées en nombre ET en forme (`cc:1:7`, `note:10:36`). */
@@ -2529,6 +2591,26 @@ function json(res, obj, code = 200) {
   res.end(JSON.stringify(obj));
 }
 
+/**
+ * Récupère le niveau du micro poussé par l'interface, en paramètre du poll
+ * qu'elle fait déjà : `GET /api/state?a=0.42`. Aucune requête de plus, ~8 octets
+ * sur la ligne de requête, zéro octet dans la réponse.
+ *
+ * Tolérant par construction : toute valeur illisible est ignorée en silence,
+ * plutôt que d'installer un niveau aberrant. Une entrée hostile ne doit jamais
+ * pouvoir clouer un modulateur en butée.
+ */
+function lireNiveauAudio(req) {
+  const q = req.url.indexOf('?');
+  if (q < 0) return;
+  const m = /(?:^|&)a=([0-9.]{1,8})(?:&|$)/.exec(req.url.slice(q + 1));
+  if (!m) return;
+  const v = parseFloat(m[1]);
+  if (!(v >= 0)) return; // NaN inclus : la comparaison est fausse pour lui
+  audio.v = Math.min(1, v);
+  audio.at = Date.now();
+}
+
 const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
 
@@ -2582,6 +2664,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url === '/api/state') {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
+    lireNiveauAudio(req);      // suiveur audio : le niveau voyage sur le poll
     return json(res, {
       app: APP_NAME, version: VERSION, net: lanUrls(),
       settings: state.settings, scene: state.scene, vues: state.vues,

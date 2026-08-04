@@ -207,6 +207,16 @@ const MUTATIONS = [
     de: "    const c = L.target === 'color' ? (L.colorA || '#ff2000') : ACCENT;",
     vers: "    const c = ACCENT;",
   },
+  {
+    // LE comportement de sécurité du suiveur audio : sans niveau frais, le
+    // modulateur doit RENDRE LA MAIN au réglage du régisseur. Le figer sur la
+    // dernière valeur reçue clouerait un show sur ce qu'entendait un onglet
+    // fermé — et sur le master, à sa borne basse, ce serait le noir.
+    nom: 'le niveau audio ne se perime plus : un modulateur reste fige',
+    cible: 'tests/modulateur.test.js',
+    de: '  if (age >= AUDIO_PEREMPTION_MS) return null;',
+    vers: '  if (age >= AUDIO_PEREMPTION_MS) return audio.v;',
+  },
 ];
 
 module.exports = MUTATIONS;

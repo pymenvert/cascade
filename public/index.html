@@ -306,6 +306,12 @@
   #presets button.savemode { border-color: var(--off); color: var(--off);
     animation: blinkSave 1s steps(2, start) infinite; }
   @keyframes blinkSave { 50% { opacity: .55; } }
+  /* Suiveur audio : un vu-mètre, seule CSS nouvelle du panneau — le reste
+     hérite du style générique des replis `details` déjà en place. */
+  #audioVu { display: block; width: 100%; height: 8px; border-radius: 4px;
+    background: var(--panel2); overflow: hidden; }
+  #audioVu i { display: block; height: 100%; width: 0; background: var(--accent);
+    transition: width .08s linear; }
   /* Vue spatiale */
   #stage { position: relative; height: 320px;
     background: radial-gradient(ellipse at 50% 120%, #141926 0%, #0a0c10 70%);
@@ -396,6 +402,11 @@
     <tr><td>Double-clic</td><td>Sur une ligne de réglage : retour à la valeur par défaut</td></tr>
     <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
     <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
+    <tr><th colspan="2">Suiveur audio</th></tr>
+    <tr><td>Principe</td><td>Le micro est une <b>source de modulateur</b>, comme l'oscillateur : Global → repli <b>Suiveur audio</b>, puis <b>Source = Micro</b> sur le modulateur d'une couche ou sur le modulateur global.</td></tr>
+    <tr><td>Ce qu'il lit</td><td>Une <b>énergie</b>, pas un tempo : il fait respirer la lumière avec le son. Il ne détecte pas les battements et ne cale pas le chase sur la musique.</td></tr>
+    <tr><td>Limite</td><td>Le micro n'est lisible que sur la <b>machine où tourne Cascade</b> — jamais depuis une adresse réseau, les navigateurs l'interdisent. Depuis un iPad, tout le reste fonctionne.</td></tr>
+    <tr><td>Sécurité</td><td>Si le son s'arrête d'arriver (onglet fermé, micro débranché), le réglage <b>revient à ce que vous aviez posé</b> — il ne reste jamais figé sur la dernière valeur entendue.</td></tr>
     <tr><td>Grille de presets</td><td>La bande de couleur montre les barres que le preset <b>pilote</b> — une couverture, pas une image du motif. Bord en pointillé : ce preset ne pilote plus aucune barre. Pavé orange : le dernier rappelé.</td></tr>
     <tr><td>Glisser</td><td>Une barre dans la vue spatiale : la déplacer</td></tr>
     <tr><th colspan="2">Page Scène (vue 3D)</th></tr>
@@ -681,6 +692,12 @@
       </select>
     </label>
     <div id="blocLfo" style="display:none">
+      <label class="row" title="D'où vient le mouvement : un oscillateur qui boucle, ou le niveau entendu au micro. Le micro se règle dans le panneau Global, repli « Suiveur audio » — et il n'est lisible que sur la machine où tourne Cascade, jamais depuis une adresse réseau."><span>Source</span>
+        <select id="lfoSrc">
+          <option value="lfo">Oscillateur (boucle)</option>
+          <option value="audio">Micro (suiveur audio)</option>
+        </select>
+      </label>
       <label class="row" title="Forme de la boucle. Sinus respire, triangle monte et descend droit, rampe repart d'un coup à chaque tour, créneau alterne entre les deux bornes."><span>Forme</span>
         <select id="lfoForme">
           <option value="sine">Sinus (respiration)</option>
@@ -789,6 +806,12 @@
       </select>
     </label>
     <div id="blocMg" style="display:none">
+      <label class="row" title="D'où vient le mouvement : un oscillateur qui boucle, ou le niveau entendu au micro. Le micro se règle dans le panneau Global, repli « Suiveur audio » — et il n'est lisible que sur la machine où tourne Cascade, jamais depuis une adresse réseau."><span>Source</span>
+        <select id="mgSrc">
+          <option value="lfo">Oscillateur (boucle)</option>
+          <option value="audio">Micro (suiveur audio)</option>
+        </select>
+      </label>
       <label class="row" title="Forme de la boucle."><span>Forme</span>
         <select id="mgForme">
           <option value="sine">Sinus (respiration)</option>
@@ -815,6 +838,38 @@
         <input type="number" id="mgMin" step="0.01" style="width:5.5em">
         <input type="number" id="mgMax" step="0.01" style="width:5.5em"></label>
     </div>
+    <details id="advAudio">
+      <summary>Suiveur audio <span class="badge" id="audioBadge"></span></summary>
+      <p class="hint">Le micro devient une <b>source de modulateur</b>, à côté de l'oscillateur :
+      choisissez « Micro » comme Source sur le modulateur d'une couche, ou sur le modulateur global.
+      Il lit une <b>énergie</b> — il ne détecte pas les battements et ne cale pas le tempo.
+      <br>⚠ Le micro n'est lisible que sur la <b>machine où tourne Cascade</b>, jamais depuis une
+      adresse réseau : les navigateurs interdisent l'accès au micro hors origine sûre. Depuis un iPad,
+      tout le reste fonctionne.</p>
+      <label class="row" title="Demande l'accès au micro et démarre l'analyse. Le navigateur pose la question une fois ; refuser n'a aucune conséquence sur le reste de Cascade."><span>Micro</span>
+        <button id="btnAudio">🎤 Écouter</button></label>
+      <label class="row" title="Entrée son analysée. La liste n'est remplie qu'après avoir accordé l'accès au micro."><span>Entrée</span>
+        <select id="audioEntree"><option value="">— par défaut —</option></select></label>
+      <label class="row" title="Bande de fréquences suivie. Grave suit la grosse caisse et la basse, aigu les cymbales et les voix, tout l'énergie générale."><span>Bande</span>
+        <select id="audioBande">
+          <option value="grave">Grave (grosse caisse, basse)</option>
+          <option value="medium">Médium</option>
+          <option value="aigu">Aigu (cymbales, voix)</option>
+          <option value="tout">Tout le spectre</option>
+        </select>
+      </label>
+      <label class="row" title="Amplification du niveau lu. À monter si la lumière bouge à peine, à baisser si elle sature en permanence."><span>Gain</span>
+        <input type="range" id="audioGain" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Porte de bruit : en dessous de ce niveau, le son est considéré comme du silence. Sert à ignorer la clim, le public et le souffle de la salle."><span>Seuil</span>
+        <input type="range" id="audioSeuil" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Vitesse de montée. Court = la lumière saute sur chaque attaque ; long = elle gonfle doucement."><span>Attaque</span>
+        <input type="range" id="audioAttaque" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Vitesse de descente. C'est lui qui donne la respiration : trop court, la lumière hachure ; trop long, elle reste allumée."><span>Relâchement</span>
+        <input type="range" id="audioRelache" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Ce que Cascade entend en ce moment, après gain, seuil et lissage. C'est exactement la valeur envoyée aux modulateurs réglés sur « Micro »."><span>Niveau</span>
+        <span id="audioVu"><i></i></span></label>
+      <p class="hint" id="audioEtat">Micro à l'arrêt.</p>
+    </details>
     <label class="row" title="Temps de fondu au rappel d'un preset. À 0, le changement est sec (comportement d'origine). Sinon, la scène sortante continue de jouer et décroît pendant que la nouvelle monte."><span>Fondu presets</span>
       <input type="range" id="presetFade" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Réponse du gradateur. Les LED DMX sont souvent trop brutales en linéaire : « carrée » affine les bas de fondu, « racine » remonte les niveaux faibles."><span>Courbe dimmer</span>
@@ -1380,12 +1435,19 @@ function render() {
     if (document.activeElement !== $('#lfoParam')) $('#lfoParam').value = m ? m.param : '';
     $('#blocLfo').style.display = m ? '' : 'none';
     if (m) {
+      if (document.activeElement !== $('#lfoSrc')) $('#lfoSrc').value = m.src || 'lfo';
       if (document.activeElement !== $('#lfoForme')) $('#lfoForme').value = m.forme;
       $('#lfoSync').checked = !!m.sync;
+      // En source micro, la forme d'onde et la période ne veulent plus rien
+      // dire : c'est le son qui donne le mouvement. Les laisser affichés ferait
+      // régler des boutons sans effet — la panne la plus agaçante qui soit.
+      const mic = m.src === 'audio';
+      $('#lfoForme').closest('label').style.display = mic ? 'none' : '';
+      $('#lfoSync').closest('label').style.display = mic ? 'none' : '';
       // Un seul des deux réglages de durée est montré : afficher une période en
       // secondes que le serveur ignore ferait chercher longtemps.
-      $('#rowLfoPeriode').style.display = m.sync ? 'none' : '';
-      $('#rowLfoCycles').style.display = m.sync ? '' : 'none';
+      $('#rowLfoPeriode').style.display = (mic || m.sync) ? 'none' : '';
+      $('#rowLfoCycles').style.display = (!mic && m.sync) ? '' : 'none';
       if (document.activeElement !== $('#lfoCycles')) $('#lfoCycles').value = String(m.cycles);
       setSlider('#lfoPeriode', periodeVersCurseur(m.periodeMs),
         v => { const ms = curseurVersPeriode(v);
@@ -1464,10 +1526,14 @@ function render() {
     if (document.activeElement !== $('#mgParam')) $('#mgParam').value = g ? g.param : '';
     $('#blocMg').style.display = g ? '' : 'none';
     if (g) {
+      if (document.activeElement !== $('#mgSrc')) $('#mgSrc').value = g.src || 'lfo';
       if (document.activeElement !== $('#mgForme')) $('#mgForme').value = g.forme;
       $('#mgSync').checked = !!g.sync;
-      $('#rowMgPeriode').style.display = g.sync ? 'none' : '';
-      $('#rowMgCycles').style.display = g.sync ? '' : 'none';
+      const micG = g.src === 'audio';
+      $('#mgForme').closest('label').style.display = micG ? 'none' : '';
+      $('#mgSync').closest('label').style.display = micG ? 'none' : '';
+      $('#rowMgPeriode').style.display = (micG || g.sync) ? 'none' : '';
+      $('#rowMgCycles').style.display = (!micG && g.sync) ? '' : 'none';
       if (document.activeElement !== $('#mgCycles')) $('#mgCycles').value = String(g.cycles);
       setSlider('#mgPeriode', periodeVersCurseur(g.periodeMs),
         v => { const ms = curseurVersPeriode(v);
@@ -1475,6 +1541,23 @@ function render() {
       if (document.activeElement !== $('#mgMin')) $('#mgMin').value = g.min;
       if (document.activeElement !== $('#mgMax')) $('#mgMax').value = g.max;
     }
+  }
+  {
+    // Suiveur audio : les curseurs et la pastille du repli. La pastille dit s'il
+    // écoute, pour qu'un repli fermé ne cache pas un micro resté ouvert.
+    const st = S.settings || {};
+    setSlider('#audioGain', Math.round(((st.audioGain == null ? 1 : st.audioGain) - 0.1) / 4.9 * 100),
+      v => (0.1 + v / 100 * 4.9).toFixed(1) + ' ×');
+    setSlider('#audioSeuil', Math.round((st.audioSeuil == null ? 0.06 : st.audioSeuil) / 0.9 * 100),
+      v => (v / 100 * 0.9 * 100).toFixed(0) + ' %');
+    setSlider('#audioAttaque', Math.round(((st.audioAttaque || 12) - 1) / 199 * 100),
+      v => Math.round(1 + v / 100 * 199) + ' ms');
+    setSlider('#audioRelache', Math.round(((st.audioRelache || 260) - 20) / 1480 * 100),
+      v => Math.round(20 + v / 100 * 1480) + ' ms');
+    if (document.activeElement !== $('#audioBande')) $('#audioBande').value = st.audioBande || 'grave';
+    const badge = $('#audioBadge');
+    badge.textContent = suiveur.actif ? 'à l’écoute' : '';
+    badge.title = suiveur.actif ? 'Le micro est ouvert et alimente les modulateurs réglés sur « Micro ».' : '';
   }
   setSlider('#presetFade', fadeToSlider(S.global.presetFade || 0),
     v => { const ms = fadeFromSlider(v); return ms ? (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s') : 'sec'; });
@@ -2223,6 +2306,17 @@ $('#oneShot').onchange = e => setL({ oneShot: e.target.checked }).then(poll);
 $('#btnGo').onclick = () => post('/api/resync', { id: sel().id });
 $('#dimmer').onchange = e => post('/api/global', { dimmer: e.target.value }).then(poll);
 $('#presetFade').oninput = e => post('/api/global', { presetFade: fadeFromSlider(+e.target.value) });
+
+// Suiveur audio — la calibration vit dans la configuration du serveur, donc elle
+// voyage avec le projet sur la clé USB, au lieu de rester dans ce navigateur.
+$('#audioBande').onchange = e => post('/api/settings', { audioBande: e.target.value });
+$('#audioGain').oninput = e => post('/api/settings', { audioGain: 0.1 + (+e.target.value / 100) * 4.9 });
+$('#audioSeuil').oninput = e => post('/api/settings', { audioSeuil: (+e.target.value / 100) * 0.9 });
+$('#audioAttaque').oninput = e => post('/api/settings', { audioAttaque: 1 + (+e.target.value / 100) * 199 });
+$('#audioRelache').oninput = e => post('/api/settings', { audioRelache: 20 + (+e.target.value / 100) * 1480 });
+$('#lfoSrc').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), src: e.target.value } }).then(poll);
+$('#mgSrc').onchange = (e) => posterMg({ src: e.target.value });
 $('#mirrorH').onchange = e => setL({ mirrorH: e.target.checked }).then(poll);
 $('#mirrorV').onchange = e => setL({ mirrorV: e.target.checked }).then(poll);
 $('#axisX').oninput = e => setL({ axisX: +e.target.value / 100 });
@@ -2543,6 +2637,154 @@ function onMidiMessage(ev) {
   const target = (S.midiMap || {})[key];
   if (target) midiApply(target, v01, isTrigger);
 }
+/* ─── Suiveur audio ───────────────────────────────────────────────────────────
+ * Le micro devient une SOURCE de modulateur, à côté de l'oscillateur.
+ *
+ * L'analyse vit ici, dans le navigateur : le zéro-dépendance interdit une
+ * entrée son côté serveur. Le niveau part ensuite au serveur en paramètre du
+ * poll qu'on fait déjà — aucune requête de plus.
+ *
+ * ⚠ Le micro n'est accessible qu'en ORIGINE SÛRE (https ou localhost). Depuis
+ * un iPad sur http://<ip>:3333, `navigator.mediaDevices` n'existe pas. C'est
+ * assumé et dit à l'écran, comme pour Web MIDI qui n'existe que sur Chrome et
+ * Edge : le reste de Cascade continue de marcher depuis la tablette.
+ */
+const suiveur = { actif: false, niv: 0, ctx: null, analyseur: null, flux: null,
+                  bins: null, dernier: 0, etatDsp: { niveau: 0 } };
+
+/** Bornes des bandes, en fraction du spectre analysé. */
+const AUDIO_BANDES = { grave: [0, 0.08], medium: [0.08, 0.35], aigu: [0.35, 1], tout: [0, 1] };
+
+/**
+ * Enveloppe audio — fonction PURE, sans DOM ni AudioContext.
+ *
+ * Isolée exprès : c'est ce qui rend la DSP testable sans micro, avec un spectre
+ * fabriqué à la main. Rend le niveau 0..1 et le nouvel état du lissage.
+ *
+ * `reglages` : { bande, gain, seuil, attaque, relache }  (attaque/relache en ms)
+ */
+function enveloppeAudio(bins, dt, reglages, etat) {
+  const [d, f] = AUDIO_BANDES[reglages.bande] || AUDIO_BANDES.tout;
+  const i0 = Math.floor(d * bins.length), i1 = Math.max(i0 + 1, Math.floor(f * bins.length));
+  let somme = 0;
+  for (let i = i0; i < i1; i++) somme += bins[i];
+  let v = somme / (i1 - i0) / 255;
+  // Porte de bruit AVEC ré-étalement : sans lui, la course utile serait amputée
+  // du seuil et le suiveur deviendrait mou dès qu'on coupe un peu de souffle.
+  const seuil = reglages.seuil;
+  v = v <= seuil ? 0 : (v - seuil) / (1 - seuil);
+  v = Math.min(1, v * reglages.gain);
+  // Lissage exponentiel ASYMÉTRIQUE : on monte vite et on redescend lentement.
+  // C'est ce qui fait une respiration plutôt qu'un clignotement.
+  const cible = v;
+  const tau = cible > etat.niveau ? reglages.attaque : reglages.relache;
+  const k = 1 - Math.exp(-dt / Math.max(1, tau));
+  const niveau = etat.niveau + (cible - etat.niveau) * k;
+  return { niveau: Math.max(0, Math.min(1, niveau)), etat: { niveau } };
+}
+
+/** Réglages courants du suiveur, lus dans la configuration du serveur. */
+function reglagesAudio() {
+  const s = (S && S.settings) || {};
+  return { bande: s.audioBande || 'grave', gain: s.audioGain == null ? 1 : s.audioGain,
+           seuil: s.audioSeuil == null ? 0.06 : s.audioSeuil,
+           attaque: s.audioAttaque || 12, relache: s.audioRelache || 260 };
+}
+
+function etatAudio(txt) { $('#audioEtat').textContent = txt; }
+
+/** Liste les entrées son. ⚠ Un nom de périphérique est une donnée EXTERNE. */
+function remplirEntrees(list) {
+  const sel = $('#audioEntree');
+  const garde = sel.value;
+  sel.textContent = '';
+  const def = document.createElement('option');
+  def.value = ''; def.textContent = '— par défaut —';
+  sel.appendChild(def);
+  list.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId || '';
+    // textContent, JAMAIS innerHTML : un micro peut s'appeler `<img onerror=…>`.
+    o.textContent = d.label || ('Entrée ' + (i + 1));
+    sel.appendChild(o);
+  });
+  sel.value = garde;
+}
+
+async function demarrerAudio() {
+  if (suiveur.actif) { arreterAudio(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    etatAudio('Le micro n’est lisible que sur la machine où tourne Cascade '
+      + '(les navigateurs l’interdisent depuis une adresse réseau). Tout le reste fonctionne.');
+    return;
+  }
+  const dev = $('#audioEntree').value;
+  try {
+    // Pas de traitement de la voix : on veut le son de la salle, pas une
+    // conversation nettoyée. L'annulation d'écho écraserait la musique.
+    suiveur.flux = await navigator.mediaDevices.getUserMedia({ audio: {
+      deviceId: dev ? { exact: dev } : undefined,
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    etatAudio('Micro refusé ou indisponible. Cascade continue sans lui.');
+    return;
+  }
+  try {
+    suiveur.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (suiveur.ctx.state === 'suspended') await suiveur.ctx.resume();
+    suiveur.analyseur = suiveur.ctx.createAnalyser();
+    suiveur.analyseur.fftSize = 1024;
+    suiveur.analyseur.smoothingTimeConstant = 0.5;
+    suiveur.ctx.createMediaStreamSource(suiveur.flux).connect(suiveur.analyseur);
+    suiveur.bins = new Uint8Array(suiveur.analyseur.frequencyBinCount);
+    suiveur.etatDsp = { niveau: 0 };
+    suiveur.dernier = 0;
+    suiveur.actif = true;
+    $('#btnAudio').classList.add('active');
+    $('#btnAudio').textContent = '🎤 Écoute…';
+    etatAudio('Le micro écoute. Choisissez « Micro » comme Source sur un modulateur.');
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      remplirEntrees(list.filter(d => d.kind === 'audioinput'));
+    } catch (e) { /* la liste est un confort, pas une condition */ }
+    boucleAudio();
+  } catch (e) {
+    etatAudio('L’analyse audio n’a pas pu démarrer sur ce navigateur.');
+    arreterAudio();
+  }
+}
+
+function arreterAudio() {
+  suiveur.actif = false;
+  suiveur.niv = 0;
+  if (suiveur.flux) { try { suiveur.flux.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  if (suiveur.ctx) { try { suiveur.ctx.close(); } catch (e) {} }
+  suiveur.flux = null; suiveur.ctx = null; suiveur.analyseur = null;
+  $('#btnAudio').classList.remove('active');
+  $('#btnAudio').textContent = '🎤 Écouter';
+  $('#audioVu').firstElementChild.style.width = '0%';
+  etatAudio('Micro à l’arrêt.');
+}
+
+/**
+ * Boucle d'analyse, calée sur l'affichage. Elle ne fait QUE mesurer : le niveau
+ * part au serveur avec le poll suivant, pas dans une requête à elle.
+ */
+function boucleAudio() {
+  if (!suiveur.actif) return;
+  const now = performance.now();
+  const dt = suiveur.dernier ? Math.min(200, now - suiveur.dernier) : 16;
+  suiveur.dernier = now;
+  suiveur.analyseur.getByteFrequencyData(suiveur.bins);
+  const r = enveloppeAudio(suiveur.bins, dt, reglagesAudio(), suiveur.etatDsp);
+  suiveur.niv = r.niveau; suiveur.etatDsp = r.etat;
+  $('#audioVu').firstElementChild.style.width = (r.niveau * 100).toFixed(1) + '%';
+  requestAnimationFrame(boucleAudio);
+}
+
+$('#btnAudio').onclick = demarrerAudio;
+$('#audioEntree').onchange = () => { if (suiveur.actif) { arreterAudio(); demarrerAudio(); } };
+
 function initMidi() {
   if (!navigator.requestMIDIAccess) return;
   navigator.requestMIDIAccess({ sysex: false }).then(acc => {
@@ -3377,7 +3619,11 @@ for (const [id, cle] of [['#scW', 'w'], ['#scD', 'd'], ['#scH', 'h']]) {
 // ── Boucle d'état ────────────────────────────────────────────────────
 async function poll() {
   try {
-    const ns = await fetch('/api/state').then(r => r.json());
+    // Le niveau du micro voyage sur le poll qu'on fait déjà : ~8 octets sur la
+    // ligne de requête, zéro dans la réponse. Sans micro, rien n'est ajouté —
+    // un iPad ne peut donc pas écraser ce qu'entend la machine hôte.
+    const ns = await fetch('/api/state' + (suiveur.actif ? '?a=' + suiveur.niv.toFixed(3) : ''))
+      .then(r => r.json());
     if (dragging && S) { S.levels = ns.levels; S.colors = ns.colors; S.global = ns.global; }
     else S = ns;
     $('#status').classList.add('ok');

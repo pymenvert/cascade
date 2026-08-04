@@ -192,7 +192,9 @@ describe('Modulateur — faire respirer un réglage', () => {
   });
 
   test('le modulateur voyage avec le projet et les presets', async () => {
-    const m = { on: true, param: 'width', forme: 'rampe',
+    // `src` fait partie de l'objet mémorisé depuis l'arrivée du suiveur audio :
+    // sans lui ici, le deepEqual compare une forme périmée.
+    const m = { on: true, param: 'width', src: 'lfo', forme: 'rampe',
                 periodeMs: 3000, sync: false, cycles: 4, min: 2, max: 12 };
     await setL({ lfo: m });
     await h.post('/api/preset', { action: 'save', slot: 4, name: 'Souffle' });
@@ -344,7 +346,7 @@ describe('Modulateur global', () => {
   });
 
   test('il voyage avec le projet', async () => {
-    const m = { on: true, param: 'xfade', forme: 'triangle',
+    const m = { on: true, param: 'xfade', src: 'lfo', forme: 'triangle',
                 periodeMs: 5000, sync: true, cycles: 4, min: 0.2, max: 0.8 };
     await h.post('/api/global', { modGlobal: m });
     const exp = await h.get('/api/export');
@@ -356,6 +358,234 @@ describe('Modulateur global', () => {
     assert.deepEqual((await h.state()).global.modGlobal, m,
       'il doit survivre à l’import');
     await h.post('/api/global', { modGlobal: null });
+  });
+
+  test('aucune erreur n’a été écrite dans le journal du serveur', () => {
+    const erreurs = h.logs.join('').split('\n').filter(l =>
+      /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
+    assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
+  });
+});
+
+/**
+ * Le suiveur audio, côté serveur.
+ *
+ * L'analyse du son vit dans le NAVIGATEUR — le zéro-dépendance interdit une
+ * entrée son ici. Le serveur ne reçoit qu'un flottant, poussé sur le poll que
+ * l'interface fait déjà. C'est ce qui rend toute cette moitié testable SANS
+ * micro : `h.get('/api/state?a=0.9')` suffit à pousser un niveau.
+ *
+ * La propriété qui compte le plus est la PÉREMPTION QUI REND LA MAIN : sans
+ * niveau frais, le modulateur laisse le réglage du régisseur intact au lieu de
+ * retomber sur sa borne basse. Sur `master` avec min 0, retomber sur `min`
+ * serait le noir en plein spectacle.
+ */
+describe('Suiveur audio — le micro comme source de modulateur', () => {
+  let h, id;
+  before(async () => {
+    h = await start();
+    await h.post('/api/fixtures', { fixtures: enLigne(4) });
+    id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { pattern: 'all', mode: 'onoff', width: 8 } });
+  });
+  after(async () => { await h.stop(); });
+
+  const setL = (set) => h.post('/api/layer', { id, set });
+  /**
+   * Pousse un niveau audio, comme le ferait le poll de l'interface, et rend
+   * l'état renvoyé — c'est le même aller-retour que fait le navigateur.
+   */
+  const pousser = (v) => h.get('/api/state?a=' + v).then(r => r.body);
+  /**
+   * Les niveaux CALCULÉS, pas l'OSC émis.
+   *
+   * ⚠ Le cache d'envoi ne réémet PAS une valeur inchangée : un plateau stable
+   * ne produit aucun message, et une assertion « toutes les valeurs valent x »
+   * passerait alors sur un tableau vide, sans rien mesurer. C'est exactement le
+   * piège que ce dépôt a déjà payé deux fois. `runtime.levels` dit ce que le
+   * moteur calcule à l'instant, qu'il l'ait émis ou non.
+   */
+  const calcules = async (st) => {
+    const s = st || (await h.state());
+    const v = (s.levels || []).filter(x => typeof x === 'number');
+    assert.ok(v.length > 0, 'aucun niveau calculé : le test ne mesurerait rien');
+    return v;
+  };
+
+  test('une source inconnue retombe sur l’oscillateur', async () => {
+    const r = await setL({ lfo: { on: true, param: 'level', src: 'pirate', min: 0, max: 1 } });
+    assert.equal(r.body.layer.lfo.src, 'lfo', 'liste fermée, comme les formes');
+    const r2 = await setL({ lfo: { on: true, param: 'level', min: 0, max: 1 } });
+    assert.equal(r2.body.layer.lfo.src, 'lfo', 'absente aussi : rétrocompatible');
+    await setL({ lfo: null });
+  });
+
+  test('sans le moindre niveau reçu, le réglage du régisseur est intact', async () => {
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    await sleep(300);
+    const vus = await calcules();
+    await h.post('/api/stop');
+    assert.ok(vus.every(v => Math.abs(v - 0.5) < 0.02),
+      'tout doit rester sur la valeur réglée à la main : ' + vus);
+    await setL({ lfo: null });
+  });
+
+  test('le niveau du micro fait bouger la lumière', async () => {
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    await sleep(150);
+    for (let i = 0; i < 3; i++) { await pousser(0.05); await sleep(60); }
+    const bas = Math.max(...(await calcules()));
+    for (let i = 0; i < 3; i++) { await pousser(0.95); await sleep(60); }
+    const haut = Math.max(...(await calcules()));
+    await h.post('/api/stop');
+    assert.ok(haut - bas > 0.5,
+      'le micro doit vraiment moduler : bas ' + bas.toFixed(3) + ', haut ' + haut.toFixed(3));
+    await setL({ lfo: null });
+  });
+
+  test('LE TEST DE SÉCURITÉ : la péremption REND LA MAIN, elle ne fige pas', async () => {
+    // Onglet fermé, micro débranché, machine en veille : le niveau cesse
+    // d'arriver. Le modulateur doit alors rendre la main au réglage posé à la
+    // main — surtout PAS rester cloué sur la dernière valeur, ni tomber sur min.
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    for (let i = 0; i < 4; i++) { await pousser(0.95); await sleep(70); }
+    const pendant = Math.max(...(await calcules()));
+    // On cesse de pousser, et on laisse la péremption faire son travail.
+    await sleep(1200);
+    const apres = await calcules();
+    await h.post('/api/stop');
+    assert.ok(pendant > 0.8, 'le micro pilotait bien, vu ' + pendant.toFixed(3));
+    assert.ok(apres.every(v => Math.abs(v - 0.5) < 0.02),
+      'après péremption on doit RETROUVER 0,5 — ni 0,95 figé, ni 0,1 (min) : ' + apres);
+    await setL({ lfo: null });
+  });
+
+  test('le suiveur n’écrit jamais dans l’état', async () => {
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    for (let i = 0; i < 10; i++) await pousser(0.9);
+    const st = await h.state();
+    await h.post('/api/stop');
+    assert.equal(st.layers[0].level, 0.5, 'le réglage affiché ne doit pas bouger');
+    assert.ok(!('audio' in st), 'aucun niveau audio dans /api/state');
+    const exp = await h.get('/api/export');
+    assert.equal(exp.body.layers[0].level, 0.5, 'l’export porte le réglage, pas la mesure');
+    await setL({ lfo: null });
+  });
+
+  test('STOP reste STOP, même avec du son plein les oreilles', async () => {
+    // Règle n°4 : STOP relâche le contrôle, aucun envoi OSC. Le suiveur ne doit
+    // pas rouvrir cette porte par la bande.
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    // Témoin positif d'abord : sans lui, ce test passerait aussi si le moteur
+    // n'émettait JAMAIS rien — un test qui ne mesure rien conclut que tout va bien.
+    await h.post('/api/start');
+    h.clearOsc();
+    for (let i = 0; i < 4; i++) { await pousser(i % 2 ? 0.9 : 0.1); await sleep(70); }
+    assert.ok(h.osc().length > 0, 'témoin : en marche, le micro fait bien sortir des messages');
+    await h.post('/api/stop');
+    await sleep(200); h.clearOsc();
+    for (let i = 0; i < 5; i++) { await pousser(1); await sleep(80); }
+    // ⚠ Cascade sonde MadMapper toutes les 3 s même à l'arrêt : c'est voulu et
+    // ça n'allume rien. On ne juge donc que ce qui pilote les barres.
+    const versFixtures = h.osc().filter(m => /^\/fixtures\//.test(m.address));
+    assert.deepEqual(versFixtures, [], 'aucune valeur ne doit partir aux barres à l’arrêt');
+    await setL({ lfo: null });
+  });
+
+  test('une valeur hostile en query ne cloue rien en butée', async () => {
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    for (const v of ['1e12', '-5', 'abc', '', '0.5&a=0.9', '../../etc']) {
+      const r = await h.get('/api/state?a=' + encodeURIComponent(v));
+      assert.equal(r.status, 200, 'aucune valeur ne doit faire tomber le serveur : ' + v);
+    }
+    await h.post('/api/start');
+    await sleep(200);
+    const vus = await calcules();
+    await h.post('/api/stop');
+    assert.ok(vus.every(v => v >= 0 && v <= 1), 'niveaux hors bornes : ' + vus);
+    await setL({ lfo: null });
+  });
+
+  test('les bornes sont héritées, pas réimplémentées', async () => {
+    // min/max délirants : c'est `sanitizeLayerSet` qui borne, pas du code neuf.
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: -5, max: 9 } });
+    await h.post('/api/start');
+    for (let i = 0; i < 5; i++) { await pousser(1); await sleep(70); }
+    const vus = await calcules();
+    await h.post('/api/stop');
+    assert.ok(vus.every(v => v >= 0 && v <= 1), 'tout doit rester dans 0..1 : ' + vus);
+    await setL({ lfo: null });
+  });
+
+  test('la source voyage avec le projet et les presets', async () => {
+    const m = { on: true, param: 'level', src: 'audio', forme: 'sine',
+                periodeMs: 4000, sync: false, cycles: 4, min: 0.2, max: 0.9 };
+    await setL({ lfo: m });
+    await h.post('/api/preset', { action: 'save', slot: 2, name: 'Micro' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    assert.deepEqual((await h.state()).layers[0].lfo, m, 'export/import');
+    await setL({ lfo: null });
+    await h.post('/api/preset', { action: 'recall', slot: 2 });
+    await sleep(150);
+    assert.deepEqual((await h.state()).layers[0].lfo, m, 'rappel de preset');
+    await setL({ lfo: null });
+    await h.post('/api/preset', { action: 'clear', slot: 2 });
+  });
+
+  test('le modulateur GLOBAL accepte aussi le micro, et relâche pareil', async () => {
+    const id0 = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id: id0, set: { level: 1, lfo: null,
+      pattern: 'all', mode: 'onoff', width: 8 } });
+    await h.post('/api/global', { master: 0.5,
+      modGlobal: { on: true, param: 'master', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    for (let i = 0; i < 4; i++) { await pousser(0.95); await sleep(90); }
+    h.clearOsc(); await sleep(200);
+    const pendant = Math.max(...niveaux(h.osc()).values());
+    await sleep(1200); h.clearOsc(); await sleep(300);
+    const apres = [...niveaux(h.osc()).values()];
+    await h.post('/api/stop');
+    const st = await h.state();
+    assert.ok(pendant > 0.8, 'le micro pilotait le master, vu ' + pendant.toFixed(3));
+    assert.ok(apres.every(v => Math.abs(v - 0.5) < 0.02),
+      'après péremption, le master réglé à la main revient : ' + apres);
+    assert.equal(st.global.master, 0.5, 'et l’état n’a jamais été écrit');
+    await h.post('/api/global', { modGlobal: null, master: 1 });
+  });
+
+  test('aucun conflit avec Ableton Link : le suiveur n’écrit pas stepMs', async () => {
+    // Il n'y a rien à arbitrer, et c'est mieux que de bien arbitrer : le suiveur
+    // ne touche pas au tempo, donc `applyLinkBpm` n'a rien à écraser.
+    const id0 = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id: id0, set: { stepMs: 500,
+      lfo: { on: true, param: 'level', src: 'audio', min: 0, max: 1 } } });
+    await h.post('/api/start');
+    for (let i = 0; i < 6; i++) { await pousser(0.7); await sleep(90); }
+    const st = await h.state();
+    await h.post('/api/stop');
+    assert.equal(st.layers[0].stepMs, 500, 'le tempo de la couche ne bouge pas');
+    await h.post('/api/layer', { id: id0, set: { lfo: null } });
+  });
+
+  test('la calibration voyage avec la configuration, et est bornée', async () => {
+    // Elle vit dans state.settings et PAS dans le localStorage : la promesse du
+    // projet est que la régie tienne sur une clé USB.
+    await h.post('/api/settings', { audioGain: 99, audioSeuil: -3,
+      audioAttaque: 0, audioRelache: 99999, audioBande: 'pirate' });
+    const s = (await h.state()).settings;
+    assert.equal(s.audioGain, 10, 'gain borné');
+    assert.equal(s.audioSeuil, 0, 'seuil borné');
+    assert.equal(s.audioAttaque, 1, 'attaque bornée');
+    assert.equal(s.audioRelache, 3000, 'relâchement borné');
+    assert.equal(s.audioBande, 'grave', 'bande inconnue : repli sur la liste fermée');
+    await h.post('/api/settings', { audioGain: 2, audioBande: 'aigu' });
+    assert.equal((await h.state()).settings.audioBande, 'aigu');
   });
 
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {

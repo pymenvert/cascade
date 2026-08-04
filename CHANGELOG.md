@@ -6,6 +6,57 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Ajouté — suiveur audio : le micro devient une source de modulateur
+
+Le micro se branche là où l'oscillateur était déjà branché. Un modulateur — de
+couche ou global — gagne un réglage **Source** : « Oscillateur (boucle) » ou
+« Micro (suiveur audio) ». Tout le reste est inchangé, donc le micro peut piloter
+tout ce qu'un modulateur pilotait déjà : niveau, largeur, netteté, profondeur,
+crossfader, master…
+
+L'analyse vit **dans le navigateur** (Web Audio) : le zéro-dépendance interdit
+une entrée son côté serveur. Le niveau part ensuite en paramètre du poll qu'on
+fait déjà — aucune requête de plus, ~8 octets sur la ligne de requête, zéro dans
+la réponse. Réglages : bande (grave / médium / aigu / tout), gain, seuil (porte
+de bruit), attaque et relâchement, avec un vu-mètre.
+
+**Deux limites, dites noir sur blanc dans l'aide et dans le panneau :**
+
+- ⚠ **Il lit une ÉNERGIE, pas un tempo.** Il fait respirer la lumière avec le
+  son ; il ne détecte pas les battements et ne cale pas le chase sur la musique.
+  La détection de tempo est ~150 lignes de DSP dont la justesse dépend du
+  répertoire, avec l'erreur d'octave comme échec structurel : elle attend un
+  essai en salle plutôt qu'une hypothèse.
+- ⚠ **Le micro n'est lisible que sur la machine où tourne Cascade.** Les
+  navigateurs interdisent l'accès au micro hors origine sûre, donc jamais depuis
+  `http://<adresse>:3333`. C'est le même choix que celui déjà assumé pour Web
+  MIDI. Depuis un iPad, tout le reste fonctionne — et sans micro, la page ne
+  pousse rien, donc une tablette ne peut pas écraser ce qu'entend la machine hôte.
+
+**La propriété de sécurité, et elle est verrouillée par un anti-mutant : la
+péremption REND LA MAIN.** Sans niveau frais depuis 700 ms — onglet fermé, micro
+débranché, machine en veille — le modulateur laisse le réglage du régisseur
+intact, avec un fondu pour éviter la marche d'escalier. Retomber sur la borne
+basse aurait été le noir en plein spectacle dès que `min` vaut 0 sur le master ;
+rester figé sur la dernière valeur aurait cloué le show sur ce qu'entendait un
+onglet fermé.
+
+Aucun conflit avec Ableton Link, et c'est mieux que de bien l'arbitrer : le
+suiveur n'écrit jamais `stepMs`, donc il n'y a rien à écraser. L'état n'est
+jamais écrit non plus — comme les modulateurs, le niveau vit le temps d'une
+image et ne se retrouve ni dans la configuration, ni dans un export, ni figé
+dans un preset.
+
+La calibration vit dans `state.settings`, **pas** dans le `localStorage` : la
+promesse du projet est que la régie tienne sur une clé USB, et un réglage laissé
+dans le navigateur resterait sur la machine.
+
+Vérifiable **sans micro**, ce qui était le critère décisif du choix : la moitié
+serveur se teste en poussant un niveau en query (`/api/state?a=0.9`), et la DSP
+est isolée en fonction pure qu'on nourrit d'un spectre fabriqué à la main. Le
+chemin nominal est tout de même exécuté pour de vrai — les tests d'interface
+lancent Chromium avec un faux périphérique audio.
+
 ### Ajouté — les 16 presets deviennent une grille
 
 Les presets étaient une rangée de boutons numérotés qui se repliait selon la

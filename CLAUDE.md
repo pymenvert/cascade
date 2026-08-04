@@ -2,7 +2,7 @@
 
 App web (Node.js zéro dépendance + page unique) qui pilote les fixtures DMX de
 MadMapper en OSC : multi-chasers, vagues, couleur, presets, MIDI/OSC, Ableton
-Link. **2.0.1** · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
+Link. **2.0.2** · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
 
 ## À lire EN PREMIER
 
@@ -36,7 +36,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 262 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 290 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -44,9 +44,9 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
   `CASCADE_OSCIN`, `CASCADE_FEEDBACK`, `CASCADE_MMPORT`, `CASCADE_MMHOST`).
 - Faux Carabiner = serveur TCP local port 17000 qui pousse
   `status { :peers 1 :bpm 128.0 ... }\n`.
-- UI : les 32 tests d'interface pilotent un vrai navigateur en CDP maison
+- UI : les 43 tests d'interface pilotent un vrai navigateur en CDP maison
   (`tests/browser.js`, zéro dépendance) — **pas** Playwright. Sans navigateur ils
-  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (262), pas
+  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (290), pas
   la couleur. `CASCADE_NAVIGATEUR=<binaire>` impose un navigateur ;
   `PLAYWRIGHT_BROWSERS_PATH` est balayé tout seul. Si tu passes par Playwright
   à la main, `waitUntil: 'domcontentloaded'` (`networkidle` ne vient jamais,
@@ -80,7 +80,7 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**262 tests, 27 mutations sur 27 détectées.** Manuel PDF, README, CHANGELOG et
+**290 tests, 30 mutations sur 30 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 
@@ -92,13 +92,17 @@ Trois garde-fous à connaître avant de toucher au code :
   palette spatiale morte en silence ;
 - `build-manuel.py` refuse de générer si un caractère manque à la police.
 
-Ce qui reste, par ordre de valeur : suiveur audio (à faire côté navigateur,
-en Web Audio, pour tenir le zéro-dépendance ; point d'entrée tout trouvé =
-`midiApply()` dans `public/index.html`), grille visuelle des 16 presets, les
-**deux** mesures MadMapper non faites (empreinte d'une barre en pixels, DMX
-Filtering), et « dessiner les fixtures » — qui attend d'abord un
-`Export Fixture Definitions…` depuis MadMapper. Détail dans
-`docs/V2-INSPIRATIONS.md` et `docs/V2-AXES-PISTES.md`.
+✅ **Suiveur audio et grille de presets sont LIVRÉS** (2026-08-04) — ne pas les
+reprendre. Le micro est une *source de modulateur* (`src: 'lfo' | 'audio'`),
+analysé en Web Audio côté page et poussé en query sur le poll. ⚠ Il lit une
+**énergie, pas un tempo**, et n'est lisible que sur la machine hôte (origine
+sûre) : les deux limites sont assumées, écrites, et **décidées avec Pym** — ne
+pas rouvrir sans lui. La détection de battement attend un essai en salle.
+
+Ce qui reste, par ordre de valeur : les **deux** mesures MadMapper non faites
+(empreinte d'une barre en pixels, DMX Filtering), et « dessiner les fixtures » —
+qui attend d'abord un `Export Fixture Definitions…` depuis MadMapper. Détail
+dans `docs/V2-INSPIRATIONS.md` et `docs/V2-AXES-PISTES.md`.
 
 ✅ **Le pivot de `output/rot` est mesuré** (2026-07-29) : la rotation ne
 translate pas la fixture (écart 0,00 en x et y), donc l'ordre position/rotation

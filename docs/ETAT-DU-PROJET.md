@@ -477,7 +477,15 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 - Horloge MIDI en alternative à Link. ⚠ À arbitrer avant d'écrire : Web MIDI n'existe que sur Chrome/Edge, et Node n'a pas de MIDI natif sans dépendance.
 - Séquenceur pas-à-pas dessinable (grille barres × pas).
 - Thème clair. ⚠ Va contre une décision de charte déjà prise (sombre retenu pour la scène) → demander à Pym.
-- **Suiveur audio Web Audio**, côté navigateur pour tenir le zéro-dépendance. Rien n'existe encore ; le point d'entrée désigné est `midiApply()`, qui traduit déjà « une valeur 0-1 + un déclencheur » en appels API.
+- **Détection de tempo audio** — le suiveur audio livré ne donne qu'une ÉNERGIE.
+  Décision prise avec Pym le 2026-08-04 : on livre l'énergie, on essaie en salle,
+  et on décide ensuite. ⚠ Deux décisions à ne PAS redécouvrir : pas de détection
+  de battement pour l'instant (~150 lignes de DSP, justesse dépendante du
+  répertoire, erreur d'octave structurelle, invalidable hors salle) ; et **pas de
+  HTTPS auto-signé** pour lever la contrainte d'origine sûre du micro (certificat
+  à générer, `openssl` absent de Windows par défaut, écran d'avertissement à
+  chaque connexion — impossible à demander à un régisseur). La limite « micro
+  seulement sur la machine hôte » est assumée et écrite, comme pour Web MIDI.
 
 ⚠ **Cette liste a déjà menti trois fois.** Y traînaient, faites : la **synchro de
 phase Link** (livrée en 1.6.0), le **`dist/` généré** (`sync-dist.js`, avec un
