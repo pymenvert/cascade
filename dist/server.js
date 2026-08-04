@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { exec, spawn } = require('child_process');
+const crypto = require('crypto');
 
 const APP_NAME = 'Cascade';
 const VERSION = '2.0.2';
@@ -129,7 +130,12 @@ const state = {
               // navigateur (Web Audio) : le zéro-dépendance interdit une entrée
               // son côté serveur. Ces réglages voyagent avec la configuration.
               audioGain: 1, audioSeuil: 0.06,
-              audioAttaque: 12, audioRelache: 260, audioBande: 'grave' },
+              audioAttaque: 12, audioRelache: 260, audioBande: 'grave',
+              // Code d'accès facultatif à 4 chiffres. On stocke un HACHAGE salé,
+              // jamais le code : `settings` n'est pas exporté avec le projet,
+              // mais il est écrit en clair dans `cascade-config.json`, à côté de
+              // l'exécutable — donc sur la clé USB qu'on prête.
+              acces: null },
   fixtures: [],
   // Dimensions du plateau, en MÈTRES. Repère main droite, origine au centre du
   // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
@@ -230,7 +236,7 @@ function writeConfigNow() {
     const data = JSON.stringify({
       app: APP_NAME, version: VERSION, projectName: state.projectName,
       settings: state.settings, scene: state.scene, vues: state.vues,
-      scene: state.scene, fixtures: state.fixtures, groups: state.groups,
+      fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global, presets: state.presets, midiMap: state.midiMap,
     }, null, 2);
     const tmp = CONFIG_FILE + '.tmp';
@@ -561,6 +567,19 @@ function sanitizeSettings(s) {
   if ('audioAttaque' in s) o.audioAttaque = Math.round(cnum(s.audioAttaque, 1, 500, 12));
   if ('audioRelache' in s) o.audioRelache = Math.round(cnum(s.audioRelache, 20, 3000, 260));
   if ('audioBande' in s) o.audioBande = AUDIO_BANDES.includes(s.audioBande) ? s.audioBande : 'grave';
+  // Code d'accès : accepté seulement s'il a la FORME d'un réglage déjà haché.
+  // Il arrive par deux voies légitimes — le fichier de configuration au
+  // démarrage, et `/api/acces`, qui hache lui-même. Un client qui poserait un
+  // faux haché via `/api/settings` se contenterait de changer le code, ce qui
+  // demande déjà d'être autorisé ; mais on refuse quand même toute forme
+  // douteuse plutôt que de la recopier telle quelle.
+  if ('acces' in s) {
+    const a = s.acces;
+    o.acces = (a && typeof a === 'object'
+      && typeof a.sel === 'string' && /^[0-9a-f]{16}$/.test(a.sel)
+      && typeof a.h === 'string' && /^[0-9a-f]{64}$/.test(a.h))
+      ? { sel: a.sel, h: a.h } : null;
+  }
   return o;
 }
 /** Les clés MIDI sont bornées en nombre ET en forme (`cc:1:7`, `note:10:36`). */
@@ -2586,6 +2605,87 @@ function readBody(req) {
     req.on('aborted', () => finish({}));
   });
 }
+/* ─── Code d'accès facultatif ─────────────────────────────────────────────────
+ * Cascade s'ouvre depuis un iPad ou un téléphone, donc depuis le Wi-Fi de la
+ * salle. Un code à 4 chiffres empêche un curieux de prendre la main sur la
+ * lumière pendant le spectacle.
+ *
+ * ⚠ QUATRE CHIFFRES, C'EST 10 000 COMBINAISONS. Sans limitation de tentatives,
+ * ça se casse en quelques secondes et le code ne protège RIEN. La limitation
+ * ci-dessous n'est donc pas un raffinement : c'est ce qui rend la fonction
+ * honnête. Elle est verrouillée par un test et par un anti-mutant.
+ *
+ * Ce que ce code NE fait pas, volontairement :
+ *  - il ne ferme pas l'OSC ni le MIDI : ceux-là passent par un câble ou une
+ *    console posée sur le réseau de production, c'est un autre domaine de
+ *    confiance, et les fermer casserait les installations existantes ;
+ *  - il n'est jamais demandé en local. La machine hôte est celle qu'on a
+ *    physiquement sous la main, et cette exemption garantit qu'on ne peut PAS
+ *    s'enfermer dehors : il y a toujours une voie pour retirer le code.
+ */
+const ACCES_MAX_ESSAIS = 5;        // avant blocage
+const ACCES_BLOCAGE_MS = 60000;    // durée du blocage, par adresse
+const ACCES_JETON_MS = 12 * 3600 * 1000;
+
+/** Jetons de session valides, en mémoire : un redémarrage redemande le code. */
+const accesJetons = new Map();     // jeton -> expiration
+/** Tentatives ratées par adresse : { n, jusqua }. */
+const accesEssais = new Map();
+
+function hacherCode(code, sel) {
+  return crypto.createHash('sha256').update(sel + ':' + code).digest('hex');
+}
+/** Rend l'objet à persister, ou null pour retirer le code. */
+function poserCode(code) {
+  const c = String(code == null ? '' : code).trim();
+  if (!c) return null;
+  if (!/^\d{4}$/.test(c)) return undefined; // invalide : l'appelant refuse
+  const sel = crypto.randomBytes(8).toString('hex');
+  return { sel, h: hacherCode(c, sel) };
+}
+function codeJuste(code, reglage) {
+  if (!reglage || !reglage.h || !reglage.sel) return false;
+  const a = Buffer.from(hacherCode(String(code || ''), reglage.sel), 'hex');
+  const b = Buffer.from(String(reglage.h), 'hex');
+  // Comparaison à temps constant : sinon la durée de la réponse renseigne sur
+  // le nombre de chiffres justes.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/** Les réglages SANS le haché du code : ce qu'on a le droit d'envoyer. */
+function sansCode(reglages) {
+  const { acces, ...reste } = reglages;
+  return reste;
+}
+
+/** L'adresse est-elle la machine elle-même ? */
+function estLocal(req) {
+  const a = (req.socket && req.socket.remoteAddress) || '';
+  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+}
+function cleEssais(req) { return (req.socket && req.socket.remoteAddress) || '?'; }
+
+function jetonDeLaRequete(req) {
+  const brut = req.headers && req.headers.cookie;
+  if (!brut) return null;
+  const m = /(?:^|;\s*)cascade_acces=([A-Za-z0-9]+)/.exec(brut);
+  return m ? m[1] : null;
+}
+function jetonValide(req) {
+  const j = jetonDeLaRequete(req);
+  if (!j) return false;
+  const exp = accesJetons.get(j);
+  if (!exp) return false;
+  if (Date.now() > exp) { accesJetons.delete(j); return false; }
+  return true;
+}
+/** Vrai si la requête a le droit de passer. */
+function accesAutorise(req) {
+  if (!state.settings.acces) return true;  // aucun code posé
+  if (estLocal(req)) return true;          // la machine hôte, toujours
+  return jetonValide(req);
+}
+
 function json(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj));
@@ -2621,6 +2721,78 @@ const server = http.createServer(async (req, res) => {
       res.end(buf);
     });
     return;
+  }
+
+  // ── Portillon du code d'accès ──────────────────────────────────────────────
+  // La PAGE est toujours servie (juste au-dessus) : sans elle, impossible
+  // d'afficher la demande de code. C'est l'API qui est fermée.
+  if (url.startsWith('/api/') && url !== '/api/ping' && url !== '/api/acces') {
+    if (!accesAutorise(req)) {
+      // ⚠ On note quand même qu'une interface est là. L'arrêt automatique
+      // regarde `lastUiPollAt` : sans cette ligne, le serveur pourrait se
+      // couper pendant que le régisseur tape son code. Le pire qu'un curieux
+      // puisse faire est donc de garder Cascade allumé — sans rien piloter.
+      if (url === '/api/state') lastUiPollAt = Date.now();
+      return json(res, { ok: false, acces: 'requis' }, 401);
+    }
+  }
+
+  // Demande du code, pose et retrait. Volontairement hors du portillon.
+  if (url === '/api/acces') {
+    if (req.method !== 'POST') return json(res, { ok: false }, 405);
+    const body = await readBody(req);
+    const cle = cleEssais(req);
+    const e = accesEssais.get(cle);
+
+    // Poser ou retirer un code : réservé à qui est DÉJÀ autorisé, sinon un
+    // inconnu pourrait simplement remplacer le code par le sien.
+    if (body && 'nouveau' in body) {
+      if (!accesAutorise(req)) return json(res, { ok: false, acces: 'requis' }, 401);
+      const pose = poserCode(body.nouveau);
+      if (pose === undefined) {
+        return json(res, { ok: false, error: 'le code doit faire exactement 4 chiffres' });
+      }
+      state.settings.acces = pose;
+      // Changer ou retirer le code invalide toutes les sessions ouvertes :
+      // sinon l'iPad d'hier continuerait d'entrer avec l'ancien.
+      accesJetons.clear();
+      saveConfig();
+      return json(res, { ok: true, actif: !!pose });
+    }
+
+    // Entrer le code.
+    if (!state.settings.acces) return json(res, { ok: true, actif: false });
+    if (e && e.jusqua > Date.now()) {
+      return json(res, { ok: false, error: 'trop d’essais',
+                         attendre: Math.ceil((e.jusqua - Date.now()) / 1000) }, 429);
+    }
+    if (codeJuste(body && body.code, state.settings.acces)) {
+      accesEssais.delete(cle);
+      const jeton = crypto.randomBytes(24).toString('hex');
+      accesJetons.set(jeton, Date.now() + ACCES_JETON_MS);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        // `HttpOnly` : le jeton n'est pas lisible en JavaScript, donc un nom de
+        // fixture piégé ne pourrait pas le faire fuir. `SameSite=Strict` : il
+        // ne part pas sur une requête déclenchée depuis un autre site.
+        'Set-Cookie': 'cascade_acces=' + jeton + '; Path=/; HttpOnly; SameSite=Strict; Max-Age='
+          + Math.floor(ACCES_JETON_MS / 1000),
+      });
+      return res.end(JSON.stringify({ ok: true, actif: true }));
+    }
+    // Raté : on compte, et on bloque l'adresse au bout de quelques essais.
+    // ⚠ On ne remet le compteur à zéro que si un blocage a EXISTÉ et qu'il est
+    // fini. Tester `jusqua <= maintenant` seul est vrai aussi pour `jusqua = 0`,
+    // c'est-à-dire quand il n'y a jamais eu de blocage : le compteur repartait
+    // alors de zéro à chaque essai et la limitation ne limitait RIEN. Mesuré :
+    // « restants : 4 » indéfiniment, donc 10 000 combinaisons libres.
+    const expire = e && e.jusqua > 0 && e.jusqua <= Date.now();
+    const n = (expire ? 0 : (e ? e.n : 0)) + 1;
+    const bloque = n >= ACCES_MAX_ESSAIS;
+    accesEssais.set(cle, { n: bloque ? 0 : n, jusqua: bloque ? Date.now() + ACCES_BLOCAGE_MS : 0 });
+    return json(res, { ok: false, error: 'code incorrect',
+                       restants: bloque ? 0 : ACCES_MAX_ESSAIS - n,
+                       attendre: bloque ? ACCES_BLOCAGE_MS / 1000 : 0 }, 401);
   }
 
   // Sert à repérer qu'une autre instance de Cascade tient déjà le port.
@@ -2667,13 +2839,20 @@ const server = http.createServer(async (req, res) => {
     lireNiveauAudio(req);      // suiveur audio : le niveau voyage sur le poll
     return json(res, {
       app: APP_NAME, version: VERSION, net: lanUrls(),
-      settings: state.settings, scene: state.scene, vues: state.vues,
+      // ⚠ Le haché du code d'accès ne sort JAMAIS d'ici. Quatre chiffres, c'est
+      // 10 000 combinaisons : un haché salé se casse hors ligne instantanément,
+      // donc l'envoyer reviendrait à envoyer le code. L'interface n'a besoin
+      // que de savoir s'il y en a un — c'est la clé `acces` plus bas.
+      settings: sansCode(state.settings), scene: state.scene, vues: state.vues,
       fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
       // `presets` garde sa forme de tableau de 16 chaînes. Les deux repères qui
       // suivent sont des entiers : ~40 octets, contre ~560 pour les empreintes,
       // qui vivent sur `/api/presets-info`.
       presets: presetNames(), presetsRev, presetActif,
+      // Seulement s'il y a un code, JAMAIS le code ni son haché. `local` sert à
+      // l'interface pour dire « depuis cette machine, il n'est pas demandé ».
+      acces: { actif: !!state.settings.acces, local: estLocal(req) },
       midiMap: state.midiMap,
       link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers,
               error: link.error,
@@ -3071,7 +3250,7 @@ const server = http.createServer(async (req, res) => {
         if (state.settings.feedbackPort !== old) openFeedbackSocket();
         if (state.settings.oscInPort !== oldIn) openOscInSocket();
         saveConfig();
-        return json(res, { ok: true, settings: state.settings });
+        return json(res, { ok: true, settings: sansCode(state.settings) });
       }
     }
   }

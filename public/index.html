@@ -402,6 +402,11 @@
     <tr><td>Double-clic</td><td>Sur une ligne de réglage : retour à la valeur par défaut</td></tr>
     <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
     <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
+    <tr><th colspan="2">Code d'accès</th></tr>
+    <tr><td>À quoi ça sert</td><td>Un code facultatif à <b>4 chiffres</b> (⚙ Réglages) protège l'accès <b>depuis le réseau</b> — iPad, téléphone, Wi-Fi de la salle.</td></tr>
+    <tr><td>Jamais enfermé dehors</td><td>Il n'est <b>jamais demandé sur la machine où tourne Cascade</b> : il y a donc toujours une voie pour le retirer.</td></tr>
+    <tr><td>Ce qu'il ne couvre pas</td><td>L'OSC et le MIDI : ils passent par un câble ou une console sur le réseau de production, c'est un autre domaine de confiance.</td></tr>
+    <tr><td>Essais limités</td><td>Cinq essais ratés bloquent l'appareil une minute — sans ça, 10 000 combinaisons se passeraient en revue en quelques secondes. Changer ou retirer le code déconnecte les appareils déjà entrés.</td></tr>
     <tr><th colspan="2">Suiveur audio</th></tr>
     <tr><td>Principe</td><td>Le micro est une <b>source de modulateur</b>, comme l'oscillateur : Global → repli <b>Suiveur audio</b>, puis <b>Source = Micro</b> sur le modulateur d'une couche ou sur le modulateur global.</td></tr>
     <tr><td>Ce qu'il lit</td><td>Une <b>énergie</b>, pas un tempo : il fait respirer la lumière avec le son. Il ne détecte pas les battements et ne cale pas le chase sur la musique.</td></tr>
@@ -1001,6 +1006,18 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <!-- ══════════ RÉGLAGES ══════════ -->
+<dialog id="dlgAcces">
+  <h2>Code d'accès</h2>
+  <p class="hint" style="margin:0 0 10px">Cette régie est protégée par un code à
+  4 chiffres. Demande-le à la personne qui tient la lumière.</p>
+  <input type="password" id="accesCode" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+    autocomplete="off" placeholder="••••" style="font-size:22px; letter-spacing:10px; text-align:center">
+  <p class="hint" id="accesErreur" style="margin:8px 0 0; min-height:1.2em"></p>
+  <div class="mini" style="justify-content:flex-end; margin-top:14px">
+    <button id="accesOk" class="active">Entrer</button>
+  </div>
+</dialog>
+
 <dialog id="dlgSettings">
   <h2>Connexion OSC MadMapper</h2>
   <label>Adresse IP (127.0.0.1 si même machine)</label>
@@ -1020,6 +1037,14 @@
   <input type="text" id="setParam">
   <label>Port OSC entrant (contrôleur externe → cette app)</label>
   <input type="number" id="setOscIn">
+  <label>Code d'accès à 4 chiffres <span id="accesEtat" class="hint" style="margin:0"></span></label>
+  <input type="text" id="setAcces" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+    autocomplete="off" placeholder="vide = aucun code">
+  <p class="hint" style="margin:4px 0 10px">Facultatif. Il protège l'accès <strong>depuis le
+  réseau</strong> — iPad, téléphone, Wi-Fi de la salle. Il n'est <strong>jamais demandé sur cette
+  machine</strong>, donc on ne peut pas s'enfermer dehors. L'OSC et le MIDI ne sont pas concernés :
+  ils passent par un câble ou une console, c'est un autre domaine de confiance.<br>
+  Changer ou retirer le code <strong>déconnecte les appareils déjà entrés</strong>.</p>
   <div class="mini" style="justify-content:flex-end; margin-top:16px">
     <button id="setCancel">Annuler</button>
     <button id="setSave" class="active">Enregistrer</button>
@@ -2874,6 +2899,14 @@ $('#btnSettings').onclick = () => {
   $('#setFb').value = S.settings.feedbackPort;
   $('#setParam').value = S.global.param;
   $('#setOscIn').value = S.settings.oscInPort || 7000;
+  // Le code lui-même n'est jamais renvoyé par le serveur : on ne peut afficher
+  // que son existence. Laisser le champ vide veut dire « ne rien changer » tant
+  // qu'un code est posé, et « aucun code » sinon.
+  $('#setAcces').value = '';
+  const a = (S.acces || {});
+  $('#accesEtat').textContent = a.actif
+    ? '— actif. Vider le champ et enregistrer pour le retirer.'
+    : '— aucun code pour l’instant.';
   $('#dlgSettings').showModal();
 };
 // « Trouver le port » : le port d'entrée OSC de MadMapper est un réglage de
@@ -2905,8 +2938,58 @@ $('#setCancel').onclick = () => $('#dlgSettings').close();
 $('#setSave').onclick = async () => {
   await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });
   await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
+  // Le code d'accès a sa propre route : il n'est jamais renvoyé par le serveur,
+  // donc on ne l'envoie que si le champ a été touché.
+  const nouveau = $('#setAcces').value.trim();
+  const actif = !!(S && S.acces && S.acces.actif);
+  if (nouveau || actif) {
+    const r = await post('/api/acces', { nouveau });
+    if (r && r.ok === false && r.error) { toast(r.error); return; }
+    $('#setAcces').value = '';
+  }
   $('#dlgSettings').close(); poll();
 };
+
+/* ─── Code d'accès ────────────────────────────────────────────────────────────
+ * Quand le serveur répond 401, on demande le code. Le jeton revient dans un
+ * cookie HttpOnly : la page ne le voit jamais, donc un nom de fixture piégé ne
+ * peut pas le faire fuir. Rien à stocker ici.
+ */
+let accesDemande = false;
+function demanderAcces() {
+  if (accesDemande) return;
+  accesDemande = true;
+  $('#accesErreur').textContent = '';
+  $('#accesCode').value = '';
+  if (!$('#dlgAcces').open) $('#dlgAcces').showModal();
+  $('#accesCode').focus();
+}
+async function envoyerAcces() {
+  const code = $('#accesCode').value.trim();
+  if (!/^\d{4}$/.test(code)) { $('#accesErreur').textContent = 'Quatre chiffres.'; return; }
+  let r;
+  try {
+    r = await fetch('/api/acces', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ code }) }).then(x => x.json());
+  } catch (e) { $('#accesErreur').textContent = 'Serveur injoignable.'; return; }
+  if (r && r.ok) {
+    accesDemande = false;
+    $('#dlgAcces').close();
+    poll();
+    return;
+  }
+  $('#accesCode').value = '';
+  $('#accesCode').focus();
+  // On dit combien d'essais restent : sans ça, le blocage ressemble à une panne.
+  $('#accesErreur').textContent = r && r.attendre
+    ? 'Trop d’essais. Réessaie dans ' + r.attendre + ' s.'
+    : 'Code incorrect.' + (r && r.restants != null ? ' Encore ' + r.restants + ' essai'
+        + (r.restants > 1 ? 's' : '') + '.' : '');
+}
+$('#accesOk').onclick = envoyerAcces;
+$('#accesCode').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); envoyerAcces(); } };
+// Un dialogue modal se ferme sur Échap : ici il n'y a rien derrière, on le rouvre.
+$('#dlgAcces').addEventListener('close', () => { if (accesDemande) setTimeout(demanderAcces, 50); });
 
 // ═══════════════════════════════════════════════════════════════════════
 // PAGE SCÈNE 3D
@@ -3657,8 +3740,11 @@ async function poll() {
     // Le niveau du micro voyage sur le poll qu'on fait déjà : ~8 octets sur la
     // ligne de requête, zéro dans la réponse. Sans micro, rien n'est ajouté —
     // un iPad ne peut donc pas écraser ce qu'entend la machine hôte.
-    const ns = await fetch('/api/state' + (suiveur.actif ? '?a=' + suiveur.niv.toFixed(3) : ''))
-      .then(r => r.json());
+    const rep = await fetch('/api/state' + (suiveur.actif ? '?a=' + suiveur.niv.toFixed(3) : ''));
+    // 401 = code d'accès demandé. Sans ce test, la réponse d'erreur remplacerait
+    // l'état et render() planterait sur un objet qui n'a ni couches ni fixtures.
+    if (rep.status === 401) { demanderAcces(); return; }
+    const ns = await rep.json();
     if (dragging && S) { S.levels = ns.levels; S.colors = ns.colors; S.global = ns.global; }
     else S = ns;
     $('#status').classList.add('ok');

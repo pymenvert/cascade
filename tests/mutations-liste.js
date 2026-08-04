@@ -217,6 +217,16 @@ const MUTATIONS = [
     de: '  if (age >= AUDIO_PEREMPTION_MS) return null;',
     vers: '  if (age >= AUDIO_PEREMPTION_MS) return audio.v;',
   },
+  {
+    // La forme EXACTE du défaut trouvé en écrivant la fonction : `jusqua <= now`
+    // est vrai aussi pour `jusqua = 0`, donc le compteur d'essais repartait de
+    // zéro à chaque tentative. Quatre chiffres sans limitation, c'est 10 000
+    // combinaisons libres — le code d'accès ne protégeait rien.
+    nom: 'la limitation des tentatives ne limite plus rien',
+    cible: 'tests/acces.test.js',
+    de: '    const expire = e && e.jusqua > 0 && e.jusqua <= Date.now();',
+    vers: '    const expire = e && e.jusqua <= Date.now();',
+  },
 ];
 
 module.exports = MUTATIONS;

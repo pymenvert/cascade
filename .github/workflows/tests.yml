@@ -53,5 +53,22 @@ jobs:
             console.log('navigateur : ' + bin);
           "
 
+      # Le portillon du code d'accès ne se voit que depuis une adresse NON
+      # locale : la machine hôte est exemptée exprès. Sans interface réseau, ces
+      # tests s'annoncent ignorés sans faire rougir la suite — même angle mort
+      # que les tests d'interface sans navigateur.
+      - name: Exiger une adresse réseau pour les tests du code d'accès
+        run: |
+          node -e "
+            const os = require('os');
+            const ip = Object.values(os.networkInterfaces() || {}).flat()
+              .find(i => i && i.family === 'IPv4' && !i.internal);
+            if (!ip) {
+              console.error('aucune adresse réseau : le portillon du code d\'accès serait ignoré en silence');
+              process.exit(1);
+            }
+            console.log('adresse réseau : ' + ip.address);
+          "
+
       - name: Suite complète
         run: npm test

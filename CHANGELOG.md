@@ -6,6 +6,50 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Ajouté — code d'accès facultatif à 4 chiffres
+
+Cascade s'ouvre depuis un iPad ou un téléphone, donc depuis le Wi-Fi de la salle.
+Un code facultatif (⚙ Réglages) empêche un curieux de prendre la main sur la
+lumière pendant le spectacle.
+
+**Ce qu'il protège** : l'API, depuis le réseau. Trois choix assumés :
+
+- **il n'est JAMAIS demandé sur la machine hôte.** C'est ce qui garantit qu'on ne
+  peut pas s'enfermer dehors : il y a toujours une voie pour le retirer. Et
+  c'est le bon périmètre — la menace, c'est le Wi-Fi de la salle, pas la machine
+  qu'on a physiquement sous la main ;
+- **la page reste servie sans le code**, sinon il serait impossible d'afficher la
+  demande. C'est l'API qui est fermée, pas l'interface ;
+- **l'OSC et le MIDI ne sont pas concernés** : ils passent par un câble ou une
+  console posée sur le réseau de production, c'est un autre domaine de confiance,
+  et les fermer casserait les installations existantes.
+
+**⚠ Les tentatives sont limitées, et c'est le cœur de la fonction.** Quatre
+chiffres, c'est 10 000 combinaisons : sans limitation, ça se casse en quelques
+secondes et le code ne protège rien. Cinq essais ratés bloquent l'appareil une
+minute, et pendant ce blocage même le bon code est refusé. Un anti-mutant
+verrouille cette propriété — la première version écrite avait précisément ce
+défaut, le compteur repartant de zéro à chaque essai (`jusqua <= maintenant` est
+vrai aussi pour `jusqua = 0`).
+
+Le code n'est jamais stocké en clair : on garde un **haché salé**, qui ne sort
+lui-même **jamais** du serveur — ni dans `/api/state`, ni dans `/api/settings`,
+ni dans un projet exporté. Un haché de 4 chiffres se casse hors ligne
+instantanément, donc l'envoyer reviendrait à envoyer le code. Le jeton de session
+voyage dans un cookie `HttpOnly` + `SameSite=Strict` : la page ne le lit jamais,
+donc un nom de fixture piégé ne peut pas le faire fuir. Changer ou retirer le
+code déconnecte les appareils déjà entrés.
+
+Dernier détail, mais il compte en régie : une page qui affiche la demande de code
+**continue de compter comme une interface ouverte**. Sans ça, l'arrêt automatique
+aurait pu couper Cascade pendant que le régisseur tape son code. Le pire qu'un
+curieux puisse faire est donc de garder le serveur allumé — sans rien piloter.
+
+### Corrigé — le fichier de configuration écrivait `scene` deux fois
+
+Clé dupliquée dans l'objet sérialisé, sans conséquence (la seconde écrasait la
+première avec la même valeur), trouvée en passant.
+
 ### Modifié — le panneau Couches se replie
 
 Le panneau alignait une trentaine de réglages à plat, dont beaucoup ne se

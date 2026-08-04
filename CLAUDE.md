@@ -36,7 +36,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 292 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 303 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -46,7 +46,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
   `status { :peers 1 :bpm 128.0 ... }\n`.
 - UI : les 45 tests d'interface pilotent un vrai navigateur en CDP maison
   (`tests/browser.js`, zéro dépendance) — **pas** Playwright. Sans navigateur ils
-  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (292), pas
+  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (303), pas
   la couleur. `CASCADE_NAVIGATEUR=<binaire>` impose un navigateur ;
   `PLAYWRIGHT_BROWSERS_PATH` est balayé tout seul. Si tu passes par Playwright
   à la main, `waitUntil: 'domcontentloaded'` (`networkidle` ne vient jamais,
@@ -80,7 +80,7 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**292 tests, 30 mutations sur 30 détectées.** Manuel PDF, README, CHANGELOG et
+**303 tests, 31 mutations sur 31 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 
@@ -120,8 +120,11 @@ est libre. C'était la troisième mesure ; elle est faite.
 3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt).
    ✅ Repli « avancé » du panneau Couches : FAIT (replis `advMiroirs` et
    `advMelange`, 2026-08-04). ✅ Tests d'UI : faits depuis la 2.0 (CDP maison).
-   Reste : **code d'accès facultatif à 4 chiffres**, et signature/notarisation
-   macOS (compte Apple Developer, 99 $/an → décision + dépense).
+   ✅ Code d'accès à 4 chiffres : FAIT (2026-08-04). ⚠ La machine hôte en est
+   EXEMPTÉE exprès (on ne peut pas s'enfermer dehors) et l'OSC/MIDI ne sont pas
+   couverts (autre domaine de confiance) — ne pas « corriger » ça sans Pym.
+   Reste : signature/notarisation macOS (compte Apple Developer, 99 $/an →
+   décision + dépense).
 4. **`../Cascade-RELECTURES.md` (hors dépôt)** — état des deux campagnes de
    relecture par agents. ⚠ Ce fichier vit **hors du dépôt** : il est absent des
    clones frais (sessions distantes, CI), donc ne jamais faire dépendre une
