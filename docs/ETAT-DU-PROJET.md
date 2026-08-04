@@ -1,7 +1,7 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-08-04 — version **2.0.1** (+ des correctifs non publiés).
+> Dernière mise à jour : 2026-08-04 — version **2.0.2** (+ la grille de presets, non publiée).
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
 > L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`. ⚠ Il est donc
 > **absent des clones frais** (sessions distantes, CI) : ne jamais faire dépendre
@@ -15,7 +15,7 @@
 
 - **Nom** : Cascade (avant : « Chaser pour MadMapper »). Dossier renommé `Cascade` le 2026-07-09.
 - **Auteur / signature** : Pierre-Yves Mansour — Collectif WSK
-- **Version** : 2.0.1 · **Licence** : MIT · publié sur GitHub
+- **Version** : 2.0.2 · **Licence** : MIT · publié sur GitHub
 - **Quoi** : séquenceur LED multi-couches qui pilote les fixtures DMX de MadMapper en OSC, depuis une page web (ordi, iPad, téléphone). Équivalent de « Chaser » (Hybrid Constructs, pour Resolume), mais pour MadMapper.
 
 ## Nouveautés v1.2 (2026-07-09)
