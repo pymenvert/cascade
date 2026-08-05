@@ -68,7 +68,11 @@ raison d'être.
 **Intégration continue et release, depuis la 2.0** (le dépôt n'avait rien avant) :
 
 - `.github/workflows/tests.yml` — `npm test` sur chaque push vers `main` et sur
-  chaque PR. Vérifie aussi qu'**aucune dépendance npm** n'a été introduite.
+  chaque PR, **sur Ubuntu ET sur Windows**. Vérifie aussi qu'**aucune dépendance
+  npm** n'a été introduite, qu'un navigateur et une adresse réseau sont bien là
+  (sans quoi 46 tests d'interface et le portillon s'annonceraient « ignorés »
+  sans faire rougir la suite), et que `SYSTRAY_PS1` s'analyse — avec un témoin
+  qui vérifie que l'analyseur sait dire non.
 - `.github/workflows/release.yml` — pousser un tag `vX.Y.Z` construit les quatre
   exécutables et publie la release avec eux en pièces jointes. La description
   vient du CHANGELOG via `tools/notes-version.js`, jamais d'un texte recopié.
@@ -142,9 +146,13 @@ est libre. C'était la troisième mesure ; elle est faite.
    trouvé en relecture, corrigé, mesuré, et rejoué par un mutant). Détail et
    sept autres correctifs dans `docs/ETAT-DU-PROJET.md`.
 
-   ⚠ **La CI ne dira jamais rien de cette fonction** : elle ne tourne que sur
-   Ubuntu. `tests/systray.test.js` lit le source du PowerShell — c'est mieux que
-   rien, mais ce n'est *que* ça.
+   ⚠ **Ce que la CI dit, et ce qu'elle ne dira jamais.** Depuis le 2026-08-05 il
+   y a un passage `windows-latest` : il **analyse** `SYSTRAY_PS1` avec
+   `[Parser]::ParseInput` (aucune session graphique requise) et lance la suite
+   entière — 328 tests, 0 ignoré, le premier passage est vert. Une parenthèse
+   manquante ne partira donc plus en régie. Mais **aucun runner ne posera jamais
+   l'icône** : `NotifyIcon` demande un bureau. L'essai en vrai reste à faire.
+   `tests/systray.test.js` lit le source en plus — c'est mieux que rien.
 2. **Capture ou GIF dans le README** — nécessite une vraie session MadMapper.
 3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt).
    ✅ Repli « avancé » du panneau Couches : FAIT (replis `advMiroirs` et
