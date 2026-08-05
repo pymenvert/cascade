@@ -463,6 +463,37 @@ describe('Suiveur audio — le micro comme source de modulateur', () => {
     await setL({ lfo: null });
   });
 
+  test('LE TEST QUI MANQUAIT : le RETOUR à la main ne passe jamais par le bas', async () => {
+    // Le test ci-dessus ne regardait qu'APRÈS la péremption complète, et laissait
+    // donc passer un vrai défaut, trouvé par relecture adversariale : entre la
+    // tenue (250 ms) et la péremption (700 ms), le NIVEAU décroissait vers 0.
+    // Or `min + (max-min) × niveau` envoie un niveau nul sur `min` — le paramètre
+    // plongeait donc vers sa borne basse pendant 450 ms avant de rendre la main.
+    // Sur le master avec min 0, c'est le noir en plein spectacle : exactement ce
+    // que la documentation de la fonction promet d'éviter.
+    //
+    // On échantillonne ici PENDANT la fenêtre de fondu, avec un min TRÈS bas pour
+    // que le plongeon soit visible s'il revient.
+    await setL({ level: 0.8, lfo: { on: true, param: 'level', src: 'audio', min: 0, max: 1 } });
+    await h.post('/api/start');
+    // Le micro pousse un niveau haut, puis décroche.
+    for (let i = 0; i < 4; i++) { await pousser(0.85); await sleep(70); }
+    const releves = [];
+    // On balaie toute la fenêtre tenue + fondu + après (0 à ~1,1 s).
+    for (let i = 0; i < 12; i++) { releves.push(...(await calcules())); await sleep(95); }
+    await h.post('/api/stop');
+    const bas = Math.min(...releves);
+    // Le micro pilotait à 0,85 et le réglage vaut 0,8 : la valeur doit rester
+    // ENTRE les deux, jamais plonger vers 0. Marge large pour la charge de suite.
+    assert.ok(bas > 0.6,
+      'le retour à la main ne doit jamais passer par le bas — plus basse valeur vue : '
+      + bas.toFixed(3) + ' (le plongeon vers `min` est de retour)');
+    const fin = await calcules();
+    assert.ok(fin.every(v => Math.abs(v - 0.8) < 0.03),
+      'et à la fin, le réglage réglé à la main doit être repris : ' + fin);
+    await setL({ lfo: null });
+  });
+
   test('le suiveur n’écrit jamais dans l’état', async () => {
     await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
     await h.post('/api/start');

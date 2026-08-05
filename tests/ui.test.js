@@ -962,6 +962,39 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.deepEqual(nav.erreurs(), []);
   });
 
+  test('double clic pendant la demande d’autorisation : un seul micro ouvert', async () => {
+    // `getUserMedia` bloque sur la demande d'autorisation — le moment le plus
+    // long. Un régisseur qui reclique parce qu'il ne voit rien lançait deux
+    // démarrages : le second écrasait `flux` et `ctx`, laissant les premiers
+    // orphelins. Micro jamais relâché, AudioContext fuité.
+    const vu = await nav.evaluate(`
+      const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      let appels = 0;
+      // On simule une autorisation LENTE : c'est la fenêtre de la course.
+      navigator.mediaDevices.getUserMedia = (c) => {
+        appels++;
+        return new Promise(r => setTimeout(() => r(vrai(c)), 350));
+      };
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 40));
+      document.querySelector('#btnAudio').click();   // le reclic impatient
+      await new Promise(r => setTimeout(r, 40));
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 900));
+      const actif = suiveur.actif;
+      const pistes = suiveur.flux ? suiveur.flux.getTracks().length : 0;
+      document.querySelector('#btnAudio').click();   // on referme
+      await new Promise(r => setTimeout(r, 200));
+      navigator.mediaDevices.getUserMedia = vrai;
+      return { appels, actif, pistes, ferme: !suiveur.actif,
+               ctxFerme: !suiveur.ctx };`);
+    assert.equal(vu.appels, 1, 'un seul getUserMedia doit partir, vu ' + vu.appels);
+    assert.equal(vu.actif, true, 'le micro doit bien avoir démarré');
+    assert.equal(vu.ferme, true, 'et se refermer proprement');
+    assert.equal(vu.ctxFerme, true, 'sans laisser d’AudioContext orphelin');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
   test('micro refusé : Cascade le dit et continue', async () => {
     const vu = await nav.evaluate(`
       const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);

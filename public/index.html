@@ -2709,8 +2709,8 @@ function onMidiMessage(ev) {
  * assumé et dit à l'écran, comme pour Web MIDI qui n'existe que sur Chrome et
  * Edge : le reste de Cascade continue de marcher depuis la tablette.
  */
-const suiveur = { actif: false, niv: 0, ctx: null, analyseur: null, flux: null,
-                  bins: null, dernier: 0, etatDsp: { niveau: 0 } };
+const suiveur = { actif: false, demarrage: false, niv: 0, ctx: null, analyseur: null,
+                  flux: null, bins: null, dernier: 0, etatDsp: { niveau: 0 } };
 
 /** Bornes des bandes, en fraction du spectre analysé. */
 const AUDIO_BANDES = { grave: [0, 0.08], medium: [0.08, 0.35], aigu: [0.35, 1], tout: [0, 1] };
@@ -2773,6 +2773,21 @@ function remplirEntrees(list) {
 
 async function demarrerAudio() {
   if (suiveur.actif) { arreterAudio(); return; }
+  // ⚠ GARDE SYNCHRONE, avant le moindre `await`. `suiveur.actif` n'est posé
+  // qu'après `getUserMedia` ET `ctx.resume()` — or `getUserMedia` bloque sur la
+  // demande d'autorisation du navigateur, le moment le PLUS long. Un régisseur
+  // qui reclique parce qu'il ne voit rien se retrouvait avec deux démarrages en
+  // vol : le second écrasait `flux` et `ctx`, laissant les premiers orphelins.
+  // Micro jamais relâché (voyant allumé), AudioContext fuité — et les
+  // navigateurs en plafonnent une poignée — plus deux boucles d'analyse.
+  if (suiveur.demarrage) return;
+  suiveur.demarrage = true;
+  try {
+    await ouvrirAudio();
+  } finally { suiveur.demarrage = false; }
+}
+
+async function ouvrirAudio() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     etatAudio('Le micro n’est lisible que sur la machine où tourne Cascade '
       + '(les navigateurs l’interdisent depuis une adresse réseau). Tout le reste fonctionne.');

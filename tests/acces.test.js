@@ -33,17 +33,26 @@ function adresseReseau() {
 }
 const IP = adresseReseau();
 
-/** Requête brute : on choisit l'adresse visée ET on peut porter un cookie. */
-function requete(host, port, method, chemin, corps, cookie) {
+/**
+ * Requête brute : on choisit l'adresse visée ET on peut porter un cookie.
+ * `opts.from` = adresse source (pour simuler des clients réseau distincts via
+ * les alias loopback 127.0.0.2+, qui ne sont PAS « locaux » au sens du serveur).
+ * `opts.ctype` = Content-Type forcé (pour tester le garde CSRF).
+ * `opts.brut` = corps envoyé tel quel (chaîne), sans passer par JSON.stringify.
+ */
+function requete(host, port, method, chemin, corps, cookie, opts = {}) {
   return new Promise((resolve, reject) => {
-    const data = corps === undefined ? null : JSON.stringify(corps);
+    const data = opts.brut !== undefined ? opts.brut
+      : (corps === undefined ? null : JSON.stringify(corps));
     const headers = {};
-    if (data) {
-      headers['Content-Type'] = 'application/json';
+    if (data != null) {
+      headers['Content-Type'] = opts.ctype || 'application/json';
       headers['Content-Length'] = Buffer.byteLength(data);
     }
     if (cookie) headers.Cookie = cookie;
-    const req = http.request({ host, port, path: chemin, method, headers, timeout: 5000 }, (res) => {
+    const conf = { host, port, path: chemin, method, headers, timeout: 5000 };
+    if (opts.from) conf.localAddress = opts.from;
+    const req = http.request(conf, (res) => {
       let d = '';
       res.on('data', c => { d += c; });
       res.on('end', () => {
@@ -54,7 +63,7 @@ function requete(host, port, method, chemin, corps, cookie) {
     });
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('timeout ' + chemin)));
-    if (data) req.write(data);
+    if (data != null) req.write(data);
     req.end();
   });
 }
@@ -67,7 +76,7 @@ describe('Code d’accès — la machine hôte, la limitation, le secret', () =>
     await h.stop();
   });
 
-  const local = (m, c, b, k) => requete('127.0.0.1', h.port, m, c, b, k);
+  const local = (m, c, b, k, opts) => requete('127.0.0.1', h.port, m, c, b, k, opts);
 
   test('un code doit faire exactement quatre chiffres', async () => {
     for (const mauvais of ['12', '12345', 'abcd', '12a4', ' 12 ']) {
@@ -134,10 +143,67 @@ describe('Code d’accès — la machine hôte, la limitation, le secret', () =>
     } finally { await h2.stop(); }
   });
 
+  test('CSRF : un POST sans Content-Type JSON est refusé (415)', async () => {
+    // Une page piégée dans le navigateur de l'hôte pourrait poster un FORMULAIRE
+    // (form-urlencoded) vers /api/new — qui efface le projet — puisque localhost
+    // est exempté de code. Le garde exige application/json ; un formulaire ne
+    // peut pas poser ce type, et l'UI, elle, l'envoie toujours.
+    const form = await local('POST', '/api/new', 'keepFixtures=0',
+      undefined, { ctype: 'application/x-www-form-urlencoded', brut: 'keepFixtures=0' });
+    assert.equal(form.status, 415, 'le POST form-urlencoded doit être refusé');
+    // Et le JSON légitime passe (on est en local, portillon exempté).
+    const json = await local('POST', '/api/start', {});
+    assert.equal(json.status, 200, 'un POST JSON légitime doit passer');
+    await local('POST', '/api/stop', {});
+    // Le garde couvre aussi /api/acces (sinon un formulaire brûlerait le budget).
+    const acc = await local('POST', '/api/acces', 'code=0000',
+      undefined, { ctype: 'text/plain', brut: 'code=0000' });
+    assert.equal(acc.status, 415, '/api/acces doit exiger du JSON aussi');
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
     assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
+  });
+});
+
+/**
+ * LE PLAFOND GLOBAL — la seule chose qui rend un code à 4 chiffres honnête face à
+ * un attaquant multi-IP. Le blocage par adresse (5/min) s'effondre dès qu'on
+ * fait varier son IP source ; en IPv6 on en tient des milliers. On simule ça
+ * avec les alias loopback 127.0.0.2+, qui ne sont PAS « locaux » au sens du
+ * serveur (seul 127.0.0.1 l'est). Serveur DÉDIÉ : le test déclenche un blocage
+ * global de 60 s qui empoisonnerait les autres.
+ */
+describe('Code d’accès — le plafond global tient face à des IP changeantes', () => {
+  let h;
+  before(async () => {
+    h = await start();
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '4731' });
+  });
+  after(async () => { await h.stop(); });
+
+  test('trente échecs répartis sur des adresses distinctes bloquent TOUT le réseau', async () => {
+    // Six adresses, cinq échecs chacune = 30 : chacune se fait bloquer par
+    // l'étage par-adresse (5), mais l'étage GLOBAL les compte toutes.
+    for (let ip = 2; ip < 8; ip++) {
+      for (let k = 0; k < 5; k++) {
+        await requete('127.0.0.1', h.port, 'POST', '/api/acces',
+          { code: '0000' }, undefined, { from: '127.0.0.' + ip });
+      }
+    }
+    // Une adresse JAMAIS vue doit être refusée : c'est le plafond global.
+    const frais = await requete('127.0.0.1', h.port, 'POST', '/api/acces',
+      { code: '1111' }, undefined, { from: '127.0.0.100' });
+    assert.equal(frais.status, 429,
+      'une adresse fraîche doit être bloquée par le plafond global, vu ' + frais.status);
+    assert.ok(frais.body.attendre > 0, 'et le serveur doit dire combien de temps');
+
+    // La machine hôte n'est JAMAIS prise dans ce blocage : elle ne passe pas par
+    // le code. C'est la garantie qu'on peut toujours reprendre la main.
+    assert.equal((await requete('127.0.0.1', h.port, 'GET', '/api/state')).status, 200,
+      'l’hôte doit rester libre même pendant un blocage global');
   });
 });
 

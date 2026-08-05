@@ -294,6 +294,33 @@ describe('API HTTP', () => {
     assert.equal((await h.state()).presetActif, null, 'un projet neuf n’a rien en cours');
   });
 
+  test('l’empreinte se rafraîchit quand les GROUPES ou les BARRES changent', async () => {
+    // L'empreinte passe par `resolveBars`, qui résout les groupes VIVANTS — un
+    // preset n'en mémorise pas. Et un preset sans disposition propre retombe sur
+    // le plateau courant. Ces deux collections changent donc ce qu'un preset
+    // piloterait au rappel : si `presetsRev` ne bouge pas, la grille reste figée
+    // sur une vignette qui ment.
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    await h.post('/api/preset', { action: 'save', slot: 1 });
+    const rev0 = (await h.state()).presetsRev;
+
+    const g = await h.post('/api/groups', { action: 'add', name: 'Sol' });
+    const rev1 = (await h.state()).presetsRev;
+    assert.ok(rev1 > rev0, 'créer un groupe doit rafraîchir les empreintes');
+
+    const gid = g.body.groups[g.body.groups.length - 1].id;
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f1'] });
+    const rev2 = (await h.state()).presetsRev;
+    assert.ok(rev2 > rev1, 'CHANGER LE CONTENU d’un groupe aussi — c’est le cas qui manquait');
+
+    await h.post('/api/fixtures', { fixtures: fixtures(5) });
+    const rev3 = (await h.state()).presetsRev;
+    assert.ok(rev3 > rev2, 'changer le plateau doit rafraîchir les empreintes');
+
+    await h.post('/api/groups', { action: 'remove', id: gid });
+    await h.post('/api/preset', { action: 'clear', slot: 1 });
+  });
+
   test('un slot de preset hors bornes ne fait pas planter', async () => {
     const r = await h.post('/api/preset', { action: 'recall', slot: 9999 });
     assert.equal(r.body.ok, true);

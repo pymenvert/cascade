@@ -74,6 +74,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **Décalage réparti** : la première barre à 0°, la dernière à N°, étalé sur la sélection. Une vague traverse la scéno selon un axe réel avec un seul réglage.
 - **Modulateur par couche** : un LFO qui fait respirer un réglage tout seul — niveau, largeur, vitesse, netteté, profondeur… Sa période se cale au choix en secondes ou sur le tempo, donc il ne dérive pas contre la musique. Il ne modifie jamais le réglage affiché, il se superpose : le couper rend la main immédiatement.
 - **Modulateur global** : le même, branché sur le crossfader, le master ou la vitesse. Sur le crossfader, la scène passe d'un jeu à l'autre toute seule.
+- **Suiveur audio** : le micro devient une *source* de modulateur, à côté de l'oscillateur — la lumière respire avec le son. Analyse en Web Audio côté navigateur (zéro dépendance), avec bande, gain, seuil, attaque et relâchement. Il lit une **énergie**, pas un tempo. Le micro n'est lisible que sur la machine où tourne Cascade (les navigateurs l'interdisent depuis une adresse réseau), et si le son s'arrête, le réglage réglé à la main **reprend** — jamais figé, jamais tombé au noir.
 - **Crossfader A ↔ B** : rangez vos couches en deux jeux et passez de l'un à l'autre à la main — ou au fader d'une console, en OSC. C'est la différence entre déclencher un preset et *jouer* un passage.
 - **Coupure de secours** : met la sortie DMX de MadMapper à zéro d'un message. La seule voie qui coupe vraiment quand une texture joue — volontairement séparée de BLACKOUT.
 
@@ -97,7 +98,7 @@ Pour quitter : bouton ⏻ en haut à droite, ou fermez simplement la fenêtre �
 - **Intensité ou couleur** : dégradé A→B qui se déplace sur les barres, ou une **palette à 8 arrêts** (Feu, Glace, Coucher de soleil, Forêt, Distance).
 - **Vue spatiale** : barres positionnables au doigt ou importées depuis MadMapper (position, rotation, taille), allumage en temps réel.
 - **Groupes de barres nommés** : « sol », « contres »… Une couche qui suit un groupe se met à jour toute seule quand le groupe change.
-- **16 presets nommables** qui mémorisent les couches *et* la disposition complète — rappel instantané en live. « Refrain » se retrouve plus vite que « P7 ».
+- **Grille de 16 presets nommables** qui mémorisent les couches *et* la disposition complète — rappel instantané en live. « Refrain » se retrouve plus vite que « P7 ». Chaque pavé montre l'empreinte des barres qu'il pilote, lequel joue en ce moment, et signale un preset qui ne pilote plus rien.
 - **Fondu entre presets** (0 à 30 s, réglable) : la scène sortante continue de jouer et décroît pendant que la nouvelle monte. À 0, le rappel reste sec.
 - **Raccourcis clavier** : `S` start/stop, `B` blackout, `Espace` tap, `R` resync, `G` GO, `1`–`8` couches, `?` pour l'aide.
 - **Tempo** : tap tempo, ÷2 ×2, resync sur le temps fort, vitesse par couche et vitesse globale.
@@ -116,7 +117,7 @@ Le paramètre d'intensité par défaut est `luminosity` (fixtures DMX). Pour des
 
 L'adresse réseau s'affiche en haut de l'interface, ou scannez le **QR code**. Même Wi-Fi, c'est tout.
 
-> ⚠ **Il n'y a pas de mot de passe.** N'importe qui sur le même réseau peut piloter le show. En festival, préférez un point d'accès dédié.
+> 🔒 **Code d'accès facultatif.** ⚙ Réglages → un code à 4 chiffres protège l'accès **depuis le réseau** (iPad, téléphone, Wi-Fi de la salle). Il n'est jamais demandé sur la machine où tourne Cascade — impossible de s'enfermer dehors. Cinq essais ratés bloquent l'appareil une minute. L'OSC et le MIDI ne sont pas concernés : ils passent par un câble ou une console, c'est un autre domaine de confiance. Sans code posé, n'importe qui sur le même réseau peut piloter le show.
 
 ## Contrôle OSC
 

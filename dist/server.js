@@ -404,8 +404,8 @@ function appliquerLFO(L, now, store = engines) {
   // puis revenir à l'oscillateur reprend la course là où elle en était, au lieu
   // de téléporter le modulateur au milieu de son cycle.
   const x = valeurMod(m, e.lfoU, now);
-  if (x == null) return L; // micro péremé : le réglage du régisseur reprend
-  const brut = m.min + (m.max - m.min) * x;
+  if (x == null) return L; // micro périmé : le réglage du régisseur reprend
+  const brut = doserMod(m, x, L[m.param]);
   return { ...L, ...sanitizeLayerSet({ [m.param]: brut }) };
 }
 
@@ -487,16 +487,27 @@ function globalEff(cle) {
  * onglet fermé, micro débranché, machine en veille — `niveauAudio` rend `null`
  * et le modulateur laisse le réglage du régisseur intact. Retomber sur `min`
  * mettrait le paramètre à sa borne basse : sur `master` avec min 0, c'est le
- * noir en plein spectacle. Le fondu entre les deux évite la marche d'escalier.
+ * noir en plein spectacle.
+ *
+ * ⚠⚠ ET LE FONDU DOSE LE RETOUR À LA MAIN, PAS LE NIVEAU. C'est toute la
+ * subtilité, et une première version s'y est trompée : elle faisait décroître le
+ * NIVEAU vers 0 entre la tenue et la péremption. Or `min + (max-min) × niveau`
+ * envoie un niveau nul sur `min` — donc le paramètre plongeait vers sa borne
+ * basse pendant 450 ms AVANT de rendre la main d'un coup. Exactement le noir en
+ * plein show que le paragraphe ci-dessus dit éviter, et un saut à l'arrivée.
+ * `frais` pondère donc le mélange entre la valeur modulée et le réglage réglé à
+ * la main : à 1 le micro commande, à 0 le régisseur a repris, et entre les deux
+ * ça glisse de l'un à l'autre sans jamais viser `min`.
  */
 const audio = { v: 0, at: 0 };
 const AUDIO_TENUE_MS = 250, AUDIO_PEREMPTION_MS = 700;
 function niveauAudio(now) {
   if (!audio.at) return null;
   const age = now - audio.at;
-  if (age <= AUDIO_TENUE_MS) return audio.v;
   if (age >= AUDIO_PEREMPTION_MS) return null;
-  return audio.v * (1 - (age - AUDIO_TENUE_MS) / (AUDIO_PEREMPTION_MS - AUDIO_TENUE_MS));
+  const frais = age <= AUDIO_TENUE_MS ? 1
+    : 1 - (age - AUDIO_TENUE_MS) / (AUDIO_PEREMPTION_MS - AUDIO_TENUE_MS);
+  return { v: audio.v, frais };
 }
 
 /** Forme d'onde commune aux deux modulateurs, sur une phase 0..1. */
@@ -508,11 +519,24 @@ function ondeLFO(forme, u) {
 }
 
 /**
- * D'où vient le mouvement : l'oscillateur, ou le micro. Rend `null` quand la
- * source audio n'a rien de frais — l'appelant laisse alors le réglage tel quel.
+ * D'où vient le mouvement : l'oscillateur, ou le micro. Rend `{ v, frais }`, ou
+ * `null` quand la source audio n'a plus rien de frais — l'appelant laisse alors
+ * le réglage tel quel. L'oscillateur est toujours frais : il ne décroche pas.
  */
 function valeurMod(m, u, now) {
-  return m.src === 'audio' ? niveauAudio(now) : ondeLFO(m.forme, u);
+  return m.src === 'audio' ? niveauAudio(now) : { v: ondeLFO(m.forme, u), frais: 1 };
+}
+
+/**
+ * Mélange la valeur modulée et le réglage posé à la main, selon la fraîcheur de
+ * la source. Voir `niveauAudio` : c'est ce qui empêche un micro qui décroche
+ * d'emmener le paramètre sur sa borne basse.
+ */
+function doserMod(m, x, reglage) {
+  const brut = m.min + (m.max - m.min) * x.v;
+  if (x.frais >= 1) return brut;
+  const r = fini(reglage, brut);
+  return r + x.frais * (brut - r);
 }
 
 /**
@@ -537,8 +561,8 @@ function calculerModGlobal(now) {
   engGlobal.u = (engGlobal.u + dt / periode) % 1;
   // L'horloge avance même en source audio (voir `appliquerLFO`).
   const x = valeurMod(m, engGlobal.u, now);
-  if (x == null) return; // micro péremé : `modGlobalVal` reste null, réglage intact
-  const brut = m.min + (m.max - m.min) * x;
+  if (x == null) return; // micro périmé : `modGlobalVal` reste null, réglage intact
+  const brut = doserMod(m, x, state.global[m.param]);
   // Mêmes bornes qu'une saisie à la main : le modulateur ne peut rien sortir de
   // sa plage, même avec des min/max délirants.
   const propre = sanitizeGlobal({ [m.param]: brut });
@@ -2622,15 +2646,55 @@ function readBody(req) {
  *  - il n'est jamais demandé en local. La machine hôte est celle qu'on a
  *    physiquement sous la main, et cette exemption garantit qu'on ne peut PAS
  *    s'enfermer dehors : il y a toujours une voie pour retirer le code.
+ *
+ * LA LIMITATION EST À DEUX ÉTAGES, et le second compte le plus. Le blocage par
+ * adresse (5 essais / minute) arrête un curieux, mais s'effondre dès qu'un
+ * attaquant fait varier son IP source — trivial en IPv6, où il tient tout un
+ * /64. D'où un PLAFOND GLOBAL, indépendant de l'IP : au-delà de N échecs par
+ * minute tous clients confondus, toute tentative depuis le réseau est refusée
+ * un moment. La machine hôte, elle, n'est jamais limitée (elle ne passe pas par
+ * le code). Un code à 4 chiffres reste faible par nature : ces deux étages le
+ * ramènent d'« instantané » à « des heures », ce qui suffit à couvrir un show,
+ * pas à en faire un secret fort.
+ *
+ * ⚠ LIMITE ASSUMÉE : le code haché est écrit dans `cascade-config.json`, en
+ * clair sur le disque, à côté de l'exécutable. Quatre chiffres se cassent hors
+ * ligne instantanément : le code ne protège donc PAS contre quelqu'un qui tient
+ * ce fichier (ou la clé USB). C'est le même domaine de confiance que la machine
+ * hôte. En revanche un PROJET exporté ne porte pas `settings`, donc le partager
+ * ne fuit pas le code.
  */
-const ACCES_MAX_ESSAIS = 5;        // avant blocage
+const ACCES_MAX_ESSAIS = 5;        // avant blocage, PAR adresse
 const ACCES_BLOCAGE_MS = 60000;    // durée du blocage, par adresse
 const ACCES_JETON_MS = 12 * 3600 * 1000;
+const ACCES_GLOBAL_MAX = 30;       // échecs/minute TOUS clients confondus, avant blocage global
+const ACCES_GLOBAL_MS = 60000;     // fenêtre et durée du blocage global
+const ACCES_OUBLI_MS = 5 * 60000;  // au-delà, une adresse inactive est oubliée (borne la mémoire)
+const ACCES_MAX_CLES = 4096;       // plafond dur du nombre d'adresses suivies
 
 /** Jetons de session valides, en mémoire : un redémarrage redemande le code. */
 const accesJetons = new Map();     // jeton -> expiration
-/** Tentatives ratées par adresse : { n, jusqua }. */
+/** Tentatives ratées par adresse : { n, jusqua, vu }. */
 const accesEssais = new Map();
+/** Étage global : échecs récents tous clients confondus, et fin du blocage. */
+const accesGlobal = { n: 0, debut: 0, bloqueJusqua: 0 };
+
+/**
+ * Balaie les adresses oubliées et les jetons expirés. Sans ça, un attaquant qui
+ * fait varier son IP source remplirait `accesEssais` sans fin (fuite mémoire).
+ * Appelé à chaque tentative — donc jamais si personne n'attaque.
+ */
+function nettoyerAcces(now) {
+  for (const [k, v] of accesEssais) {
+    if (now - (v.vu || 0) > ACCES_OUBLI_MS) accesEssais.delete(k);
+  }
+  // Filet dur : si la Map déborde malgré tout, on repart de zéro. Le plafond
+  // global reste, lui, en place — c'est lui qui tient sous une vraie attaque.
+  if (accesEssais.size > ACCES_MAX_CLES) accesEssais.clear();
+  for (const [j, exp] of accesJetons) {
+    if (now > exp) accesJetons.delete(j);
+  }
+}
 
 function hacherCode(code, sel) {
   return crypto.createHash('sha256').update(sel + ':' + code).digest('hex');
@@ -2740,6 +2804,11 @@ const server = http.createServer(async (req, res) => {
   // Demande du code, pose et retrait. Volontairement hors du portillon.
   if (url === '/api/acces') {
     if (req.method !== 'POST') return json(res, { ok: false }, 405);
+    // Même garde CSRF que les autres POST (voir le bloc POST plus bas) : un
+    // formulaire piégé ne doit pas pouvoir brûler le budget de tentatives.
+    if (!String(req.headers['content-type'] || '').includes('application/json')) {
+      return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
+    }
     const body = await readBody(req);
     const cle = cleEssais(req);
     const e = accesEssais.get(cle);
@@ -2762,14 +2831,22 @@ const server = http.createServer(async (req, res) => {
 
     // Entrer le code.
     if (!state.settings.acces) return json(res, { ok: true, actif: false });
-    if (e && e.jusqua > Date.now()) {
+    const now = Date.now();
+    nettoyerAcces(now);
+    // Étage global : il tient même quand l'attaquant change d'IP à chaque essai.
+    if (accesGlobal.bloqueJusqua > now) {
       return json(res, { ok: false, error: 'trop d’essais',
-                         attendre: Math.ceil((e.jusqua - Date.now()) / 1000) }, 429);
+                         attendre: Math.ceil((accesGlobal.bloqueJusqua - now) / 1000) }, 429);
+    }
+    // Étage par adresse : arrête un curieux sans pénaliser tout le réseau.
+    if (e && e.jusqua > now) {
+      return json(res, { ok: false, error: 'trop d’essais',
+                         attendre: Math.ceil((e.jusqua - now) / 1000) }, 429);
     }
     if (codeJuste(body && body.code, state.settings.acces)) {
       accesEssais.delete(cle);
       const jeton = crypto.randomBytes(24).toString('hex');
-      accesJetons.set(jeton, Date.now() + ACCES_JETON_MS);
+      accesJetons.set(jeton, now + ACCES_JETON_MS);
       res.writeHead(200, {
         'Content-Type': 'application/json',
         // `HttpOnly` : le jeton n'est pas lisible en JavaScript, donc un nom de
@@ -2780,16 +2857,21 @@ const server = http.createServer(async (req, res) => {
       });
       return res.end(JSON.stringify({ ok: true, actif: true }));
     }
-    // Raté : on compte, et on bloque l'adresse au bout de quelques essais.
-    // ⚠ On ne remet le compteur à zéro que si un blocage a EXISTÉ et qu'il est
-    // fini. Tester `jusqua <= maintenant` seul est vrai aussi pour `jusqua = 0`,
-    // c'est-à-dire quand il n'y a jamais eu de blocage : le compteur repartait
-    // alors de zéro à chaque essai et la limitation ne limitait RIEN. Mesuré :
-    // « restants : 4 » indéfiniment, donc 10 000 combinaisons libres.
-    const expire = e && e.jusqua > 0 && e.jusqua <= Date.now();
+    // Raté. On compte l'échec aux DEUX étages.
+    // Global : une fenêtre glissante d'une minute. Au-delà du plafond, tout le
+    // réseau est bloqué le temps de la fenêtre — c'est le prix pour qu'un
+    // attaquant multi-IP ne puisse pas balayer les 10 000 codes.
+    if (now - accesGlobal.debut > ACCES_GLOBAL_MS) { accesGlobal.debut = now; accesGlobal.n = 0; }
+    accesGlobal.n++;
+    if (accesGlobal.n >= ACCES_GLOBAL_MAX) accesGlobal.bloqueJusqua = now + ACCES_GLOBAL_MS;
+    // Par adresse : on ne remet le compteur à zéro que si un blocage a EXISTÉ et
+    // qu'il est fini. Tester `jusqua <= maintenant` seul est vrai aussi pour
+    // `jusqua = 0` (jamais bloqué) : le compteur repartait alors de zéro à
+    // chaque essai et la limitation ne limitait RIEN — « restants : 4 » à vie.
+    const expire = e && e.jusqua > 0 && e.jusqua <= now;
     const n = (expire ? 0 : (e ? e.n : 0)) + 1;
     const bloque = n >= ACCES_MAX_ESSAIS;
-    accesEssais.set(cle, { n: bloque ? 0 : n, jusqua: bloque ? Date.now() + ACCES_BLOCAGE_MS : 0 });
+    accesEssais.set(cle, { n: bloque ? 0 : n, jusqua: bloque ? now + ACCES_BLOCAGE_MS : 0, vu: now });
     return json(res, { ok: false, error: 'code incorrect',
                        restants: bloque ? 0 : ACCES_MAX_ESSAIS - n,
                        attendre: bloque ? ACCES_BLOCAGE_MS / 1000 : 0 }, 401);
@@ -2873,6 +2955,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST') {
+    // ⚠ CSRF sur la machine hôte. `estLocal` laisse passer localhost SANS cookie
+    // (pour ne jamais s'enfermer dehors). Sans ce garde, une page web piégée
+    // ouverte dans le navigateur de l'hôte pourrait poster un formulaire vers
+    // `/api/new` (efface le projet), `/api/quit` (coupe le serveur) ou
+    // `/api/blackout` — un `<form>` cross-origin part en `form-urlencoded`, sans
+    // pré-vol. Exiger `application/json` ferme cette voie : un formulaire ne peut
+    // pas poser ce type, et un `fetch` cross-origin qui le pose déclenche un
+    // pré-vol que le serveur ne satisfait pas. Toute l'UI passe déjà par du JSON.
+    const ct = String(req.headers['content-type'] || '');
+    if (!ct.includes('application/json')) {
+      return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
+    }
     const body = await readBody(req);
     switch (url) {
       case '/api/layer': {
@@ -3112,6 +3206,12 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
+        // ⚠ L'empreinte des presets passe par `resolveBars`, qui résout les
+        // groupes VIVANTS — les presets n'en mémorisent pas. Modifier un groupe
+        // change donc ce qu'un preset piloterait au rappel, et la grille doit le
+        // montrer. Sans cet incrément, elle resterait figée sur l'état d'avant
+        // jusqu'au prochain enregistrement : une vignette qui ment.
+        presetsRev++;
         saveConfig();
         return json(res, { ok: true, groups: state.groups, layers: state.layers });
       }
@@ -3202,6 +3302,10 @@ const server = http.createServer(async (req, res) => {
         if (Array.isArray(body.fixtures)) {
           state.fixtures = sanitizeFixtures(body.fixtures);
           pruneCaches();
+          // Même raison que pour les groupes : un preset sans disposition propre
+          // retombe sur le plateau courant, et l'activation d'une barre change
+          // l'empreinte de tous les presets.
+          presetsRev++;
           saveConfig();
         }
         return json(res, { ok: true, fixtures: state.fixtures });

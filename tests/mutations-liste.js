@@ -215,7 +215,7 @@ const MUTATIONS = [
     nom: 'le niveau audio ne se perime plus : un modulateur reste fige',
     cible: 'tests/modulateur.test.js',
     de: '  if (age >= AUDIO_PEREMPTION_MS) return null;',
-    vers: '  if (age >= AUDIO_PEREMPTION_MS) return audio.v;',
+    vers: '  if (age >= AUDIO_PEREMPTION_MS) return { v: audio.v, frais: 1 };',
   },
   {
     // La forme EXACTE du défaut trouvé en écrivant la fonction : `jusqua <= now`
@@ -224,8 +224,8 @@ const MUTATIONS = [
     // combinaisons libres — le code d'accès ne protégeait rien.
     nom: 'la limitation des tentatives ne limite plus rien',
     cible: 'tests/acces.test.js',
-    de: '    const expire = e && e.jusqua > 0 && e.jusqua <= Date.now();',
-    vers: '    const expire = e && e.jusqua <= Date.now();',
+    de: '    const expire = e && e.jusqua > 0 && e.jusqua <= now;',
+    vers: '    const expire = e && e.jusqua <= now;',
   },
 ];
 

@@ -6,6 +6,64 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Corrigé — trois défauts trouvés par relecture adversariale
+
+Les trois fonctions ajoutées ci-dessous ont été relues par des yeux hostiles,
+consigne : **essayer de les casser**. Trois trous réels, tous corrigés et tous
+couverts par un test qui échoue sans le correctif.
+
+- ⚠ **Le suiveur audio plongeait vers le noir en décrochant.** Le fondu de
+  péremption faisait décroître le **niveau** vers 0 — or `min + (max−min) × niveau`
+  envoie un niveau nul sur `min`. Le paramètre visait donc sa borne basse pendant
+  450 ms avant de rendre la main d'un coup : sur le master avec `min` à 0, le noir
+  en plein spectacle, exactement ce que la documentation de la fonction promettait
+  d'éviter. La fraîcheur dose désormais le **retour à la main**, pas le niveau :
+  la valeur glisse du micro vers le réglage réglé à la main sans jamais viser
+  `min`. ⚠ L'ancien test de sécurité ne mesurait qu'**après** la péremption
+  complète — il ratait le creux. Le nouveau échantillonne **pendant** le fondu.
+- **La limitation du code d'accès s'effondrait face à plusieurs adresses.** Le
+  blocage par IP (5 essais/minute) arrête un curieux, mais un attaquant qui fait
+  varier son IP source — trivial en IPv6, où il tient tout un /64 — retrouvait les
+  10 000 combinaisons. Un **plafond global**, indépendant de l'IP, s'ajoute :
+  au-delà de 30 échecs par minute tous clients confondus, toute tentative depuis
+  le réseau est refusée. La machine hôte n'est jamais prise dedans. Au passage,
+  `accesEssais` grandissait sans borne (un attaquant multi-IP remplissait la
+  mémoire) : les adresses inactives sont maintenant oubliées, les jetons expirés
+  balayés, avec un plafond dur.
+- **CSRF sur la machine hôte.** L'exemption locale du code d'accès laisse passer
+  `localhost` sans jeton — c'est voulu, on ne peut pas s'enfermer dehors. Mais
+  rien n'empêchait une page web piégée, ouverte dans le navigateur de l'hôte, de
+  poster un formulaire vers `/api/new` (efface le projet), `/api/quit` (coupe le
+  serveur) ou `/api/blackout`. Les POST exigent désormais
+  `Content-Type: application/json` : un formulaire ne peut pas poser ce type, et
+  toute l'interface l'envoie déjà.
+
+### Corrigé — deux défauts de fraîcheur et de cycle de vie
+
+- **L'empreinte d'un preset pouvait mentir.** Elle passe par `resolveBars`, qui
+  résout les groupes **vivants** — un preset n'en mémorise pas. Modifier le
+  contenu d'un groupe, ou changer le plateau, changeait donc ce qu'un preset
+  piloterait au rappel, sans que la vignette bouge : elle restait figée jusqu'au
+  prochain enregistrement. Ces deux routes rafraîchissent maintenant le compteur
+  de révision, et un test le vérifie route par route.
+- **Double clic sur « Écouter » : deux micros ouverts.** `suiveur.actif` n'était
+  posé qu'après `getUserMedia` *et* `AudioContext.resume()` — or la demande
+  d'autorisation du navigateur est le moment le plus long, et celui où l'on
+  reclique parce qu'il ne se passe rien. Le second démarrage écrasait alors le
+  flux et le contexte du premier, qui restaient orphelins : micro jamais relâché,
+  `AudioContext` fuité (les navigateurs en plafonnent une poignée), deux boucles
+  d'analyse. Une garde **synchrone**, posée avant le moindre `await`, ferme la
+  course.
+
+### Ajouté — la voie résiduelle du défaut v1 est enfin couverte
+
+Un test fixe le comportement documenté mais jamais testé : **vider** un groupe
+(au lieu de le supprimer, qui délie les couches) fait retomber une couche couleur
+sur tout le plateau. C'est la dernière voie vivante qui reproduit le symptôme
+d'origine de la v1. Le test ne corrige rien — il verrouille un choix (« mieux
+vaut éclairer trop que rester dans le noir sans comprendre ») pour qu'un mutant
+ne le change pas en silence.
+
 ### Ajouté — code d'accès facultatif à 4 chiffres
 
 Cascade s'ouvre depuis un iPad ou un téléphone, donc depuis le Wi-Fi de la salle.
