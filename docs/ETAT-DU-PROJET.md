@@ -451,7 +451,7 @@ Ajoutées après la 2.0.2 :
   `{ nouveau }` = poser ou retirer (exige d'être déjà autorisé). Le jeton revient
   en cookie `HttpOnly` + `SameSite=Strict`.
 
-⚠ **Deux gardes sur toutes les routes `/api/`** depuis le code d'accès :
+⚠ **Trois gardes sur toutes les routes `/api/`** depuis le code d'accès :
 
 1. **Le portillon** — 401 si un code est posé et que la requête vient du réseau sans
    jeton. Exceptions : `/api/ping` (détection d'instance) et `/api/acces`. La PAGE,
@@ -460,6 +460,19 @@ Ajoutées après la 2.0.2 :
    une protection CSRF : `localhost` est exempté de code, donc sans ce garde une
    page piégée ouverte sur la machine hôte pourrait poster un formulaire vers
    `/api/new` ou `/api/quit`. Un formulaire ne peut pas poser ce type de contenu.
+   ⚠ **`estJson()` compare l'ESSENCE du type, jamais une sous-chaîne.** La première
+   version faisait `.includes('application/json')` et se contournait en une ligne :
+   `multipart/form-data; boundary=application/json` contient la sous-chaîne, et la
+   règle CORS ne regarde que `type/sous-type` en ignorant les paramètres — ce type-là
+   est donc safelisté, un `fetch` en `no-cors` le pose sans pré-vol. **Mesuré** :
+   `/api/quit` tuait le processus. On coupe au premier `;` avant de comparer.
+3. **`hoteAutorise(req)` — parade au DNS rebinding**, tout en haut du routeur (même
+   `/api/ping` y passe). Un nom de domaine attaquant qui se met à pointer sur
+   `127.0.0.1` contourne le portillon *et* la règle d'origine, parce que le
+   navigateur croit être « chez lui ». On n'accepte donc en `Host` que : `localhost`,
+   un littéral IPv4 ou IPv6, un `*.local` (Bonjour), ou aucun `Host` du tout
+   (HTTP/1.0, `curl --http1.0`). **Conséquence assumée, décidée avec Pym** : on se
+   connecte par IP ou par le QR code, pas par un nom de domaine maison.
 
 Toutes les entrées sont validées/bornées (`sanitizeLayerSet`, `sanitizeLayer`, `sanitizeFixtures`, `cnum`, `ENUMS`).
 
@@ -477,6 +490,29 @@ Toutes les entrées sont validées/bornées (`sanitizeLayerSet`, `sanitizeLayer`
 Barre du haut : badge réseau 📱 (adresse LAN cliquable → copie), bouton **QR** (popup QR code de l'adresse), START / STOP / BLACKOUT, 🎹 MIDI, 📁 Projet, ⚙ Réglages, **⏻ Quitter**. Puis 16 slots de presets, préview, 3 panneaux (Fixtures / Couches / Tempo — avec bouton **⧉ ABLETON LINK** + `#linkStatus`), vue spatiale, footer signé façon manuel.
 
 Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500 ms) = pivoter une barre, renommer une couche, réinitialiser un paramètre (constante `DEFAULTS`). **Espace** = tap, **R** = resync. iPad : `pointer:coarse` agrandit les cibles, 2 colonnes entre 700–1180 px, dialogues en 16 px (anti-zoom iOS).
+
+### Icône de zone de notification — Windows uniquement
+
+Réglage `settings.systray`, **`false` par défaut**. `startSystray()` écrit le
+gabarit `SYSTRAY_PS1` dans un fichier temporaire et lance
+`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File …` ;
+le script pose un `System.Windows.Forms.NotifyIcon` et interroge `/api/ping`
+pour peindre la pastille (verte = show en cours, rouge = à l'arrêt). Menu :
+ouvrir l'interface, démarrer, arrêter, quitter. `killSystray()` est appelé sur
+`exit`, `SIGINT` et `SIGTERM`.
+
+⚠ Trois choses à savoir avant d'y toucher :
+
+- **Zéro dépendance tenu** : PowerShell est dans Windows, `NotifyIcon` est dans
+  .NET Framework. Rien à installer.
+- **Windows seulement — décidé avec Pym.** macOS n'a aucun moyen de poser une
+  icône de barre de menus sans logiciel supplémentaire (`rumps`, un `.app`
+  Swift, `xbar`…), ce que le zéro-dépendance interdit. La case est grisée sur
+  Mac et le dit. **Ne pas « réparer » cette absence.**
+- **JAMAIS EXÉCUTÉE.** Le script a été écrit depuis Linux, sans PowerShell pour
+  le lancer. Le premier essai sur une vraie machine Windows reste à faire —
+  c'est la première chose à confirmer avec Pym. À l'arrêt, l'icône *disparaît*
+  au lieu de rougir : le processus qui la dessine est parti avec Cascade.
 
 ## Pièges connus (importants)
 
