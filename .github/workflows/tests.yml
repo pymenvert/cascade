@@ -72,3 +72,46 @@ jobs:
 
       - name: Suite complète
         run: npm test
+
+  # L'icône de zone de notification est du PowerShell embarqué dans server.js,
+  # écrit depuis Linux et JAMAIS EXÉCUTÉ. `tests/systray.test.js` en lit le
+  # source, mais lire n'est pas analyser : une parenthèse manquante y survivrait
+  # jusqu'à la machine de régie.
+  #
+  # Ce travail-là ne demande PAS de session graphique — l'analyseur de PowerShell
+  # est une classe .NET ordinaire. On ne prétend donc pas tester l'icône : on
+  # ferme le seul angle mort qu'un runner peut fermer, et on le dit.
+  powershell:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Le script de l'icône s'analyse-t-il seulement ?
+        shell: pwsh
+        run: |
+          $src = Get-Content -Raw server.js
+          if ($src -notmatch '(?s)const SYSTRAY_PS1 = `(.*?)`;') {
+            Write-Error 'SYSTRAY_PS1 introuvable dans server.js'; exit 1
+          }
+          $ps = $Matches[1]
+          $tokens = $null; $erreurs = $null
+          [System.Management.Automation.Language.Parser]::ParseInput(
+            $ps, [ref]$tokens, [ref]$erreurs) | Out-Null
+          if ($erreurs.Count) {
+            Write-Host "$($erreurs.Count) erreur(s) d'analyse dans SYSTRAY_PS1 :"
+            $erreurs | ForEach-Object { Write-Host ("  ligne {0} : {1}" -f $_.Extent.StartLineNumber, $_.Message) }
+            exit 1
+          }
+          Write-Host "SYSTRAY_PS1 s'analyse sans erreur ($($tokens.Count) jetons)."
+
+      # La suite ne tourne que sur Ubuntu ; ce passage-ci attrape ce qui n'existe
+      # que sous Windows — séparateurs de chemin, casse des noms de fichiers.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Suite complète, sous Windows
+        # Les tests d'interface s'annoncent ignorés sans navigateur : c'est
+        # accepté ICI, ce passage n'existe pas pour eux. Le compte reste
+        # affiché, et le passage Ubuntu, lui, les exige.
+        run: npm test
