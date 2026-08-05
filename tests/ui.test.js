@@ -905,6 +905,30 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.deepEqual(nav.erreurs(), []);
   });
 
+  // Préambule commun aux tests du micro. Il fait DEUX choses, et les deux
+  // viennent d'un vrai échec sur un runner Windows (2026-08-05) :
+  //
+  //  - il PART D'UN SUIVEUR FERMÉ. Ces tests se passaient l'état les uns aux
+  //    autres sans le dire. Quand l'un a laissé le micro ouvert, le clic du
+  //    suivant l'a ARRÊTÉ au lieu de le démarrer — et ce test-là a rapporté
+  //    « zéro getUserMedia », c'est-à-dire une panne qui n'existait pas. Un
+  //    test qui se trompe de diagnostic coûte plus cher qu'un test qui tombe.
+  //  - il donne `attendre`, pour attendre une CONDITION et non une durée. Le
+  //    faux périphérique de Chromium a mis plus de 900 ms à s'ouvrir sur un
+  //    runner chargé ; l'attente fixe n'y suffisait plus. Ce n'est pas élargir
+  //    une fenêtre pour faire passer un test : la condition mesure exactement
+  //    la même chose, et échoue toujours si le micro ne s'ouvre jamais.
+  const PRELUDE_MICRO = `
+      const attendre = async (f, ms = 6000) => {
+        const t0 = Date.now();
+        while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50));
+        return f();
+      };
+      if (suiveur.actif) {
+        document.querySelector('#btnAudio').click();
+        await attendre(() => !suiveur.actif, 3000);
+      }`;
+
   test('la DSP du suiveur audio, sans le moindre micro', async () => {
     // `enveloppeAudio` est PURE : on lui donne un spectre fabriqué à la main.
     // C'est ce qui rend la moitié navigateur vérifiable sans entrée son.
@@ -939,20 +963,19 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
   test('le suiveur audio démarre pour de vrai et alimente le poll', async () => {
     // Chromium est lancé avec un faux périphérique : le chemin NOMINAL est donc
     // exécuté, permission comprise.
-    const vu = await nav.evaluate(`
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
       const vues = [];
       const vrai = window.fetch;
       window.fetch = (u, o) => { if (String(u).includes('/api/state')) vues.push(String(u)); return vrai(u, o); };
       document.querySelector('#btnAudio').click();
-      await new Promise(r => setTimeout(r, 900));
+      const actif = await attendre(() => suiveur.actif);
       for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 80)); }
       window.fetch = vrai;
-      const actif = suiveur.actif;
       const largeur = document.querySelector('#audioVu i').style.width;
       const badge = document.querySelector('#audioBadge').textContent;
       document.querySelector('#btnAudio').click();
-      await new Promise(r => setTimeout(r, 120));
-      return { actif, largeur, badge, arrete: !suiveur.actif,
+      const arrete = await attendre(() => !suiveur.actif, 3000);
+      return { actif, largeur, badge, arrete,
                avecNiveau: vues.filter(u => u.includes('?a=')).length,
                etat: document.querySelector('#audioEtat').textContent };`);
     assert.equal(vu.actif, true, 'le micro doit s’ouvrir');
@@ -967,7 +990,7 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     // long. Un régisseur qui reclique parce qu'il ne voit rien lançait deux
     // démarrages : le second écrasait `flux` et `ctx`, laissant les premiers
     // orphelins. Micro jamais relâché, AudioContext fuité.
-    const vu = await nav.evaluate(`
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
       const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       let appels = 0;
       // On simule une autorisation LENTE : c'est la fenêtre de la course.
@@ -980,13 +1003,12 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
       document.querySelector('#btnAudio').click();   // le reclic impatient
       await new Promise(r => setTimeout(r, 40));
       document.querySelector('#btnAudio').click();
-      await new Promise(r => setTimeout(r, 900));
-      const actif = suiveur.actif;
+      const actif = await attendre(() => suiveur.actif);
       const pistes = suiveur.flux ? suiveur.flux.getTracks().length : 0;
       document.querySelector('#btnAudio').click();   // on referme
-      await new Promise(r => setTimeout(r, 200));
+      const ferme = await attendre(() => !suiveur.actif, 3000);
       navigator.mediaDevices.getUserMedia = vrai;
-      return { appels, actif, pistes, ferme: !suiveur.actif,
+      return { appels, actif, pistes, ferme,
                ctxFerme: !suiveur.ctx };`);
     assert.equal(vu.appels, 1, 'un seul getUserMedia doit partir, vu ' + vu.appels);
     assert.equal(vu.actif, true, 'le micro doit bien avoir démarré');
@@ -996,7 +1018,7 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
   });
 
   test('micro refusé : Cascade le dit et continue', async () => {
-    const vu = await nav.evaluate(`
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
       const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('non', 'NotAllowedError'));
       document.querySelector('#btnAudio').click();
@@ -1012,7 +1034,7 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
   });
 
   test('le cas iPad : pas de micro hors origine sûre, dit clairement', async () => {
-    const vu = await nav.evaluate(`
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
       const vrai = navigator.mediaDevices;
       Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true });
       document.querySelector('#btnAudio').click();
