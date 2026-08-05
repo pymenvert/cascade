@@ -282,9 +282,13 @@ describe('API HTTP', () => {
     await h.post('/api/preset', { action: 'save', slot: 5 });
     await h.post('/api/preset', { action: 'recall', slot: 2 });
     assert.equal((await h.state()).presetActif, 2, 'rappeler désigne le slot');
-    // Un rappel ne change PAS la banque : recharger les empreintes à ce
-    // moment-là ferait une requête de plus au pire moment, en plein spectacle.
-    assert.equal((await h.state()).presetsRev, rev + 1, 'un save, pas le recall');
+    // ⚠ La règle est plus fine qu'elle n'en a l'air. Un rappel ne change pas la
+    // BANQUE, donc en principe il n'incrémente pas — recharger les empreintes à
+    // chaque rappel ferait une requête de plus au pire moment. Mais un preset
+    // enregistré porte toujours SA disposition, et la rappeler remplace le
+    // plateau : les empreintes des presets sans disposition propre changent
+    // alors. Ce rappel-ci incrémente donc, et c'est voulu (voir le test dédié).
+    assert.equal((await h.state()).presetsRev, rev + 2, 'le save ET ce rappel');
 
     await h.post('/api/preset', { action: 'clear', slot: 2 });
     assert.equal((await h.state()).presetActif, null, 'effacer le slot actif l’oublie');
@@ -319,6 +323,34 @@ describe('API HTTP', () => {
 
     await h.post('/api/groups', { action: 'remove', id: gid });
     await h.post('/api/preset', { action: 'clear', slot: 1 });
+  });
+
+  test('un rappel qui REMPLACE le plateau rafraîchit aussi les empreintes', async () => {
+    // Un rappel ne change pas la banque, donc il n'incrémente pas la révision en
+    // général. Mais s'il remplace le plateau, il change l'empreinte de tout
+    // preset SANS disposition propre — ceux-là retombent sur `state.fixtures`.
+    // `sanitizePresets` autorise `fixtures: null`, donc un projet importé en a.
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    // Un preset sans disposition à lui, comme en produit un import.
+    const exp = await h.get('/api/export');
+    const sansFx = JSON.parse(JSON.stringify(exp.body));
+    sansFx.presets = Array(16).fill(null);
+    sansFx.presets[0] = { name: 'Ancien', layers: exp.body.layers, fixtures: null };
+    await h.post('/api/import', sansFx);
+
+    const avant = (await h.get('/api/presets-info')).body.infos[0].c.length;
+    // Un autre preset, avec SA disposition, plus courte.
+    await h.post('/api/fixtures', { fixtures: fixtures(1) });
+    await h.post('/api/preset', { action: 'save', slot: 1, name: 'Court' });
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    const rev = (await h.state()).presetsRev;
+
+    await h.post('/api/preset', { action: 'recall', slot: 1 });
+    const apres = (await h.get('/api/presets-info')).body.infos[0].c.length;
+    assert.notEqual(apres, avant, 'le rappel doit bien avoir changé l’empreinte du slot 0');
+    assert.ok((await h.state()).presetsRev > rev,
+      'et la révision doit bouger, sinon la grille garde une vignette qui ment');
+    await h.post('/api/new', { keepFixtures: true });
   });
 
   test('un slot de preset hors bornes ne fait pas planter', async () => {

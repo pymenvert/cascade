@@ -161,6 +161,59 @@ describe('Code d’accès — la machine hôte, la limitation, le secret', () =>
     assert.equal(acc.status, 415, '/api/acces doit exiger du JSON aussi');
   });
 
+  test('CSRF : le garde compare l’ESSENCE du type, pas une sous-chaîne', async () => {
+    // ⚠ Une première version testait `.includes('application/json')`, et se
+    // contournait en une ligne : `multipart/form-data; boundary=application/json`
+    // contient la sous-chaîne, et la règle CORS ne regarde que l'essence du type
+    // (`type/sous-type`) en ignorant les paramètres. Ce type est donc safelisté :
+    // un `fetch` en `no-cors` le pose SANS pré-vol. Mesuré à l'époque :
+    // `/api/quit` tuait le serveur et `/api/acces` posait le code.
+    const refuses = [
+      'multipart/form-data; boundary=application/json',
+      'multipart/form-data; boundary="application/json"',
+      'text/plain; charset="application/json"',
+      'application/jsonp',
+      'application/x-www-form-urlencoded',
+    ];
+    for (const ct of refuses) {
+      const r = await local('POST', '/api/blackout', {}, undefined, { ctype: ct, brut: '{}' });
+      assert.equal(r.status, 415, 'doit être refusé : ' + ct);
+    }
+    // …et ce qui est légitime passe, casse comprise (HTTP n'y est pas sensible).
+    for (const ct of ['application/json', 'application/json; charset=utf-8', 'APPLICATION/JSON']) {
+      const r = await local('POST', '/api/blackout', {}, undefined, { ctype: ct, brut: '{}' });
+      assert.equal(r.status, 200, 'doit passer : ' + ct);
+    }
+    // La route la plus destructrice, explicitement.
+    const quit = await local('POST', '/api/quit', {}, undefined,
+      { ctype: 'multipart/form-data; boundary=application/json', brut: '{}' });
+    assert.equal(quit.status, 415, '/api/quit ne doit pas être atteignable ainsi');
+    assert.equal((await local('GET', '/api/ping')).status, 200, 'le serveur doit être vivant');
+  });
+
+  test('le code d’accès ne se retire QUE sur un geste explicite', async () => {
+    // ⚠ Le dialogue Réglages vide le champ du code à chaque ouverture (le
+    // serveur ne renvoie jamais le code). Une première version envoyait alors un
+    // retrait : ouvrir Réglages pour changer le port MadMapper et enregistrer
+    // supprimait le code en silence et déconnectait toutes les tablettes.
+    // Côté serveur, la règle est simple et c'est elle qu'on verrouille : seul un
+    // `nouveau` explicitement vide retire, et l'interface ne l'envoie plus que
+    // depuis son bouton dédié.
+    await local('POST', '/api/acces', { nouveau: '4731' });
+    assert.equal((await h.state()).acces.actif, true);
+
+    // Enregistrer d'autres réglages ne doit rien faire au code.
+    await local('POST', '/api/settings', { mmPort: 8010 });
+    await local('POST', '/api/global', { master: 1 });
+    assert.equal((await h.state()).acces.actif, true,
+      'un enregistrement de réglages ne doit JAMAIS retirer le code');
+
+    // Le retrait explicite, lui, fonctionne — c'est la garantie « on ne peut pas
+    // s'enfermer dehors ».
+    await local('POST', '/api/acces', { nouveau: '' });
+    assert.equal((await h.state()).acces.actif, false);
+  });
+
   test('aucune erreur n’a été écrite dans le journal du serveur', () => {
     const erreurs = h.logs.join('').split('\n').filter(l =>
       /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));

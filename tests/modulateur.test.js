@@ -15,7 +15,23 @@
  */
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
 const { start, sleep } = require('./helpers.js');
+
+/** GET brut, avec des en-têtes choisis — pour éprouver le garde `sec-fetch-dest`. */
+function getAvecEntetes(port, chemin, entetes) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: chemin, method: 'GET',
+                               headers: entetes, timeout: 5000 }, (res) => {
+      let d = '';
+      res.on('data', c => { d += c; });
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { resolve(d); } });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.end();
+  });
+}
 
 const niveaux = (msgs) => {
   const o = new Map();
@@ -491,6 +507,35 @@ describe('Suiveur audio — le micro comme source de modulateur', () => {
     const fin = await calcules();
     assert.ok(fin.every(v => Math.abs(v - 0.8) < 0.03),
       'et à la fin, le réglage réglé à la main doit être repris : ' + fin);
+    await setL({ lfo: null });
+  });
+
+  test('une BALISE IMAGE ne peut pas clouer un modulateur en butée', async () => {
+    // Le niveau voyage en query sur un GET. Sans garde, une page piégée ouverte
+    // sur la machine hôte boucle sur `<img src="…/api/state?a=1">` et cloue un
+    // modulateur audio à fond — sur le master avec min 0, c'est le noir en plein
+    // show. Une image annonce `sec-fetch-dest: image` ; le fetch de l'interface
+    // annonce `empty`. On refuse tout ce qui n'est pas une requête de script.
+    await setL({ level: 0.5, lfo: { on: true, param: 'level', src: 'audio', min: 0.1, max: 1 } });
+    await h.post('/api/start');
+    // Une « image » pousse un niveau maximal, en boucle.
+    for (let i = 0; i < 6; i++) {
+      await getAvecEntetes(h.port, '/api/state?a=1', { 'sec-fetch-dest': 'image' });
+      await sleep(60);
+    }
+    const vus = await calcules();
+    assert.ok(vus.every(v => Math.abs(v - 0.5) < 0.02),
+      'une balise image ne doit RIEN pousser — le réglage doit rester à 0,5 : ' + vus);
+
+    // …alors que la vraie interface, elle, est bien entendue.
+    for (let i = 0; i < 6; i++) {
+      await getAvecEntetes(h.port, '/api/state?a=1', { 'sec-fetch-dest': 'empty' });
+      await sleep(60);
+    }
+    const apres = await calcules();
+    await h.post('/api/stop');
+    assert.ok(Math.max(...apres) > 0.9,
+      'le fetch de l’interface doit, lui, être pris en compte : ' + apres);
     await setL({ lfo: null });
   });
 

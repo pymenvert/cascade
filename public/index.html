@@ -1040,6 +1040,10 @@
   <label>Code d'accès à 4 chiffres <span id="accesEtat" class="hint" style="margin:0"></span></label>
   <input type="text" id="setAcces" inputmode="numeric" pattern="[0-9]*" maxlength="4"
     autocomplete="off" placeholder="vide = aucun code">
+  <div class="mini" style="margin:6px 0 2px">
+    <button id="btnAccesRetirer" class="ghost" style="display:none"
+      title="Supprime le code : Cascade redevient accessible sans mot de passe depuis le réseau">🔓 Retirer le code</button>
+  </div>
   <p class="hint" style="margin:4px 0 10px">Facultatif. Il protège l'accès <strong>depuis le
   réseau</strong> — iPad, téléphone, Wi-Fi de la salle. Il n'est <strong>jamais demandé sur cette
   machine</strong>, donc on ne peut pas s'enfermer dehors. L'OSC et le MIDI ne sont pas concernés :
@@ -2818,11 +2822,15 @@ async function ouvrirAudio() {
     $('#btnAudio').classList.add('active');
     $('#btnAudio').textContent = '🎤 Écoute…';
     etatAudio('Le micro écoute. Choisissez « Micro » comme Source sur un modulateur.');
-    try {
-      const list = await navigator.mediaDevices.enumerateDevices();
-      remplirEntrees(list.filter(d => d.kind === 'audioinput'));
-    } catch (e) { /* la liste est un confort, pas une condition */ }
     boucleAudio();
+    // ⚠ AUCUN `await` après `actif = true`. Sinon `actif` et `demarrage` sont
+    // vrais en même temps le temps de cet appel, et un changement d'entrée son
+    // pile à cet instant (`arreterAudio()` puis `demarrerAudio()`) tombait sur
+    // la garde et ne redémarrait rien. La liste est un confort : elle se
+    // remplit quand elle peut.
+    navigator.mediaDevices.enumerateDevices()
+      .then(l => remplirEntrees(l.filter(d => d.kind === 'audioinput')))
+      .catch(() => {});
   } catch (e) {
     etatAudio('L’analyse audio n’a pas pu démarrer sur ce navigateur.');
     arreterAudio();
@@ -2914,14 +2922,14 @@ $('#btnSettings').onclick = () => {
   $('#setFb').value = S.settings.feedbackPort;
   $('#setParam').value = S.global.param;
   $('#setOscIn').value = S.settings.oscInPort || 7000;
-  // Le code lui-même n'est jamais renvoyé par le serveur : on ne peut afficher
-  // que son existence. Laisser le champ vide veut dire « ne rien changer » tant
-  // qu'un code est posé, et « aucun code » sinon.
+  // Le code lui-même n'est JAMAIS renvoyé par le serveur : on ne peut afficher
+  // que son existence. Le champ part donc vide, et un champ vide ne change rien.
   $('#setAcces').value = '';
   const a = (S.acces || {});
   $('#accesEtat').textContent = a.actif
-    ? '— actif. Vider le champ et enregistrer pour le retirer.'
+    ? '— actif. Laisser vide ne change rien ; taper 4 chiffres le remplace.'
     : '— aucun code pour l’instant.';
+  $('#btnAccesRetirer').style.display = a.actif ? '' : 'none';
   $('#dlgSettings').showModal();
 };
 // « Trouver le port » : le port d'entrée OSC de MadMapper est un réglage de
@@ -2953,14 +2961,18 @@ $('#setCancel').onclick = () => $('#dlgSettings').close();
 $('#setSave').onclick = async () => {
   await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });
   await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
-  // Le code d'accès a sa propre route : il n'est jamais renvoyé par le serveur,
-  // donc on ne l'envoie que si le champ a été touché.
+  // ⚠ UN CHAMP VIDE NE TOUCHE À RIEN. Une première version envoyait alors un
+  // retrait — or le champ est vidé à CHAQUE ouverture du dialogue (le serveur ne
+  // renvoie jamais le code). Ouvrir Réglages pour changer le port MadMapper et
+  // enregistrer supprimait donc le code d'accès en silence, et déconnectait
+  // toutes les tablettes. Le retrait est maintenant un geste explicite : le
+  // bouton « Retirer le code », qui demande confirmation.
   const nouveau = $('#setAcces').value.trim();
-  const actif = !!(S && S.acces && S.acces.actif);
-  if (nouveau || actif) {
+  if (nouveau) {
     const r = await post('/api/acces', { nouveau });
     if (r && r.ok === false && r.error) { toast(r.error); return; }
     $('#setAcces').value = '';
+    toast('Code d’accès enregistré.');
   }
   $('#dlgSettings').close(); poll();
 };
@@ -3001,6 +3013,18 @@ async function envoyerAcces() {
     : 'Code incorrect.' + (r && r.restants != null ? ' Encore ' + r.restants + ' essai'
         + (r.restants > 1 ? 's' : '') + '.' : '');
 }
+$('#btnAccesRetirer').onclick = async () => {
+  // Retirer un code déconnecte toutes les tablettes déjà entrées : ça se
+  // confirme. C'est le seul chemin qui supprime le code.
+  if (!confirm('Retirer le code d’accès ?\n\nCascade redeviendra pilotable par '
+      + 'n’importe qui sur le réseau, et les appareils déjà connectés seront déconnectés.')) return;
+  const r = await post('/api/acces', { nouveau: '' });
+  if (r && r.ok === false && r.error) { toast(r.error); return; }
+  toast('Code d’accès retiré.');
+  $('#dlgSettings').close();
+  poll();
+};
+
 $('#accesOk').onclick = envoyerAcces;
 $('#accesCode').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); envoyerAcces(); } };
 // Un dialogue modal se ferme sur Échap : ici il n'y a rien derrière, on le rouvre.

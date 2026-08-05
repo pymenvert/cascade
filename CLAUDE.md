@@ -39,7 +39,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 309 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 313 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -49,7 +49,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
   `status { :peers 1 :bpm 128.0 ... }\n`.
 - UI : les 45 tests d'interface pilotent un vrai navigateur en CDP maison
   (`tests/browser.js`, zéro dépendance) — **pas** Playwright. Sans navigateur ils
-  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (309), pas
+  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (313), pas
   la couleur. `CASCADE_NAVIGATEUR=<binaire>` impose un navigateur ;
   `PLAYWRIGHT_BROWSERS_PATH` est balayé tout seul. Si tu passes par Playwright
   à la main, `waitUntil: 'domcontentloaded'` (`networkidle` ne vient jamais,
@@ -90,7 +90,7 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**309 tests, 31 mutations sur 31 détectées.** Manuel PDF, README, CHANGELOG et
+**313 tests, 33 mutations sur 33 détectées.** Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 

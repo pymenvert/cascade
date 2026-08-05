@@ -6,6 +6,41 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Corrigé — les correctifs de sécurité avaient eux-mêmes deux trous bloquants
+
+Les correctifs de la relecture précédente ont été relus à leur tour, même
+consigne. Deux d'entre eux étaient **contournables ou nuisibles**, mesurés contre
+un vrai serveur :
+
+- ⛔ **Le garde CSRF se contournait en une ligne.** Il testait une *sous-chaîne* :
+  `Content-Type: multipart/form-data; boundary=application/json` la contient, et
+  la règle CORS ne regarde que l'**essence** du type (`type/sous-type`), en
+  ignorant les paramètres. Ce type est donc « safelisté » : un `fetch` en
+  `no-cors` le pose **sans pré-vol**. Mesuré : `/api/quit` tuait le serveur et
+  `/api/acces` posait le code de l'installation. On compare désormais l'essence,
+  ce qui refuse au passage `application/jsonp` et accepte `APPLICATION/JSON`.
+- ⛔ **Le dialogue Réglages retirait le code d'accès à chaque enregistrement.**
+  Le champ du code est vidé à chaque ouverture (le serveur ne renvoie jamais le
+  code), et un champ vide déclenchait un retrait. Ouvrir Réglages pour changer le
+  port MadMapper et enregistrer **supprimait donc le code en silence**, et
+  déconnectait toutes les tablettes. Un champ vide ne touche plus à rien ; le
+  retrait est passé sur un **bouton dédié**, avec confirmation.
+
+Trois autres, moins graves :
+
+- une balise `<img src="…/api/state?a=1">` sur une page piégée pouvait **clouer
+  un modulateur audio en butée** — sur le master avec `min` à 0, le noir en plein
+  show. Le niveau n'est plus accepté que d'une requête de script ;
+- un rappel de preset qui remplace le plateau change l'empreinte des presets
+  **sans disposition propre** (les projets importés en ont) : la révision bouge
+  maintenant dans ce cas précis ;
+- changer d'entrée son pile pendant le démarrage du micro pouvait **avaler le
+  redémarrage** : plus aucune attente après l'activation, la fenêtre disparaît.
+
+⚠ Un anti-mutant ajouté au premier jet **survivait** : aucun test n'envoyait
+l'en-tête qu'il concernait. Un garde-fou que rien ne tue est un faux garde-fou —
+le test manquant a été écrit, et les 33 mutants sont vérifiés tueurs.
+
 ### Corrigé — trois défauts trouvés par relecture adversariale
 
 Les trois fonctions ajoutées ci-dessous ont été relues par des yeux hostiles,

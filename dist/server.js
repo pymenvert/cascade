@@ -1642,9 +1642,14 @@ function recallPreset(i, fadeMs) {
     pruneCaches();
   }
   engines.clear();
-  // Ici et pas dans la route : le rappel arrive AUSSI par OSC (`/chaser/preset`)
-  // et par MIDI. Poser le repère au seul endroit que tous traversent évite de
-  // dupliquer la logique — et d'en oublier une.
+  // ⚠ Un rappel ne change pas la BANQUE, donc il n'incrémente pas `presetsRev`
+  // en général — recharger les empreintes à chaque rappel ferait une requête de
+  // plus au pire moment. MAIS s'il a remplacé le plateau, il change l'empreinte
+  // de tout preset qui n'a PAS de disposition à lui (les projets importés
+  // peuvent en avoir : `sanitizePresets` autorise `fixtures: null`), puisque
+  // ceux-là retombent sur `state.fixtures`. Mesuré : une empreinte passait de
+  // trois barres à une sans que la grille le sache.
+  if (Array.isArray(p.fixtures) && p.fixtures.length) presetsRev++;
   presetActif = i;
   return true;
 }
@@ -2729,6 +2734,24 @@ function codeJuste(code, reglage) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * Le corps est-il annoncé en JSON ? Garde CSRF : voir le bloc POST.
+ *
+ * ⚠ ON COMPARE L'ESSENCE DU TYPE, PAS UNE SOUS-CHAÎNE. Une première version
+ * testait `.includes('application/json')` — et se contournait en une ligne :
+ * `Content-Type: multipart/form-data; boundary=application/json` contient la
+ * sous-chaîne, et la règle CORS ne regarde que l'essence (`type/sous-type`), en
+ * ignorant les paramètres. Ce type-là est donc « safelisté » : un `fetch` en
+ * `no-cors` le pose SANS pré-vol. Mesuré contre le serveur : `/api/quit` tuait
+ * le processus et `/api/acces {nouveau}` posait le code de l'installation.
+ * On coupe donc au premier `;` avant de comparer — ce qui accepte au passage
+ * `APPLICATION/JSON` (légal en HTTP) et refuse `application/jsonp`.
+ */
+function estJson(req) {
+  return String(req.headers['content-type'] || '')
+    .split(';')[0].trim().toLowerCase() === 'application/json';
+}
+
 /** Les réglages SANS le haché du code : ce qu'on a le droit d'envoyer. */
 function sansCode(reglages) {
   const { acces, ...reste } = reglages;
@@ -2778,6 +2801,14 @@ function json(res, obj, code = 200) {
  * pouvoir clouer un modulateur en butée.
  */
 function lireNiveauAudio(req) {
+  // ⚠ Refuser tout ce qui n'est pas une requête de script. Sans ce garde, une
+  // page piégée ouverte sur la machine hôte pouvait boucler sur
+  // `<img src="http://localhost:3333/api/state?a=1">` et clouer un modulateur de
+  // source audio en butée — sur le master avec min 0, le noir en plein show.
+  // Le `fetch` de l'interface annonce `empty` ; une image annonce `image`.
+  // Un client sans cet en-tête (curl, un test) passe : il n'est pas piégeable.
+  const dest = req.headers['sec-fetch-dest'];
+  if (dest && dest !== 'empty') return;
   const q = req.url.indexOf('?');
   if (q < 0) return;
   const m = /(?:^|&)a=([0-9.]{1,8})(?:&|$)/.exec(req.url.slice(q + 1));
@@ -2819,7 +2850,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') return json(res, { ok: false }, 405);
     // Même garde CSRF que les autres POST (voir le bloc POST plus bas) : un
     // formulaire piégé ne doit pas pouvoir brûler le budget de tentatives.
-    if (!String(req.headers['content-type'] || '').includes('application/json')) {
+    if (!estJson(req)) {
       return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
     }
     const body = await readBody(req);
@@ -2976,8 +3007,7 @@ const server = http.createServer(async (req, res) => {
     // pré-vol. Exiger `application/json` ferme cette voie : un formulaire ne peut
     // pas poser ce type, et un `fetch` cross-origin qui le pose déclenche un
     // pré-vol que le serveur ne satisfait pas. Toute l'UI passe déjà par du JSON.
-    const ct = String(req.headers['content-type'] || '');
-    if (!ct.includes('application/json')) {
+    if (!estJson(req)) {
       return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
     }
     const body = await readBody(req);

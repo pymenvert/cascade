@@ -227,6 +227,23 @@ const MUTATIONS = [
     de: '    const expire = e && e.jusqua > 0 && e.jusqua <= now;',
     vers: '    const expire = e && e.jusqua <= now;',
   },
+  {
+    // La forme EXACTE du garde contournable : tester une SOUS-CHAÎNE laissait
+    // passer `multipart/form-data; boundary=application/json`, safelisté par
+    // CORS donc posé sans pré-vol. Mesuré : `/api/quit` tuait le serveur.
+    nom: 'le garde CSRF teste une sous-chaine, plus l essence du type',
+    cible: 'tests/acces.test.js',
+    de: "    .split(';')[0].trim().toLowerCase() === 'application/json';",
+    vers: "    .includes('application/json');",
+  },
+  {
+    // Sans ça, une page piégée cloue un modulateur audio en butée avec une
+    // simple balise <img> : sur le master à min 0, le noir en plein show.
+    nom: 'le niveau audio s accepte depuis n importe quelle requete (balise img)',
+    cible: 'tests/modulateur.test.js',
+    de: "  if (dest && dest !== 'empty') return;",
+    vers: "  if (false) return;",
+  },
 ];
 
 module.exports = MUTATIONS;
