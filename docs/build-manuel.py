@@ -276,6 +276,21 @@ E += [h1("1. Présentation"),
            "(ou la clé USB) : c'est le même niveau de confiance que la machine. Un projet "
            "exporté, lui, ne contient pas le code — le partager ne le divulgue pas."),
 
+      h2("3.4 — L'icône près de l'horloge (Windows)"),
+      p("Réglages, case « Icône près de l'horloge » : Cascade pose alors une pastille dans "
+        "la zone de notification, à côté de l'heure. Verte quand le show tourne, rouge à "
+        "l'arrêt. Clic droit dessus : ouvrir l'interface, démarrer, arrêter, quitter. "
+        "Double-clic : l'interface s'ouvre."),
+      li("À quoi ça sert : fermer la fenêtre du navigateur sans perdre Cascade de vue, et le "
+         "piloter sans la rouvrir. Rappel utile : fermer la fenêtre PENDANT un show ne coupe "
+         "déjà rien, c'est garanti — l'icône sert à le VOIR."),
+      note("⚠ Windows uniquement. macOS n'offre aucun moyen de poser une icône de barre de "
+           "menus sans installer un logiciel supplémentaire, ce que Cascade s'interdit. Sur "
+           "Mac, la case est grisée et l'explique."),
+      note("⚠ Quand Cascade s'arrête, l'icône DISPARAÎT au lieu de passer au rouge : une fois "
+           "le programme parti, il ne reste rien pour la dessiner. Icône présente = Cascade "
+           "tourne."),
+
 # ── 4. Les couches ───────────────────────────────────────────────────────────
       h1("4. Les couches (multi-chasers)"),
       p("Les pastilles en haut du panneau central listent les couches : la case active/désactive, "
