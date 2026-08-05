@@ -244,6 +244,14 @@ const MUTATIONS = [
     de: "  if (dest && dest !== 'empty') return;",
     vers: "  if (false) return;",
   },
+  {
+    // Sans ce garde, le DNS rebinding fait tomber tous les autres : la page
+    // piégée devient « même origine » et Cascade l'exempte du code d'accès.
+    nom: 'le controle du Host laisse passer n importe quel nom (DNS rebinding)',
+    cible: 'tests/acces.test.js',
+    de: '  if (!hoteAutorise(req)) {',
+    vers: '  if (false) {',
+  },
 ];
 
 module.exports = MUTATIONS;

@@ -191,6 +191,36 @@ describe('Code d’accès — la machine hôte, la limitation, le secret', () =>
     assert.equal((await local('GET', '/api/ping')).status, 200, 'le serveur doit être vivant');
   });
 
+  test('DNS rebinding : un Host étranger est refusé, un nom .local accepté', async () => {
+    // ⚠ Sans ce garde, TOUS les autres tombent. Une page sur `mechant.com` dont le
+    // DNS se ré-résout vers 127.0.0.1 devient « même origine » pour le navigateur :
+    // elle pose le Content-Type qu'elle veut, le cookie SameSite ne protège plus,
+    // et Cascade l'exempte du code d'accès puisqu'elle vient de localhost.
+    // Une requête rebindée porte un `Host` étranger — c'est là qu'on la coupe.
+    const avec = (host, chemin) => new Promise((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port: h.port, path: chemin,
+                               method: 'GET', headers: { Host: host }, timeout: 5000 },
+        (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+      r.on('error', reject);
+      r.on('timeout', () => r.destroy(new Error('timeout')));
+      r.end();
+    });
+
+    for (const bon of ['localhost:1', '127.0.0.1:1', '192.168.1.42:1', '[::1]:1',
+                       'mac-de-pym.local:1']) {
+      assert.equal(await avec(bon, '/api/state'), 200, 'doit passer : ' + bon);
+    }
+    // `.local` est réservé au mDNS : impossible à posséder sur Internet, donc
+    // inutilisable pour un rebinding. Un domaine qui s'en approche ne l'est pas.
+    for (const mauvais of ['mechant.com', 'mechant.com:1', 'attaquant.example.org:1',
+                           'evil.local.attaquant.com']) {
+      assert.equal(await avec(mauvais, '/api/state'), 403, 'doit être refusé : ' + mauvais);
+    }
+    // Même la PAGE est refusée : la servir puis laisser toutes ses requêtes
+    // échouer ressemblerait à une panne au lieu d'un refus.
+    assert.equal(await avec('mechant.com', '/'), 403, 'la page aussi doit être refusée');
+  });
+
   test('le code d’accès ne se retire QUE sur un geste explicite', async () => {
     // ⚠ Le dialogue Réglages vide le champ du code à chaque ouverture (le
     // serveur ne renvoie jamais le code). Une première version envoyait alors un

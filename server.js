@@ -2745,6 +2745,46 @@ function codeJuste(code, reglage) {
 }
 
 /**
+ * L'en-tête `Host` désigne-t-il bien CETTE machine ?
+ *
+ * ⚠ C'est la parade au « DNS rebinding », et sans elle tous les autres gardes
+ * tombent. L'attaque : une page sur `mechant.com`, avec une durée de vie DNS très
+ * courte, se ré-résout vers `127.0.0.1` après son chargement. Pour le navigateur
+ * l'origine n'a pas changé — la page est « chez elle » — donc le garde
+ * `Content-Type` ne sert plus à rien (elle pose l'en-tête qu'elle veut) et le
+ * cookie `SameSite` ne protège plus. Et Cascade, lui, voit une requête venant de
+ * 127.0.0.1, donc il l'exempte du code d'accès. Contrôle complet de la lumière,
+ * depuis n'importe quelle page web, sans être sur le réseau.
+ *
+ * Une requête rebindée porte `Host: mechant.com`. On n'accepte donc que ce sous
+ * quoi Cascade se sert légitimement :
+ *  - `localhost` et les adresses IP littérales (ce que donne le QR code) ;
+ *  - les noms en `.local` — réservés au mDNS (RFC 6762), donc impossibles à
+ *    posséder sur Internet : le système ne les résout que sur le réseau local.
+ *    C'est ce qui garde `mac-de-pym.local:3333` sans rouvrir la faille ;
+ *  - une requête SANS `Host` (HTTP/1.0, `curl` nu) : un navigateur en envoie
+ *    toujours un, donc son absence n'est jamais une attaque par rebinding.
+ *
+ * ⚠ Ce qui reste refusé, et c'est assumé : un nom de machine Windows sans
+ * suffixe, et les alias du fichier `hosts`. Décidé avec Pym le 2026-08-05 : il
+ * passe par le QR code ou par l'adresse IP.
+ */
+function hoteAutorise(req) {
+  const brut = req.headers && req.headers.host;
+  if (!brut) return true;
+  let h = String(brut).trim().toLowerCase();
+  if (h.startsWith('[')) {                      // IPv6 entre crochets : [::1]:3333
+    const f = h.indexOf(']');
+    return f > 0;                               // littéral IPv6 = cette machine
+  }
+  const parts = h.split(':');
+  if (parts.length > 2) return true;            // IPv6 nu, sans crochets
+  h = parts[0];
+  if (h === 'localhost' || h.endsWith('.local')) return true;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h);    // adresse IPv4 littérale
+}
+
+/**
  * Le corps est-il annoncé en JSON ? Garde CSRF : voir le bloc POST.
  *
  * ⚠ ON COMPARE L'ESSENCE DU TYPE, PAS UNE SOUS-CHAÎNE. Une première version
@@ -2831,6 +2871,16 @@ function lireNiveauAudio(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
+
+  // Parade au DNS rebinding — voir `hoteAutorise`. Placé tout en haut : même la
+  // PAGE est refusée, sinon elle se chargerait pour voir chaque appel d'API
+  // échouer, ce qui ressemblerait à une panne au lieu d'un refus.
+  if (!hoteAutorise(req)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Cascade ne répond que sur localhost, une adresse IP, ou un nom en .local.\n'
+      + 'Reçu : ' + String(req.headers.host || '(aucun)') + '\n'
+      + 'Utilisez le QR code de l\'interface, ou l\'adresse IP affichée en haut.');
+  }
 
   if (url === '/' || url === '/index.html') {
     fs.readFile(path.join(__dirname, 'public', 'index.html'), (err, buf) => {

@@ -6,6 +6,27 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Ajouté — Cascade ne répond plus qu'à son propre nom (« DNS rebinding »)
+
+Sans ce garde, **tous les autres tombaient**. L'attaque : une page sur
+`mechant.com`, avec une durée de vie DNS très courte, se ré-résout vers
+`127.0.0.1` après son chargement. Pour le navigateur l'origine n'a pas changé —
+la page est « chez elle » — donc elle pose le `Content-Type` qu'elle veut, le
+cookie `SameSite` ne protège plus, et Cascade l'exempte du code d'accès puisque
+la requête vient de localhost. Contrôle complet de la lumière et lecture du
+projet, **depuis n'importe quelle page web, sans être sur le réseau**.
+
+Une requête rebindée porte un `Host` étranger. Cascade n'accepte donc plus que
+ce sous quoi il se sert légitimement : `localhost`, une **adresse IP** (ce que
+donne le QR code), ou un nom en **`.local`** — ce suffixe est réservé au mDNS,
+impossible à posséder sur Internet, donc inutilisable pour un rebinding. Les noms
+Bonjour du type `mac-de-pym.local:3333` continuent donc de marcher.
+
+⚠ Restent refusés, et c'est assumé (décidé avec Pym) : un nom de machine Windows
+sans suffixe, et les alias du fichier `hosts`. La page elle-même est refusée, pas
+seulement l'API : la servir puis laisser tous ses appels échouer ressemblerait à
+une panne au lieu d'un refus, et le message dit quoi utiliser.
+
 ### Corrigé — les correctifs de sécurité avaient eux-mêmes deux trous bloquants
 
 Les correctifs de la relecture précédente ont été relus à leur tour, même
