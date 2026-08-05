@@ -98,12 +98,32 @@ jobs:
           $tokens = $null; $erreurs = $null
           [System.Management.Automation.Language.Parser]::ParseInput(
             $ps, [ref]$tokens, [ref]$erreurs) | Out-Null
-          if ($erreurs.Count) {
+          # ⚠ TÉMOIN POSITIF D'ABORD. `$null.Count` vaut 0 en PowerShell : si
+          # l'analyseur ne rendait rien du tout, « zéro erreur » serait vrai et
+          # cette étape passerait au vert sans avoir rien analysé. On exige donc
+          # d'abord d'avoir vraiment lu un script.
+          if ($null -eq $tokens -or $tokens.Count -lt 100) {
+            Write-Host "l'analyseur n'a rendu que $($tokens.Count) jeton(s) : rien n'a été analysé"
+            exit 1
+          }
+          if ($null -ne $erreurs -and $erreurs.Count -gt 0) {
             Write-Host "$($erreurs.Count) erreur(s) d'analyse dans SYSTRAY_PS1 :"
             $erreurs | ForEach-Object { Write-Host ("  ligne {0} : {1}" -f $_.Extent.StartLineNumber, $_.Message) }
             exit 1
           }
           Write-Host "SYSTRAY_PS1 s'analyse sans erreur ($($tokens.Count) jetons)."
+
+          # Et l'analyseur doit être capable de dire NON : on lui donne le même
+          # script avec une accolade en trop. S'il ne bronche pas, c'est que
+          # cette étape ne mesure rien — le défaut qu'on vient d'éviter.
+          $t2 = $null; $e2 = $null
+          [System.Management.Automation.Language.Parser]::ParseInput(
+            $ps + "`nfunction Casse { ", [ref]$t2, [ref]$e2) | Out-Null
+          if ($null -eq $e2 -or $e2.Count -eq 0) {
+            Write-Host "l'analyseur accepte un script volontairement cassé : il ne mesure rien"
+            exit 1
+          }
+          Write-Host "témoin : un script cassé est bien refusé ($($e2.Count) erreur(s))."
 
       # La suite ne tourne que sur Ubuntu ; ce passage-ci attrape ce qui n'existe
       # que sous Windows — séparateurs de chemin, casse des noms de fichiers.
