@@ -6,6 +6,31 @@ versionnage [sémantique](https://semver.org/lang/fr/).
 
 ## [Non publié]
 
+### Ajouté — icône de zone de notification (Windows)
+
+Demande de Pym : voir d'un coup d'œil si ça tourne, et piloter sans rouvrir la
+page. Point **vert** quand le show tourne, **rouge** à l'arrêt ; clic droit →
+ouvrir l'interface, démarrer, arrêter, quitter ; double-clic → l'interface.
+
+Node n'a aucune API de zone de notification — dessiner cette icône demande du
+code natif. Sous Windows, PowerShell donne accès à `NotifyIcon`, présent
+d'origine : **zéro installation, zéro dépendance npm**, la règle n°2 tient. Le
+script est embarqué dans `server.js` et écrit au démarrage, parce que le
+distribuable est un exécutable unique — un `.ps1` à côté n'existerait pas.
+
+⚠ **Windows seulement, et c'est un choix** (décidé avec Pym) : macOS n'a pas
+d'équivalent scriptable sans application compilée ou outil tiers, et Linux dépend
+du bureau. Plutôt qu'une fonction bancale partout, une fonction franche là où se
+trouve la régie. Hors Windows, la case est estompée et le dit.
+
+⚠ **Éteinte par défaut, et jamais exécutée** : elle a été écrite depuis une
+machine Linux, où PowerShell n'existe pas. Tout est donc enveloppé — un échec est
+silencieux et ne touche jamais le serveur, ce qu'un test vérifie. À activer dans
+Réglages et à confirmer sur une vraie machine Windows.
+
+Limite honnête du montage : quand le serveur s'arrête, l'icône disparaît au lieu
+de passer au rouge. Une fois Cascade parti, il ne reste rien pour la dessiner.
+
 ### Ajouté — Cascade ne répond plus qu'à son propre nom (« DNS rebinding »)
 
 Sans ce garde, **tous les autres tombaient**. L'attaque : une page sur

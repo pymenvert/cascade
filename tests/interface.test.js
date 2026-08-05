@@ -115,6 +115,8 @@ describe('Interface — garde-fous du source', () => {
       ['pastille mélange & espace', /id="melangeBadge"/],
       ['demande du code d’accès', /id="dlgAcces"/],
       ['champ du code d’accès', /id="setAcces"/],
+      ['retrait explicite du code', /id="btnAccesRetirer"/],
+      ['réglage de l’icône de notification', /id="setSystray"/],
     ]) assert.match(UI, motif, quoi + ' introuvable');
   });
 

@@ -1040,6 +1040,12 @@
   <label>Code d'accès à 4 chiffres <span id="accesEtat" class="hint" style="margin:0"></span></label>
   <input type="text" id="setAcces" inputmode="numeric" pattern="[0-9]*" maxlength="4"
     autocomplete="off" placeholder="vide = aucun code">
+  <label class="row" id="rowSystray" title="Affiche une icône dans la zone de notification : point vert quand le show tourne, rouge à l'arrêt, et un clic droit pour ouvrir l'interface ou piloter le show sans rouvrir la page."><span>Icône près de l'horloge</span>
+    <input type="checkbox" id="setSystray"></label>
+  <p class="hint" id="systrayNote" style="margin:4px 0 10px">⚠ <strong>Windows uniquement</strong>
+  (macOS n'a pas d'équivalent pilotable sans installer autre chose), et <strong>jamais essayée
+  en vrai</strong> : elle a été écrite depuis une machine Linux. Si elle ne fait rien, elle ne
+  casse rien non plus — dites-le et on corrige.</p>
   <div class="mini" style="margin:6px 0 2px">
     <button id="btnAccesRetirer" class="ghost" style="display:none"
       title="Supprime le code : Cascade redevient accessible sans mot de passe depuis le réseau">🔓 Retirer le code</button>
@@ -2925,6 +2931,11 @@ $('#btnSettings').onclick = () => {
   // Le code lui-même n'est JAMAIS renvoyé par le serveur : on ne peut afficher
   // que son existence. Le champ part donc vide, et un champ vide ne change rien.
   $('#setAcces').value = '';
+  $('#setSystray').checked = !!S.settings.systray;
+  // Ne pas proposer une case qui ne peut rien faire : hors Windows, on le dit.
+  const surWindows = /Win/i.test(navigator.platform || navigator.userAgent || '');
+  $('#rowSystray').style.opacity = surWindows ? '1' : '0.45';
+  $('#systrayNote').style.display = surWindows ? 'none' : '';
   const a = (S.acces || {});
   $('#accesEtat').textContent = a.actif
     ? '— actif. Laisser vide ne change rien ; taper 4 chiffres le remplace.'
@@ -2967,6 +2978,7 @@ $('#setSave').onclick = async () => {
   // enregistrer supprimait donc le code d'accès en silence, et déconnectait
   // toutes les tablettes. Le retrait est maintenant un geste explicite : le
   // bouton « Retirer le code », qui demande confirmation.
+  await post('/api/settings', { systray: $('#setSystray').checked });
   const nouveau = $('#setAcces').value.trim();
   if (nouveau) {
     const r = await post('/api/acces', { nouveau });

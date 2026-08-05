@@ -131,6 +131,9 @@ const state = {
               // son côté serveur. Ces réglages voyagent avec la configuration.
               audioGain: 1, audioSeuil: 0.06,
               audioAttaque: 12, audioRelache: 260, audioBande: 'grave',
+              // Icône de zone de notification (Windows seulement). ⚠ Éteinte
+              // par défaut : écrite depuis Linux, jamais exécutée.
+              systray: false,
               // Code d'accès facultatif à 4 chiffres. On stocke un HACHAGE salé,
               // jamais le code : `settings` n'est pas exporté avec le projet,
               // mais il est écrit en clair dans `cascade-config.json`, à côté de
@@ -591,6 +594,7 @@ function sanitizeSettings(s) {
   if ('audioAttaque' in s) o.audioAttaque = Math.round(cnum(s.audioAttaque, 1, 500, 12));
   if ('audioRelache' in s) o.audioRelache = Math.round(cnum(s.audioRelache, 20, 3000, 260));
   if ('audioBande' in s) o.audioBande = AUDIO_BANDES.includes(s.audioBande) ? s.audioBande : 'grave';
+  if ('systray' in s) o.systray = !!s.systray;
   // Code d'accès : accepté seulement s'il a la FORME d'un réglage déjà haché.
   // Il arrive par deux voies légitimes — le fichier de configuration au
   // démarrage, et `/api/acces`, qui hache lui-même. Un client qui poserait un
@@ -1236,9 +1240,113 @@ function setLinkActive(on, keepError) {
 }
 
 function killCarabiner() { if (linkChild) { try { linkChild.kill(); } catch (e) {} linkChild = null; } }
-process.on('exit', killCarabiner);
-process.on('SIGINT', () => { flushConfig(); killCarabiner(); process.exit(0); });
-process.on('SIGTERM', () => { flushConfig(); killCarabiner(); process.exit(0); });
+
+/* ─── Icône de zone de notification (Windows) ─────────────────────────────────
+ * Demande de Pym : voir d'un coup d'œil si ça tourne, et piloter sans rouvrir
+ * la page. Node n'a AUCUNE API de zone de notification — dessiner cette icône
+ * demande du code natif. Sous Windows, PowerShell donne accès à
+ * `System.Windows.Forms.NotifyIcon`, présent d'origine : zéro installation,
+ * zéro dépendance npm, la règle n°2 tient.
+ *
+ * ⚠ WINDOWS SEULEMENT, et c'est un choix, pas un oubli (décidé avec Pym le
+ * 2026-08-05). macOS n'a pas d'équivalent scriptable : un élément de barre de
+ * menus demande une application compilée ou un outil tiers. Linux dépend de
+ * l'environnement de bureau. Plutôt qu'une fonction bancale partout, une
+ * fonction franche là où se trouve la régie.
+ *
+ * ⚠ DÉSACTIVÉE PAR DÉFAUT, parce qu'elle n'a jamais pu être exécutée : elle a
+ * été écrite depuis Linux, où PowerShell n'existe pas. Tout est donc enveloppé :
+ * un échec est silencieux et ne touche jamais le serveur. À activer dans
+ * Réglages, et à confirmer sur une vraie machine Windows.
+ *
+ * Le script est EMBARQUÉ ici, pas dans un fichier à côté : le distribuable est
+ * un exécutable unique, et un `.ps1` externe n'existerait pas à côté de lui.
+ * Il est écrit dans le dossier temporaire au démarrage.
+ *
+ * Le dialogue passe par l'API HTTP de Cascade, pas par un tuyau maison : le
+ * script sait déjà parler à `localhost`, et ça évite tout un protocole.
+ */
+const SYSTRAY_PS1 = `param([int]$Port)
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Rond([System.Drawing.Color]$c) {
+  $bmp = New-Object System.Drawing.Bitmap 16,16
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.SmoothingMode = 'AntiAlias'
+  $g.FillEllipse((New-Object System.Drawing.SolidBrush $c), 2, 2, 12, 12)
+  $g.Dispose()
+  return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+}
+$vert  = Rond ([System.Drawing.Color]::FromArgb(61,220,132))
+$rouge = Rond ([System.Drawing.Color]::FromArgb(255,82,82))
+$base  = "http://127.0.0.1:$Port"
+
+function Appeler($chemin) {
+  try { Invoke-RestMethod -Uri "$base$chemin" -Method Post -Body '{}' -ContentType 'application/json' -TimeoutSec 3 | Out-Null } catch {}
+}
+
+$ni = New-Object System.Windows.Forms.NotifyIcon
+$ni.Icon = $rouge
+$ni.Text = 'Cascade'
+$ni.Visible = $true
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+$mOuvrir = $menu.Items.Add("Ouvrir l'interface")
+$mOuvrir.add_Click({ Start-Process $base })
+$menu.Items.Add('-') | Out-Null
+$mGo = $menu.Items.Add('Demarrer le show')
+$mGo.add_Click({ Appeler '/api/start' })
+$mStop = $menu.Items.Add('Arreter le show')
+$mStop.add_Click({ Appeler '/api/stop' })
+$menu.Items.Add('-') | Out-Null
+$mQuit = $menu.Items.Add('Quitter Cascade')
+$mQuit.add_Click({ Appeler '/api/quit'; $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() })
+$ni.ContextMenuStrip = $menu
+$ni.add_MouseDoubleClick({ Start-Process $base })
+
+# Sondage de l'etat. Si le serveur ne repond plus, Cascade est parti : l'icone
+# disparait avec lui. C'est la limite honnete de ce montage — quand le serveur
+# est mort, il ne reste rien pour dessiner un point rouge.
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 1500
+$timer.add_Tick({
+  try {
+    $e = Invoke-RestMethod -Uri "$base/api/state" -TimeoutSec 3
+    if ($e.global.running) { $ni.Icon = $vert; $ni.Text = 'Cascade - le show tourne' }
+    else { $ni.Icon = $rouge; $ni.Text = 'Cascade - a l arret' }
+  } catch {
+    $ni.Visible = $false
+    [System.Windows.Forms.Application]::Exit()
+  }
+})
+$timer.Start()
+[System.Windows.Forms.Application]::Run()
+`;
+
+let systrayChild = null;
+function killSystray() {
+  if (systrayChild) { try { systrayChild.kill(); } catch (e) {} systrayChild = null; }
+}
+function startSystray() {
+  // Silencieux et sans conséquence si quoi que ce soit manque : cette fonction
+  // ne doit JAMAIS empêcher Cascade de démarrer.
+  try {
+    if (process.platform !== 'win32' || !state.settings.systray || systrayChild) return;
+    const fichier = path.join(os.tmpdir(), 'cascade-systray.ps1');
+    fs.writeFileSync(fichier, SYSTRAY_PS1);
+    systrayChild = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+      '-ExecutionPolicy', 'Bypass', '-File', fichier, '-Port', String(actualPort)],
+      { stdio: 'ignore', windowsHide: true });
+    systrayChild.on('error', () => { systrayChild = null; });
+    systrayChild.on('exit', () => { systrayChild = null; });
+  } catch (e) { systrayChild = null; }
+}
+
+process.on('exit', () => { killCarabiner(); killSystray(); });
+process.on('SIGINT', () => { flushConfig(); killCarabiner(); killSystray(); process.exit(0); });
+process.on('SIGTERM', () => { flushConfig(); killCarabiner(); killSystray(); process.exit(0); });
 
 // ---------------------------------------------------------------------------
 // Arrêt automatique (mode app, plus de terminal visible) : quand la dernière
@@ -3456,6 +3564,9 @@ const server = http.createServer(async (req, res) => {
         state.settings = sanitizeSettings({ ...state.settings, ...body, httpPort });
         if (state.settings.feedbackPort !== old) openFeedbackSocket();
         if (state.settings.oscInPort !== oldIn) openOscInSocket();
+        // L'icône se pose et se retire à chaud : cocher la case ne doit pas
+        // demander de relancer Cascade.
+        if (state.settings.systray) startSystray(); else killSystray();
         saveConfig();
         return json(res, { ok: true, settings: sansCode(state.settings) });
       }
@@ -3590,6 +3701,7 @@ server.on('listening', () => {
   console.log('  └──────────────────────────────────────────────────┘');
   if (lans.length) console.log('  Tablette / téléphone (même Wi-Fi) : ' + lans.join('  ou  '));
   console.log('');
+  startSystray();   // silencieux hors Windows, et si le réglage est éteint
   openBrowser(port);
 });
 server.listen(tryPort);

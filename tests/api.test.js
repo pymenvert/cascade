@@ -353,6 +353,22 @@ describe('API HTTP', () => {
     await h.post('/api/new', { keepFixtures: true });
   });
 
+  test('l’icône de notification se règle, et reste inerte hors Windows', async () => {
+    // ⚠ Windows seulement, et jamais exécutée : le code PowerShell a été écrit
+    // depuis Linux. Ce qu'on peut vérifier ici, c'est l'essentiel — que le
+    // réglage tienne, et que l'activer ne casse RIEN sur une machine où
+    // PowerShell n'existe pas (la suite tourne sous Linux en CI).
+    assert.equal((await h.state()).settings.systray, false, 'éteinte par défaut');
+    const on = await h.post('/api/settings', { systray: true });
+    assert.equal(on.body.settings.systray, true);
+    // Le serveur doit être intact : c'est tout l'objet du try/catch autour du
+    // lancement. Une fonction d'agrément ne doit jamais empêcher Cascade de servir.
+    assert.equal((await h.get('/api/ping')).body.app, 'Cascade');
+    assert.equal((await h.state()).global.running, false);
+    const off = await h.post('/api/settings', { systray: false });
+    assert.equal(off.body.settings.systray, false);
+  });
+
   test('un slot de preset hors bornes ne fait pas planter', async () => {
     const r = await h.post('/api/preset', { action: 'recall', slot: 9999 });
     assert.equal(r.body.ok, true);
