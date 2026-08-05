@@ -2657,6 +2657,13 @@ function readBody(req) {
  * ramènent d'« instantané » à « des heures », ce qui suffit à couvrir un show,
  * pas à en faire un secret fort.
  *
+ * Mesuré (fenêtre ramenée à 2 s pour l'observer) : 6 échecs sur 6 adresses
+ * distinctes bloquent une adresse JAMAIS vue ; après la fenêtre, un échec rend à
+ * nouveau 401 et le bon code passe. Le blocage se LÈVE — il ne se perpétue pas.
+ * C'était le risque de cette mécanique : la durée du blocage vaut celle de la
+ * fenêtre, donc au moment où il se lève, la fenêtre est forcément expirée et le
+ * compteur repart de zéro. Raccourcir le blocage sous la fenêtre casserait ça.
+ *
  * ⚠ COMPROMIS ASSUMÉ du plafond global : quelqu'un qui rate volontairement
  * 30 fois empêche les AUTRES appareils du réseau d'entrer pendant une minute.
  * C'est un déni de service, mais le moins cher des deux : le régisseur garde sa
