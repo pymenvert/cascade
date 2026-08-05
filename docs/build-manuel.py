@@ -44,8 +44,16 @@ def _families():
     for d in dejavu_dirs:
         f = [d + n for n in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf",
                              "DejaVuSans-Oblique.ttf", "DejaVuSansMono.ttf")]
-        if all(os.path.exists(x) for x in f):
-            yield f
+        # Le REGULIER suffit à s'en sortir : l'oblique vit dans un paquet séparé
+        # (fonts-dejavu-extra) souvent absent des machines nues, et le mono peut
+        # manquer aussi. Refuser de générer pour ça condamnait le manuel entier
+        # là où une note en romain plutôt qu'en italique suffit largement.
+        if os.path.exists(f[0]):
+            manquants = [os.path.basename(x) for x in f[1:] if not os.path.exists(x)]
+            if manquants:
+                print("Police de remplacement pour :", ", ".join(manquants),
+                      "(installer fonts-dejavu-extra pour l'italique)")
+            yield [x if os.path.exists(x) else f[0] for x in f]
     win = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     for quatuor in (("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "consola.ttf"),
                     ("arial.ttf", "arialbd.ttf", "ariali.ttf", "cour.ttf")):
@@ -55,8 +63,8 @@ def _families():
     import reportlab
     rl = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
     f = [os.path.join(rl, n) for n in ("Vera.ttf", "VeraBd.ttf", "VeraIt.ttf", "VeraMono.ttf")]
-    if all(os.path.exists(x) for x in f):
-        yield f
+    if os.path.exists(f[0]):
+        yield [x if os.path.exists(x) else f[0] for x in f]
 
 
 for _f in _families():
@@ -70,7 +78,11 @@ for _f in _families():
     except Exception as e:
         continue
 else:
-    raise SystemExit("Aucune police utilisable trouvée (DejaVu, polices Windows, ou reportlab).")
+    raise SystemExit(
+        "Aucune police utilisable trouvée.\n"
+        "  Linux  : sudo apt install fonts-dejavu-core fonts-dejavu-extra\n"
+        "  macOS  : brew install --cask font-dejavu\n"
+        "  Sinon, reportlab embarque Vera : vérifier que reportlab est bien installé.")
 
 S = {
     "h1": ParagraphStyle("h1", fontName="DV-B", fontSize=17, textColor=DARK,

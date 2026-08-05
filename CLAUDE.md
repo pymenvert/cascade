@@ -29,6 +29,9 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
    tempo, ni la protection « on ne coupe jamais un show » de l'arrêt auto.
 5. Manuel PDF : regénérer avec `python3 docs/build-manuel.py <dossier_sortie>`
    (reportlab + DejaVu ; pas de glyphes ⏻ ⧉ ni d'exposants Unicode → carrés vides).
+   Sur une machine nue : `pip install reportlab` + `apt install fonts-dejavu-core
+   fonts-dejavu-extra` (l'italique est dans *-extra*). Sans l'italique il génère
+   quand même, en romain, et le dit. ⚠ Le dossier de sortie doit EXISTER.
 6. Édits ciblés (Edit/Grep) plutôt que réécritures ; réponses concises ;
    économiser les tokens (préférence explicite de Pym).
 7. Ne pas toucher : `scenoled.madproject`, `Chaser 4.2.2 Setup.exe`, `serverA.js`.
