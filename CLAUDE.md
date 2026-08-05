@@ -74,6 +74,13 @@ raison d'être.
 ⚠ **Attendre la CI verte avant de taguer.** Elle attrape ce qui est invisible en
 local : courses de timing sur runner lent, chemins spécifiques à Windows.
 
+⚠ **La prochaine version est une MINEURE — 2.1.0, pas 2.0.3.** La section
+`[Non publié]` du CHANGELOG contient des **fonctions nouvelles** (suiveur audio,
+grille de presets, code d'accès, replis), pas seulement des correctifs : le
+versionnage sémantique impose donc une mineure. Penser aussi à passer
+`VERSION = "2.1"` dans `docs/build-manuel.py` (il porte majeure.mineure, comme le
+pied de page de l'interface) et à régénérer le PDF à la racine **et** dans `dist/`.
+
 Livré et testé : page Scène 3D et manipulation souris · moteur Champ 3D
 (5 formes, netteté, course, bruit dirigé) · vues par axe avec bascule de
 dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette à
