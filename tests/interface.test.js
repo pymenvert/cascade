@@ -60,7 +60,8 @@ describe('Interface — garde-fous du source', () => {
       assert.match(UI, re, `contrôle #${id} absent de l'interface`);
     }
     // Chaque nouvelle ligne de réglage doit porter un title= explicatif
-    for (const id of ['floor', 'phase', 'swing', 'blocks', 'sparkle']) {
+    for (const id of ['floor', 'phase', 'swing', 'blocks', 'sparkle',
+                      'audioGain', 'audioSeuil', 'audioAttaque', 'audioRelache', 'audioBande']) {
       const bloc = UI.slice(Math.max(0, UI.indexOf(`id="${id}"`) - 400), UI.indexOf(`id="${id}"`));
       assert.match(bloc, /title="/, `le réglage #${id} n'a pas d'infobulle`);
     }
@@ -101,6 +102,21 @@ describe('Interface — garde-fous du source', () => {
       ['bouton d’aide', /id="btnAide"/],
       ['voyant MadMapper', /id="mmLink"/],
       ['bouton QR', /id="btnQR"/],
+      // La classe est statique : un retour accidentel à la rangée de boutons
+      // serait attrapé ici, et pas seulement à l'œil.
+      ['grille de presets', /id="presets" class="grille"/],
+      ['repli du suiveur audio', /id="advAudio"/],
+      ['bouton du micro', /id="btnAudio"/],
+      ['source du modulateur de couche', /id="lfoSrc"/],
+      ['source du modulateur global', /id="mgSrc"/],
+      ['repli des symétries', /id="advMiroirs"/],
+      ['repli mélange & espace', /id="advMelange"/],
+      ['pastille des symétries', /id="miroirsBadge"/],
+      ['pastille mélange & espace', /id="melangeBadge"/],
+      ['demande du code d’accès', /id="dlgAcces"/],
+      ['champ du code d’accès', /id="setAcces"/],
+      ['retrait explicite du code', /id="btnAccesRetirer"/],
+      ['réglage de l’icône de notification', /id="setSystray"/],
     ]) assert.match(UI, motif, quoi + ' introuvable');
   });
 
@@ -136,7 +152,11 @@ describe('Interface — garde-fous du source', () => {
       'la forme saine a disparu de server.js — un mutant est peut-être resté :\n'
       + restes.map(m => '  - ' + m.nom + '\n      attendu : ' + m.de.trim()).join('\n'));
     // Et le garde-fou doit lui-même être vivant : une liste vide passerait tout.
-    assert.ok(MUTATIONS.length >= 27,
+    // ⚠ Ce plancher doit suivre les campagnes, sinon il ne mesure plus rien :
+    // il était resté à 27 alors que 34 mutants avaient été vérifiés, donc on
+    // pouvait en supprimer sept sans que rien ne le dise. Le monter à chaque
+    // campagne complète.
+    assert.ok(MUTATIONS.length >= 34,
       'la liste des mutations a maigri : ' + MUTATIONS.length);
   });
 

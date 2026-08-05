@@ -55,14 +55,22 @@ function decodeOsc(buf) {
 class Harness {
   constructor(o) { Object.assign(this, o); }
 
-  async api(method, url, body) {
+  /**
+   * `opts.from` = adresse source de la requête. Les alias loopback 127.0.0.2+
+   * répondent tous sur cette machine mais ne sont PAS « locaux » au sens du
+   * serveur : c'est la seule façon, sans deuxième machine, de mesurer ce que
+   * voit quelqu'un sur le réseau.
+   */
+  async api(method, url, body, opts = {}) {
     return new Promise((resolve, reject) => {
       const data = body === undefined ? null : JSON.stringify(body);
-      const req = http.request({
+      const conf = {
         host: '127.0.0.1', port: this.port, path: url, method,
         headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {},
         timeout: 5000,
-      }, (res) => {
+      };
+      if (opts.from) conf.localAddress = opts.from;
+      const req = http.request(conf, (res) => {
         let d = '';
         res.on('data', c => { d += c; });
         res.on('end', () => {
@@ -76,8 +84,10 @@ class Harness {
       req.end();
     });
   }
-  get(url) { return this.api('GET', url); }
-  post(url, body = {}) { return this.api('POST', url, body); }
+  get(url, opts) { return this.api('GET', url, undefined, opts); }
+  post(url, body = {}, opts) { return this.api('POST', url, body, opts); }
+  /** Le serveur s'est-il arrêté tout seul ? (arrêt automatique) */
+  vivant() { return !!this.child && this.child.exitCode === null && !this.child.signalCode; }
   state() { return this.get('/api/state').then(r => r.body); }
 
   /** Messages OSC reçus depuis le dernier clearOsc(). */
@@ -116,7 +126,12 @@ class Harness {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 /** Démarre un serveur Cascade isolé. `config` = contenu initial du fichier. */
-async function start(config) {
+/**
+ * `env` = surcharges d'environnement pour CETTE instance. Sert à mesurer ce qui
+ * serait autrement invisible : l'arrêt automatique attend 8 s, on le ramène à
+ * quelques centaines de millisecondes plutôt que de le vérifier « en principe ».
+ */
+async function start(config, env) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cascade-test-'));
   const cfgFile = path.join(dir, 'config.json');
   if (config) fs.writeFileSync(cfgFile, typeof config === 'string' ? config : JSON.stringify(config));
@@ -140,6 +155,7 @@ async function start(config) {
       CASCADE_OSCIN: String(oscInPort), CASCADE_FEEDBACK: String(feedbackPort),
       CASCADE_MMPORT: String(mmPort), CASCADE_MMHOST: '127.0.0.1',
       CASCADE_NO_BROWSER: '1', CASCADE_NO_AUTOQUIT: '1',
+      ...(env || {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

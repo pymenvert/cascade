@@ -473,11 +473,17 @@ describe('Champ 3D', () => {
     await sleep(400);
     const b = niveaux(h.osc());
     await h.post('/api/stop');
+    // ⚠ Une boucle sur un tableau vide n'assure RIEN : un moteur muet
+    // paraîtrait parfaitement stable. On exige d'avoir quelque chose à comparer.
+    assert.ok(a.size > 0, 'aucun niveau émis : la stabilité ne se mesure sur rien');
+    let compares = 0;
     for (const [bar, v] of a) {
       if (!b.has(bar)) continue;
+      compares++;
       assert.ok(Math.abs(b.get(bar) - v) < 0.15,
         bar + ' tremble : ' + v + ' puis ' + b.get(bar));
     }
+    assert.ok(compares > 0, 'aucune barre commune aux deux clichés : rien n’a été comparé');
   });
 
   // ── Robustesse ───────────────────────────────────────────────────────────
@@ -921,6 +927,10 @@ describe('Champ 3D', () => {
     const vague = await clicher();
     await base({ engine: 'field', field: 'plan', axAz: 0, duty: 100, ...GEL });
     const champ = await clicher();
+    // Sans ce garde, deux clichés vides prouveraient la compatibilité de tous
+    // les shows existants.
+    assert.ok(vague.size > 0 && champ.size === vague.size,
+      'clichés incomparables : ' + vague.size + ' contre ' + champ.size);
     for (const [bar, v] of vague) {
       assert.ok(Math.abs(champ.get(bar) - v) < 0.02,
         bar + ' : la nettete a 100 % doit rendre la vague au bit pres');
@@ -1340,6 +1350,7 @@ describe('Champ 3D', () => {
       + ' envois, ' + new Set(rouges.map(v => v.toFixed(2))).size + ' valeurs');
 
     const prof = await couleurs('prof');
+    assert.ok(prof.size > 0, 'aucune couleur reçue : « figée » serait vrai pour rien');
     for (const [bar, c] of prof) {
       assert.equal(new Set(c.red.map(v => v.toFixed(3))).size, 1,
         'branchée sur la profondeur, ' + bar + ' doit être FIGÉE : '

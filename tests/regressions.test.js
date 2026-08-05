@@ -79,6 +79,47 @@ describe('Défauts corrigés — ils ne doivent jamais revenir', () => {
     assert.ok(rouges.length > 0, 'la couche couleur doit envoyer des couleurs');
   });
 
+  test('v1 · voie RÉSIDUELLE — vider un groupe rend la couche à TOUT le plateau', async () => {
+    // Le correctif ci-dessus a fermé la voie GLOBALE (mixLevel décidait pour
+    // toutes les fixtures). Mais une voie reste vivante : `resolveBars` retombe
+    // sur toutes les barres actives quand le groupe d'une couche est VIDE.
+    //
+    // Supprimer un groupe remet `L.groupId = null` (server.js, route groups) ;
+    // le VIDER (action 'set' avec bars: []) ne le remet pas. Une couche couleur
+    // qui suivait ce groupe rallume alors tout le plateau — exactement le
+    // symptôme d'origine, par un autre chemin.
+    //
+    // ⚠ Ce test FIXE le comportement actuel, il ne le corrige pas : c'est un
+    // choix (« on ne coupe jamais un show ») qui appartient à Pym. S'il décide un
+    // jour qu'un groupe vidé = couche muette, c'est CE test qu'il faudra changer,
+    // délibérément — pas un mutant qui l'aura fait en silence.
+    await h.post('/api/fixtures', { fixtures: enLigne(6) });
+    await h.post('/api/blackout');
+    await sleep(80);
+    const g = await h.post('/api/groups', { action: 'add', name: 'Contres', bars: ['b0', 'b1'] });
+    const gid = g.body.groups[g.body.groups.length - 1].id;
+    await setL({ engine: 'wave', pattern: 'all', target: 'color', mode: 'fade',
+                 groupId: gid, bars: null, level: 1, enabled: true, ...GEL });
+
+    // Groupe plein : seules b0 et b1 s'allument.
+    h.clearOsc();
+    await h.post('/api/start');
+    await sleep(300);
+    const plein = niveaux(h.osc());
+    assert.ok((plein.get('bar0') ?? 0) > 0.9, 'la barre du groupe doit s’allumer');
+    assert.ok((plein.get('bar5') ?? 0) < 0.01, 'une barre hors groupe reste éteinte');
+
+    // On VIDE le groupe (sans le supprimer) : la couche retombe sur tout.
+    await h.post('/api/groups', { action: 'set', id: gid, bars: [] });
+    h.clearOsc();
+    await sleep(300);
+    const vide = niveaux(h.osc());
+    await h.post('/api/stop');
+    assert.ok((vide.get('bar5') ?? 0) > 0.9,
+      'groupe vidé : la couche couleur DOIT rallumer tout le plateau (voie assumée), '
+      + 'bar5 vue à ' + vide.get('bar5'));
+  });
+
   test('v1 · la phase est préservée quand le tempo change', async () => {
     // Défaut mesuré : `now / period` n'a aucune continuité quand la période
     // change. +0,01 % de tempo faisait sauter les niveaux de 0,93. Or Ableton

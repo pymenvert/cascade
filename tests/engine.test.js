@@ -382,6 +382,10 @@ describe('Moteur', () => {
     }
     await h.post('/api/stop');
     const lv = levels(h.osc());
+    // ⚠ Le garde de taille N'EST PAS décoratif : `.every()` est VRAI sur un
+    // tableau vide. Sans lui, un moteur qui n'émet plus rien du tout — c'est-à-
+    // dire exactement la panne que ce test cherche — passerait au vert.
+    assert.ok(lv.size > 0, 'le moteur n’a rien émis : le test ne mesurerait rien');
     assert.ok([...lv.values()].every(v => Number.isFinite(v)), 'aucune valeur non finie');
     await h.post('/api/fixtures', { fixtures: fixtures(4) });
   });

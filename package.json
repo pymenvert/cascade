@@ -1,6 +1,6 @@
 {
   "name": "cascade-madmapper",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Cascade — séquenceur LED multi-couches pour MadMapper (OSC) : chases, vagues, couleur, presets, MIDI/OSC, Ableton Link",
   "author": "Pierre-Yves Mansour — Collectif WSK",
   "license": "MIT",

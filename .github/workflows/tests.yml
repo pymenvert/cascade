@@ -38,9 +38,100 @@ jobs:
           "
 
       # Les tests d'interface pilotent un vrai navigateur via CDP. Sans lui ils
-      # s'annoncent ignorés au lieu d'échouer — mais on préfère les faire tourner.
-      - name: Vérifier la présence d'un navigateur
-        run: which google-chrome chromium chromium-browser 2>/dev/null || echo "aucun navigateur — les tests d'UI seront ignorés"
+      # s'annoncent ignorés SANS faire rougir la suite : 32 tests muets et une
+      # sortie verte. En local c'est un repli acceptable ; en CI c'est un angle
+      # mort, donc ici on échoue franchement.
+      - name: Exiger un navigateur pour les tests d'interface
+        run: |
+          node -e "
+            const { findBrowser } = require('./tests/browser.js');
+            const bin = findBrowser();
+            if (!bin) {
+              console.error('aucun navigateur trouvé : les 32 tests d\'interface seraient ignorés en silence');
+              process.exit(1);
+            }
+            console.log('navigateur : ' + bin);
+          "
+
+      # Le portillon du code d'accès ne se voit que depuis une adresse NON
+      # locale : la machine hôte est exemptée exprès. Sans interface réseau, ces
+      # tests s'annoncent ignorés sans faire rougir la suite — même angle mort
+      # que les tests d'interface sans navigateur.
+      - name: Exiger une adresse réseau pour les tests du code d'accès
+        run: |
+          node -e "
+            const os = require('os');
+            const ip = Object.values(os.networkInterfaces() || {}).flat()
+              .find(i => i && i.family === 'IPv4' && !i.internal);
+            if (!ip) {
+              console.error('aucune adresse réseau : le portillon du code d\'accès serait ignoré en silence');
+              process.exit(1);
+            }
+            console.log('adresse réseau : ' + ip.address);
+          "
 
       - name: Suite complète
+        run: npm test
+
+  # L'icône de zone de notification est du PowerShell embarqué dans server.js,
+  # écrit depuis Linux et JAMAIS EXÉCUTÉ. `tests/systray.test.js` en lit le
+  # source, mais lire n'est pas analyser : une parenthèse manquante y survivrait
+  # jusqu'à la machine de régie.
+  #
+  # Ce travail-là ne demande PAS de session graphique — l'analyseur de PowerShell
+  # est une classe .NET ordinaire. On ne prétend donc pas tester l'icône : on
+  # ferme le seul angle mort qu'un runner peut fermer, et on le dit.
+  powershell:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Le script de l'icône s'analyse-t-il seulement ?
+        shell: pwsh
+        run: |
+          $src = Get-Content -Raw server.js
+          if ($src -notmatch '(?s)const SYSTRAY_PS1 = `(.*?)`;') {
+            Write-Error 'SYSTRAY_PS1 introuvable dans server.js'; exit 1
+          }
+          $ps = $Matches[1]
+          $tokens = $null; $erreurs = $null
+          [System.Management.Automation.Language.Parser]::ParseInput(
+            $ps, [ref]$tokens, [ref]$erreurs) | Out-Null
+          # ⚠ TÉMOIN POSITIF D'ABORD. `$null.Count` vaut 0 en PowerShell : si
+          # l'analyseur ne rendait rien du tout, « zéro erreur » serait vrai et
+          # cette étape passerait au vert sans avoir rien analysé. On exige donc
+          # d'abord d'avoir vraiment lu un script.
+          if ($null -eq $tokens -or $tokens.Count -lt 100) {
+            Write-Host "l'analyseur n'a rendu que $($tokens.Count) jeton(s) : rien n'a été analysé"
+            exit 1
+          }
+          if ($null -ne $erreurs -and $erreurs.Count -gt 0) {
+            Write-Host "$($erreurs.Count) erreur(s) d'analyse dans SYSTRAY_PS1 :"
+            $erreurs | ForEach-Object { Write-Host ("  ligne {0} : {1}" -f $_.Extent.StartLineNumber, $_.Message) }
+            exit 1
+          }
+          Write-Host "SYSTRAY_PS1 s'analyse sans erreur ($($tokens.Count) jetons)."
+
+          # Et l'analyseur doit être capable de dire NON : on lui donne le même
+          # script avec une accolade en trop. S'il ne bronche pas, c'est que
+          # cette étape ne mesure rien — le défaut qu'on vient d'éviter.
+          $t2 = $null; $e2 = $null
+          [System.Management.Automation.Language.Parser]::ParseInput(
+            $ps + "`nfunction Casse { ", [ref]$t2, [ref]$e2) | Out-Null
+          if ($null -eq $e2 -or $e2.Count -eq 0) {
+            Write-Host "l'analyseur accepte un script volontairement cassé : il ne mesure rien"
+            exit 1
+          }
+          Write-Host "témoin : un script cassé est bien refusé ($($e2.Count) erreur(s))."
+
+      # La suite ne tourne que sur Ubuntu ; ce passage-ci attrape ce qui n'existe
+      # que sous Windows — séparateurs de chemin, casse des noms de fichiers.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Suite complète, sous Windows
+        # Les tests d'interface s'annoncent ignorés sans navigateur : c'est
+        # accepté ICI, ce passage n'existe pas pour eux. Le compte reste
+        # affiché, et le passage Ubuntu, lui, les exige.
         run: npm test

@@ -191,6 +191,84 @@ const MUTATIONS = [
     de: "  const ext = Math.max(0.1, Math.abs(a[0]) * sc.w + Math.abs(a[1]) * sc.d + Math.abs(a[2]) * sc.h);",
     vers: "  const ext = 10;",
   },
+  {
+    // Le rabotage n'arrivait ni à la saisie ni au rappel, mais au RECHARGEMENT
+    // du fichier : « Refrain final 2 » revenait « Refrain fin ».
+    nom: 'le nom de preset est re-tronque a 12 au chargement',
+    cible: 'tests/api.test.js',
+    de: "      ? { name: String(p.name || 'P').slice(0, 16),",
+    vers: "      ? { name: String(p.name || 'P').slice(0, 12),",
+  },
+  {
+    // Si l'empreinte cesse de lire la teinte de la couche, tous les pavés de la
+    // grille se ressemblent — et une grille qui ne distingue rien ne sert plus.
+    nom: 'l empreinte de preset ignore la couleur de la couche',
+    cible: 'tests/api.test.js',
+    de: "    const c = L.target === 'color' ? (L.colorA || '#ff2000') : ACCENT;",
+    vers: "    const c = ACCENT;",
+  },
+  {
+    // LE comportement de sécurité du suiveur audio : sans niveau frais, le
+    // modulateur doit RENDRE LA MAIN au réglage du régisseur. Le figer sur la
+    // dernière valeur reçue clouerait un show sur ce qu'entendait un onglet
+    // fermé — et sur le master, à sa borne basse, ce serait le noir.
+    nom: 'le niveau audio ne se perime plus : un modulateur reste fige',
+    cible: 'tests/modulateur.test.js',
+    de: '  if (age >= AUDIO_PEREMPTION_MS) return null;',
+    vers: '  if (age >= AUDIO_PEREMPTION_MS) return { v: audio.v, frais: 1 };',
+  },
+  {
+    // La forme EXACTE du défaut trouvé en écrivant la fonction : `jusqua <= now`
+    // est vrai aussi pour `jusqua = 0`, donc le compteur d'essais repartait de
+    // zéro à chaque tentative. Quatre chiffres sans limitation, c'est 10 000
+    // combinaisons libres — le code d'accès ne protégeait rien.
+    nom: 'la limitation des tentatives ne limite plus rien',
+    cible: 'tests/acces.test.js',
+    de: '    const expire = e && e.jusqua > 0 && e.jusqua <= now;',
+    vers: '    const expire = e && e.jusqua <= now;',
+  },
+  {
+    // La forme EXACTE du garde contournable : tester une SOUS-CHAÎNE laissait
+    // passer `multipart/form-data; boundary=application/json`, safelisté par
+    // CORS donc posé sans pré-vol. Mesuré : `/api/quit` tuait le serveur.
+    nom: 'le garde CSRF teste une sous-chaine, plus l essence du type',
+    cible: 'tests/acces.test.js',
+    de: "    .split(';')[0].trim().toLowerCase() === 'application/json';",
+    vers: "    .includes('application/json');",
+  },
+  {
+    // Sans ça, une page piégée cloue un modulateur audio en butée avec une
+    // simple balise <img> : sur le master à min 0, le noir en plein show.
+    nom: 'le niveau audio s accepte depuis n importe quelle requete (balise img)',
+    cible: 'tests/modulateur.test.js',
+    de: "  if (dest && dest !== 'empty') return;",
+    vers: "  if (false) return;",
+  },
+  {
+    // Sans ce garde, le DNS rebinding fait tomber tous les autres : la page
+    // piégée devient « même origine » et Cascade l'exempte du code d'accès.
+    nom: 'le controle du Host laisse passer n importe quel nom (DNS rebinding)',
+    cible: 'tests/acces.test.js',
+    de: '  if (!hoteAutorise(req)) {',
+    vers: '  if (false) {',
+  },
+  {
+    // L'icone de notification sonde toutes les 1,5 s. Si ce sondage compte
+    // comme « une interface est ouverte », l'arret automatique n'a plus jamais
+    // ses 8 s de silence : case cochee, Cascade ne se ferme plus tout seul.
+    nom: 'le sondage de l icone rearme l arret automatique (Cascade ne se ferme plus)',
+    cible: 'tests/api.test.js',
+    de: "    const rep = { app: APP_NAME, version: VERSION };",
+    vers: "    const rep = { app: APP_NAME, version: VERSION }; lastUiPollAt = Date.now();",
+  },
+  {
+    // Le script part au premier echec au lieu du troisieme : un pic de charge
+    // en plein show fait disparaitre l icone, et elle ne revient jamais.
+    nom: 'l icone part au premier echec de sondage, pas au troisieme',
+    cible: 'tests/systray.test.js',
+    de: 'if ($script:rates -ge 3) { Partir }',
+    vers: 'if ($script:rates -ge 1) { Partir }',
+  },
 ];
 
 module.exports = MUTATIONS;

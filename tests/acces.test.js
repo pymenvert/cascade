@@ -1,0 +1,369 @@
+'use strict';
+/**
+ * Le code d'accès facultatif à 4 chiffres.
+ *
+ * Cascade s'ouvre depuis un iPad, donc depuis le Wi-Fi de la salle. Ce code
+ * empêche un curieux de prendre la main sur la lumière pendant le spectacle.
+ *
+ * ⚠ CE QUE CE FICHIER VERROUILLE AVANT TOUT : la limitation des tentatives.
+ * Quatre chiffres, c'est 10 000 combinaisons — sans limitation, ça se casse en
+ * quelques secondes et le code ne protège RIEN. La première version écrite ici
+ * avait précisément ce défaut : le compteur d'essais se remettait à zéro à
+ * chaque tentative (`jusqua <= maintenant` est vrai aussi pour `jusqua = 0`), et
+ * l'interface répondait « encore 4 essais » indéfiniment.
+ *
+ * Le portillon lui-même ne se voit que depuis une adresse NON locale : la
+ * machine hôte est exemptée, exprès, pour qu'on ne puisse pas s'enfermer dehors.
+ * Les tests qui en ont besoin cherchent donc une vraie adresse réseau.
+ */
+const { test, before, after, describe } = require('node:test');
+const assert = require('node:assert');
+const http = require('node:http');
+const os = require('node:os');
+const { start, sleep } = require('./helpers.js');
+
+/** Première adresse IPv4 non locale de la machine, ou null. */
+function adresseReseau() {
+  for (const liste of Object.values(os.networkInterfaces() || {})) {
+    for (const i of liste || []) {
+      if (i.family === 'IPv4' && !i.internal) return i.address;
+    }
+  }
+  return null;
+}
+const IP = adresseReseau();
+
+/**
+ * Requête brute : on choisit l'adresse visée ET on peut porter un cookie.
+ * `opts.from` = adresse source (pour simuler des clients réseau distincts via
+ * les alias loopback 127.0.0.2+, qui ne sont PAS « locaux » au sens du serveur).
+ * `opts.ctype` = Content-Type forcé (pour tester le garde CSRF).
+ * `opts.brut` = corps envoyé tel quel (chaîne), sans passer par JSON.stringify.
+ */
+function requete(host, port, method, chemin, corps, cookie, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const data = opts.brut !== undefined ? opts.brut
+      : (corps === undefined ? null : JSON.stringify(corps));
+    const headers = {};
+    if (data != null) {
+      headers['Content-Type'] = opts.ctype || 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(data);
+    }
+    if (cookie) headers.Cookie = cookie;
+    const conf = { host, port, path: chemin, method, headers, timeout: 5000 };
+    if (opts.from) conf.localAddress = opts.from;
+    const req = http.request(conf, (res) => {
+      let d = '';
+      res.on('data', c => { d += c; });
+      res.on('end', () => {
+        let body = d;
+        try { body = JSON.parse(d); } catch (e) { /* page HTML */ }
+        resolve({ status: res.statusCode, body, cookies: res.headers['set-cookie'] || [] });
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('timeout ' + chemin)));
+    if (data != null) req.write(data);
+    req.end();
+  });
+}
+
+describe('Code d’accès — la machine hôte, la limitation, le secret', () => {
+  let h;
+  before(async () => { h = await start(); });
+  after(async () => {
+    await h.post('/api/acces', { nouveau: '' }); // ne pas laisser un code derrière soi
+    await h.stop();
+  });
+
+  const local = (m, c, b, k, opts) => requete('127.0.0.1', h.port, m, c, b, k, opts);
+
+  test('un code doit faire exactement quatre chiffres', async () => {
+    for (const mauvais of ['12', '12345', 'abcd', '12a4', ' 12 ']) {
+      const r = await local('POST', '/api/acces', { nouveau: mauvais });
+      assert.equal(r.body.ok, false, 'refusé : ' + JSON.stringify(mauvais));
+    }
+    const bon = await local('POST', '/api/acces', { nouveau: '4731' });
+    assert.equal(bon.body.ok, true);
+    assert.equal(bon.body.actif, true);
+    assert.equal((await h.state()).acces.actif, true);
+  });
+
+  test('le haché ne sort JAMAIS du serveur', async () => {
+    // Un haché salé de 4 chiffres se casse hors ligne instantanément : l'envoyer
+    // reviendrait à envoyer le code.
+    const st = await h.state();
+    assert.ok(!('acces' in st.settings), 'pas de haché dans /api/state');
+    const rg = await local('POST', '/api/settings', {});
+    assert.ok(!('acces' in rg.body.settings), 'pas de haché dans /api/settings');
+    const exp = await h.get('/api/export');
+    assert.ok(!JSON.stringify(exp.body).includes('acces'),
+      'un projet exporté ne doit pas porter le code');
+  });
+
+  test('la machine hôte n’est jamais bloquée dehors', async () => {
+    // C'est ce qui garantit qu'il y a toujours une voie pour retirer le code.
+    assert.equal((await local('GET', '/api/state')).status, 200);
+    assert.equal((await local('POST', '/api/global', { master: 1 })).status, 200);
+    assert.equal((await h.state()).acces.local, true);
+  });
+
+  test('LE TEST QUI COMPTE : les tentatives sont limitées', async () => {
+    // Sans ça, 10 000 combinaisons se passent en revue en quelques secondes.
+    const vus = [];
+    for (let i = 0; i < 5; i++) {
+      const r = await local('POST', '/api/acces', { code: '0000' });
+      vus.push(r.body.restants);
+      assert.equal(r.body.ok, false);
+    }
+    // Le compteur doit DESCENDRE. La version fautive rendait 4 à chaque fois.
+    assert.deepEqual(vus, [4, 3, 2, 1, 0], 'les essais restants doivent décroître : ' + vus);
+
+    // Et une fois bloqué, même le BON code est refusé : sinon un attaquant
+    // n'aurait qu'à continuer.
+    const bloque = await local('POST', '/api/acces', { code: '4731' });
+    assert.equal(bloque.status, 429, 'l’adresse doit être bloquée');
+    assert.ok(bloque.body.attendre > 0, 'et Cascade doit dire combien de temps');
+  });
+
+  test('le bon code ouvre une session, la retirer la referme', async () => {
+    // Nouveau serveur : l'adresse du précédent est encore bloquée.
+    const h2 = await start();
+    try {
+      await requete('127.0.0.1', h2.port, 'POST', '/api/acces', { nouveau: '2580' });
+      const ok = await requete('127.0.0.1', h2.port, 'POST', '/api/acces', { code: '2580' });
+      assert.equal(ok.body.ok, true);
+      const ck = (ok.cookies[0] || '');
+      assert.match(ck, /^cascade_acces=[a-f0-9]{48}/, 'un jeton doit être posé');
+      assert.match(ck, /HttpOnly/, 'le jeton doit être hors de portée du JavaScript');
+      assert.match(ck, /SameSite=Strict/, 'et ne pas partir depuis un autre site');
+
+      await requete('127.0.0.1', h2.port, 'POST', '/api/acces', { nouveau: '' });
+      assert.equal((await requete('127.0.0.1', h2.port, 'GET', '/api/state')).body.acces.actif, false);
+    } finally { await h2.stop(); }
+  });
+
+  test('CSRF : un POST sans Content-Type JSON est refusé (415)', async () => {
+    // Une page piégée dans le navigateur de l'hôte pourrait poster un FORMULAIRE
+    // (form-urlencoded) vers /api/new — qui efface le projet — puisque localhost
+    // est exempté de code. Le garde exige application/json ; un formulaire ne
+    // peut pas poser ce type, et l'UI, elle, l'envoie toujours.
+    const form = await local('POST', '/api/new', 'keepFixtures=0',
+      undefined, { ctype: 'application/x-www-form-urlencoded', brut: 'keepFixtures=0' });
+    assert.equal(form.status, 415, 'le POST form-urlencoded doit être refusé');
+    // Et le JSON légitime passe (on est en local, portillon exempté).
+    const json = await local('POST', '/api/start', {});
+    assert.equal(json.status, 200, 'un POST JSON légitime doit passer');
+    await local('POST', '/api/stop', {});
+    // Le garde couvre aussi /api/acces (sinon un formulaire brûlerait le budget).
+    const acc = await local('POST', '/api/acces', 'code=0000',
+      undefined, { ctype: 'text/plain', brut: 'code=0000' });
+    assert.equal(acc.status, 415, '/api/acces doit exiger du JSON aussi');
+  });
+
+  test('CSRF : le garde compare l’ESSENCE du type, pas une sous-chaîne', async () => {
+    // ⚠ Une première version testait `.includes('application/json')`, et se
+    // contournait en une ligne : `multipart/form-data; boundary=application/json`
+    // contient la sous-chaîne, et la règle CORS ne regarde que l'essence du type
+    // (`type/sous-type`) en ignorant les paramètres. Ce type est donc safelisté :
+    // un `fetch` en `no-cors` le pose SANS pré-vol. Mesuré à l'époque :
+    // `/api/quit` tuait le serveur et `/api/acces` posait le code.
+    const refuses = [
+      'multipart/form-data; boundary=application/json',
+      'multipart/form-data; boundary="application/json"',
+      'text/plain; charset="application/json"',
+      'application/jsonp',
+      'application/x-www-form-urlencoded',
+    ];
+    for (const ct of refuses) {
+      const r = await local('POST', '/api/blackout', {}, undefined, { ctype: ct, brut: '{}' });
+      assert.equal(r.status, 415, 'doit être refusé : ' + ct);
+    }
+    // …et ce qui est légitime passe, casse comprise (HTTP n'y est pas sensible).
+    for (const ct of ['application/json', 'application/json; charset=utf-8', 'APPLICATION/JSON']) {
+      const r = await local('POST', '/api/blackout', {}, undefined, { ctype: ct, brut: '{}' });
+      assert.equal(r.status, 200, 'doit passer : ' + ct);
+    }
+    // La route la plus destructrice, explicitement.
+    const quit = await local('POST', '/api/quit', {}, undefined,
+      { ctype: 'multipart/form-data; boundary=application/json', brut: '{}' });
+    assert.equal(quit.status, 415, '/api/quit ne doit pas être atteignable ainsi');
+    assert.equal((await local('GET', '/api/ping')).status, 200, 'le serveur doit être vivant');
+  });
+
+  test('DNS rebinding : un Host étranger est refusé, un nom .local accepté', async () => {
+    // ⚠ Sans ce garde, TOUS les autres tombent. Une page sur `mechant.com` dont le
+    // DNS se ré-résout vers 127.0.0.1 devient « même origine » pour le navigateur :
+    // elle pose le Content-Type qu'elle veut, le cookie SameSite ne protège plus,
+    // et Cascade l'exempte du code d'accès puisqu'elle vient de localhost.
+    // Une requête rebindée porte un `Host` étranger — c'est là qu'on la coupe.
+    const avec = (host, chemin) => new Promise((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port: h.port, path: chemin,
+                               method: 'GET', headers: { Host: host }, timeout: 5000 },
+        (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+      r.on('error', reject);
+      r.on('timeout', () => r.destroy(new Error('timeout')));
+      r.end();
+    });
+
+    for (const bon of ['localhost:1', '127.0.0.1:1', '192.168.1.42:1', '[::1]:1',
+                       'mac-de-pym.local:1']) {
+      assert.equal(await avec(bon, '/api/state'), 200, 'doit passer : ' + bon);
+    }
+    // `.local` est réservé au mDNS : impossible à posséder sur Internet, donc
+    // inutilisable pour un rebinding. Un domaine qui s'en approche ne l'est pas.
+    for (const mauvais of ['mechant.com', 'mechant.com:1', 'attaquant.example.org:1',
+                           'evil.local.attaquant.com']) {
+      assert.equal(await avec(mauvais, '/api/state'), 403, 'doit être refusé : ' + mauvais);
+    }
+    // Même la PAGE est refusée : la servir puis laisser toutes ses requêtes
+    // échouer ressemblerait à une panne au lieu d'un refus.
+    assert.equal(await avec('mechant.com', '/'), 403, 'la page aussi doit être refusée');
+  });
+
+  test('le code d’accès ne se retire QUE sur un geste explicite', async () => {
+    // ⚠ Le dialogue Réglages vide le champ du code à chaque ouverture (le
+    // serveur ne renvoie jamais le code). Une première version envoyait alors un
+    // retrait : ouvrir Réglages pour changer le port MadMapper et enregistrer
+    // supprimait le code en silence et déconnectait toutes les tablettes.
+    // Côté serveur, la règle est simple et c'est elle qu'on verrouille : seul un
+    // `nouveau` explicitement vide retire, et l'interface ne l'envoie plus que
+    // depuis son bouton dédié.
+    await local('POST', '/api/acces', { nouveau: '4731' });
+    assert.equal((await h.state()).acces.actif, true);
+
+    // Enregistrer d'autres réglages ne doit rien faire au code.
+    await local('POST', '/api/settings', { mmPort: 8010 });
+    await local('POST', '/api/global', { master: 1 });
+    assert.equal((await h.state()).acces.actif, true,
+      'un enregistrement de réglages ne doit JAMAIS retirer le code');
+
+    // Le retrait explicite, lui, fonctionne — c'est la garantie « on ne peut pas
+    // s'enfermer dehors ».
+    await local('POST', '/api/acces', { nouveau: '' });
+    assert.equal((await h.state()).acces.actif, false);
+  });
+
+  test('aucune erreur n’a été écrite dans le journal du serveur', () => {
+    const erreurs = h.logs.join('').split('\n').filter(l =>
+      /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
+    assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
+  });
+});
+
+/**
+ * LE PLAFOND GLOBAL — la seule chose qui rend un code à 4 chiffres honnête face à
+ * un attaquant multi-IP. Le blocage par adresse (5/min) s'effondre dès qu'on
+ * fait varier son IP source ; en IPv6 on en tient des milliers. On simule ça
+ * avec les alias loopback 127.0.0.2+, qui ne sont PAS « locaux » au sens du
+ * serveur (seul 127.0.0.1 l'est). Serveur DÉDIÉ : le test déclenche un blocage
+ * global de 60 s qui empoisonnerait les autres.
+ */
+describe('Code d’accès — le plafond global tient face à des IP changeantes', () => {
+  let h;
+  before(async () => {
+    h = await start();
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '4731' });
+  });
+  after(async () => { await h.stop(); });
+
+  test('trente échecs répartis sur des adresses distinctes bloquent TOUT le réseau', async () => {
+    // Six adresses, cinq échecs chacune = 30 : chacune se fait bloquer par
+    // l'étage par-adresse (5), mais l'étage GLOBAL les compte toutes.
+    for (let ip = 2; ip < 8; ip++) {
+      for (let k = 0; k < 5; k++) {
+        await requete('127.0.0.1', h.port, 'POST', '/api/acces',
+          { code: '0000' }, undefined, { from: '127.0.0.' + ip });
+      }
+    }
+    // Une adresse JAMAIS vue doit être refusée : c'est le plafond global.
+    const frais = await requete('127.0.0.1', h.port, 'POST', '/api/acces',
+      { code: '1111' }, undefined, { from: '127.0.0.100' });
+    assert.equal(frais.status, 429,
+      'une adresse fraîche doit être bloquée par le plafond global, vu ' + frais.status);
+    assert.ok(frais.body.attendre > 0, 'et le serveur doit dire combien de temps');
+
+    // La machine hôte n'est JAMAIS prise dans ce blocage : elle ne passe pas par
+    // le code. C'est la garantie qu'on peut toujours reprendre la main.
+    assert.equal((await requete('127.0.0.1', h.port, 'GET', '/api/state')).status, 200,
+      'l’hôte doit rester libre même pendant un blocage global');
+  });
+});
+
+/**
+ * Le portillon lui-même. Il ne se voit que depuis une adresse NON locale, donc
+ * ces tests demandent une vraie interface réseau.
+ *
+ * ⚠ Sans elle ils s'annoncent ignorés — et la suite reste verte. C'est le même
+ * angle mort que les tests d'interface sans navigateur : en intégration
+ * continue, l'absence d'adresse fait échouer le job, pour qu'un « ignoré » ne
+ * passe jamais pour un « réussi ».
+ */
+describe('Code d’accès — le portillon, vu du réseau',
+  { skip: !IP && 'aucune adresse réseau non locale sur cette machine' }, () => {
+  let h;
+  before(async () => {
+    h = await start();
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '4731' });
+  });
+  after(async () => {
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '' });
+    await h.stop();
+  });
+
+  const reseau = (m, c, b, k) => requete(IP, h.port, m, c, b, k);
+
+  test('sans le code, l’API est fermée — mais la PAGE reste servie', async () => {
+    assert.equal((await reseau('GET', '/api/state')).status, 401);
+    assert.equal((await reseau('POST', '/api/start')).status, 401);
+    assert.equal((await reseau('POST', '/api/blackout')).status, 401);
+    assert.equal((await reseau('GET', '/api/export')).status, 401);
+    // La page DOIT passer : sans elle, impossible d'afficher la demande de code.
+    const page = await reseau('GET', '/');
+    assert.equal(page.status, 200);
+    assert.ok(String(page.body).includes('dlgAcces'), 'la page porte la demande de code');
+    // Et le ping reste ouvert : il sert à repérer une instance déjà lancée.
+    assert.equal((await reseau('GET', '/api/ping')).status, 200);
+  });
+
+  test('un inconnu ne peut pas REMPLACER le code par le sien', async () => {
+    const r = await reseau('POST', '/api/acces', { nouveau: '0000' });
+    assert.equal(r.status, 401);
+    // Le code d'origine doit toujours être le bon.
+    const ok = await reseau('POST', '/api/acces', { code: '4731' });
+    assert.equal(ok.body.ok, true, 'le code d’origine doit encore fonctionner');
+  });
+
+  test('avec le jeton, tout s’ouvre ; changer le code referme tout', async () => {
+    const ok = await reseau('POST', '/api/acces', { code: '4731' });
+    const jeton = (ok.cookies[0] || '').split(';')[0];
+    assert.ok(jeton, 'un jeton doit être posé');
+    assert.equal((await reseau('GET', '/api/state', undefined, jeton)).status, 200);
+    assert.equal((await reseau('POST', '/api/stop', {}, jeton)).status, 200);
+
+    // Changer le code doit déconnecter l'iPad d'hier.
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '1357' });
+    assert.equal((await reseau('GET', '/api/state', undefined, jeton)).status, 401,
+      'l’ancien jeton ne doit plus rien ouvrir');
+    await requete('127.0.0.1', h.port, 'POST', '/api/acces', { nouveau: '4731' });
+  });
+
+  test('le serveur ne se coupe pas pendant qu’on tape le code', async () => {
+    // L'arrêt automatique regarde la date du dernier poll d'interface. Une page
+    // qui affiche la demande de code poll quand même, et reçoit 401 : si ces
+    // 401 ne comptaient pas, Cascade pourrait s'éteindre sous les doigts du
+    // régisseur. Le pire qu'un curieux puisse faire est de le garder allumé.
+    const avant = (await requete('127.0.0.1', h.port, 'GET', '/api/state')).status;
+    assert.equal(avant, 200);
+    await reseau('GET', '/api/state');          // un 401
+    await sleep(120);
+    // Le serveur répond toujours : il ne s'est pas arrêté.
+    assert.equal((await requete('127.0.0.1', h.port, 'GET', '/api/state')).status, 200);
+  });
+
+  test('aucune erreur n’a été écrite dans le journal du serveur', () => {
+    const erreurs = h.logs.join('').split('\n').filter(l =>
+      /erreur inattendue|promesse rejetée|erreur moteur|Error:|TypeError|RangeError/.test(l));
+    assert.equal(erreurs.length, 0, 'le serveur a signalé :\n' + erreurs.join('\n'));
+  });
+});

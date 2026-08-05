@@ -2,7 +2,7 @@
 /** API HTTP : validation des entrées, presets, projet, import/export. */
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert');
-const { start, fixtures } = require('./helpers.js');
+const { start, sleep, fixtures } = require('./helpers.js');
 
 describe('API HTTP', () => {
   let h;
@@ -218,6 +218,245 @@ describe('API HTTP', () => {
     await h.post('/api/import', exp.body);
     assert.equal((await h.state()).presets[9], 'Pont');
     await h.post('/api/preset', { action: 'clear', slot: 9 });
+  });
+
+  test('un nom de 16 caractères survit au redémarrage', async () => {
+    // Régression : `sanitizePresets` recoupait à 12 alors que la sauvegarde et
+    // le renommage coupent à 16. Le rabotage n'arrivait donc PAS à la saisie,
+    // mais au rechargement du fichier — quand plus personne ne regarde.
+    await h.post('/api/preset', { action: 'save', slot: 9, name: 'ABCDEFGHIJKLMNOP' });
+    const exp = await h.get('/api/export');
+    await h.post('/api/new', { keepFixtures: true });
+    await h.post('/api/import', exp.body);
+    assert.equal((await h.state()).presets[9], 'ABCDEFGHIJKLMNOP');
+    await h.post('/api/preset', { action: 'clear', slot: 9 });
+  });
+
+  test('l’empreinte d’un preset décrit les barres qu’il pilote', async () => {
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    const id = (await h.state()).layers[0].id;
+    const bars = (await h.state()).fixtures.slice(0, 2).map(f => f.id);
+    await h.post('/api/layer', { id, set: { target: 'color', colorA: '#00ff00', bars } });
+    await h.post('/api/preset', { action: 'save', slot: 3, name: 'Vert' });
+
+    const r = await h.get('/api/presets-info');
+    const info = r.body.infos[3];
+    assert.equal(info.c.length, 4, 'une case par barre active');
+    assert.equal(info.c, '00..', 'seules les deux barres pilotées sont peintes');
+    assert.deepEqual(info.pal, ['#00ff00'], 'la teinte vient de la couche');
+    assert.equal(info.a, 1); assert.equal(info.t, 1);
+    assert.equal(r.body.infos[0], null, 'un slot vide n’a pas d’empreinte');
+
+    // Une couche désactivée ne peint rien.
+    await h.post('/api/layers', { action: 'add' });
+    const l2 = (await h.state()).layers[1].id;
+    await h.post('/api/layer', { id: l2, set: { enabled: false } });
+    await h.post('/api/preset', { action: 'save', slot: 4 });
+    const info4 = (await h.get('/api/presets-info')).body.infos[4];
+    assert.equal(info4.a, 1, 'une seule couche active');
+    assert.equal(info4.t, 2, 'sur deux couches mémorisées');
+    await h.post('/api/layers', { action: 'remove', id: l2 });
+    for (const s of [3, 4]) await h.post('/api/preset', { action: 'clear', slot: s });
+  });
+
+  test('les empreintes ne voyagent PAS dans /api/state', async () => {
+    // C'est tout l'intérêt de l'endpoint séparé : /api/state part 8 fois par
+    // seconde. Si ce test tombe, le coût du poll a été réintroduit.
+    const st = await h.state();
+    assert.ok(!('infos' in st), 'aucune empreinte dans /api/state');
+    assert.ok(Array.isArray(st.presets) && st.presets.length === 16,
+      '`presets` reste un tableau de 16 entrées');
+    assert.ok(st.presets.every(p => p === null || typeof p === 'string'),
+      '`presets` ne contient que des noms');
+    assert.equal(typeof st.presetsRev, 'number');
+  });
+
+  test('presetActif suit ce qui joue, presetsRev ce qui change', async () => {
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).presetActif, null, 'rien ne joue au départ');
+
+    await h.post('/api/preset', { action: 'save', slot: 2 });
+    assert.equal((await h.state()).presetActif, 2, 'enregistrer désigne le slot');
+    const rev = (await h.state()).presetsRev;
+
+    await h.post('/api/preset', { action: 'save', slot: 5 });
+    await h.post('/api/preset', { action: 'recall', slot: 2 });
+    assert.equal((await h.state()).presetActif, 2, 'rappeler désigne le slot');
+    // ⚠ La règle est plus fine qu'elle n'en a l'air. Un rappel ne change pas la
+    // BANQUE, donc en principe il n'incrémente pas — recharger les empreintes à
+    // chaque rappel ferait une requête de plus au pire moment. Mais un preset
+    // enregistré porte toujours SA disposition, et la rappeler remplace le
+    // plateau : les empreintes des presets sans disposition propre changent
+    // alors. Ce rappel-ci incrémente donc, et c'est voulu (voir le test dédié).
+    assert.equal((await h.state()).presetsRev, rev + 2, 'le save ET ce rappel');
+
+    await h.post('/api/preset', { action: 'clear', slot: 2 });
+    assert.equal((await h.state()).presetActif, null, 'effacer le slot actif l’oublie');
+    await h.post('/api/preset', { action: 'rename', slot: 5, name: 'Z' });
+    assert.ok((await h.state()).presetsRev > rev + 1, 'renommer change la banque');
+    await h.post('/api/new', { keepFixtures: true });
+    assert.equal((await h.state()).presetActif, null, 'un projet neuf n’a rien en cours');
+  });
+
+  test('l’empreinte se rafraîchit quand les GROUPES ou les BARRES changent', async () => {
+    // L'empreinte passe par `resolveBars`, qui résout les groupes VIVANTS — un
+    // preset n'en mémorise pas. Et un preset sans disposition propre retombe sur
+    // le plateau courant. Ces deux collections changent donc ce qu'un preset
+    // piloterait au rappel : si `presetsRev` ne bouge pas, la grille reste figée
+    // sur une vignette qui ment.
+    await h.post('/api/fixtures', { fixtures: fixtures(4) });
+    await h.post('/api/preset', { action: 'save', slot: 1 });
+    const rev0 = (await h.state()).presetsRev;
+
+    const g = await h.post('/api/groups', { action: 'add', name: 'Sol' });
+    const rev1 = (await h.state()).presetsRev;
+    assert.ok(rev1 > rev0, 'créer un groupe doit rafraîchir les empreintes');
+
+    const gid = g.body.groups[g.body.groups.length - 1].id;
+    await h.post('/api/groups', { action: 'set', id: gid, bars: ['f1'] });
+    const rev2 = (await h.state()).presetsRev;
+    assert.ok(rev2 > rev1, 'CHANGER LE CONTENU d’un groupe aussi — c’est le cas qui manquait');
+
+    await h.post('/api/fixtures', { fixtures: fixtures(5) });
+    const rev3 = (await h.state()).presetsRev;
+    assert.ok(rev3 > rev2, 'changer le plateau doit rafraîchir les empreintes');
+
+    await h.post('/api/groups', { action: 'remove', id: gid });
+    await h.post('/api/preset', { action: 'clear', slot: 1 });
+  });
+
+  test('un rappel qui REMPLACE le plateau rafraîchit aussi les empreintes', async () => {
+    // Un rappel ne change pas la banque, donc il n'incrémente pas la révision en
+    // général. Mais s'il remplace le plateau, il change l'empreinte de tout
+    // preset SANS disposition propre — ceux-là retombent sur `state.fixtures`.
+    // `sanitizePresets` autorise `fixtures: null`, donc un projet importé en a.
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    // Un preset sans disposition à lui, comme en produit un import.
+    const exp = await h.get('/api/export');
+    const sansFx = JSON.parse(JSON.stringify(exp.body));
+    sansFx.presets = Array(16).fill(null);
+    sansFx.presets[0] = { name: 'Ancien', layers: exp.body.layers, fixtures: null };
+    await h.post('/api/import', sansFx);
+
+    const avant = (await h.get('/api/presets-info')).body.infos[0].c.length;
+    // Un autre preset, avec SA disposition, plus courte.
+    await h.post('/api/fixtures', { fixtures: fixtures(1) });
+    await h.post('/api/preset', { action: 'save', slot: 1, name: 'Court' });
+    await h.post('/api/fixtures', { fixtures: fixtures(3) });
+    const rev = (await h.state()).presetsRev;
+
+    await h.post('/api/preset', { action: 'recall', slot: 1 });
+    const apres = (await h.get('/api/presets-info')).body.infos[0].c.length;
+    assert.notEqual(apres, avant, 'le rappel doit bien avoir changé l’empreinte du slot 0');
+    assert.ok((await h.state()).presetsRev > rev,
+      'et la révision doit bouger, sinon la grille garde une vignette qui ment');
+    await h.post('/api/new', { keepFixtures: true });
+  });
+
+  test('l’icône de notification se règle, et reste inerte hors Windows', async () => {
+    // ⚠ Windows seulement, et jamais exécutée : le code PowerShell a été écrit
+    // depuis Linux. Ce qu'on peut vérifier ici, c'est l'essentiel — que le
+    // réglage tienne, et que l'activer ne casse RIEN sur une machine où
+    // PowerShell n'existe pas (la suite tourne sous Linux en CI).
+    assert.equal((await h.state()).settings.systray, false, 'éteinte par défaut');
+    const on = await h.post('/api/settings', { systray: true });
+    assert.equal(on.body.settings.systray, true);
+    // Le serveur doit être intact : c'est tout l'objet du try/catch autour du
+    // lancement. Une fonction d'agrément ne doit jamais empêcher Cascade de servir.
+    assert.equal((await h.get('/api/ping')).body.app, 'Cascade');
+    assert.equal((await h.state()).global.running, false);
+    const off = await h.post('/api/settings', { systray: false });
+    assert.equal(off.body.settings.systray, false);
+  });
+
+  // ── Ce que le script PowerShell lit, et ce qu'il ne doit surtout pas toucher ──
+  //
+  // Aucun de ces tests ne lance PowerShell : ils vérifient le CONTRAT côté
+  // serveur, qui est la seule moitié observable depuis Linux. Sans eux, la
+  // moitié Windows repose sur zéro mesure au lieu d'une.
+
+  test('l’icône sonde /api/ping, qui lui donne de quoi se peindre', async () => {
+    const avant = await h.get('/api/ping');
+    assert.equal(avant.body.app, 'Cascade', 'la carte de visite ne change pas');
+    assert.equal(avant.body.running, false, 'le script a besoin de l’état du show');
+    assert.equal(typeof avant.body.systray, 'boolean',
+      'et de savoir si la case est encore cochée, pour partir proprement');
+
+    await h.post('/api/start');
+    assert.equal((await h.get('/api/ping')).body.running, true,
+      'point vert : ping doit suivre le show, sinon l’icône ment');
+    await h.post('/api/stop');
+    assert.equal((await h.get('/api/ping')).body.running, false);
+
+    await h.post('/api/settings', { systray: true });
+    assert.equal((await h.get('/api/ping')).body.systray, true);
+    await h.post('/api/settings', { systray: false });
+    assert.equal((await h.get('/api/ping')).body.systray, false,
+      'décocher doit se voir sur ping : c’est le signal de sortie propre du script');
+  });
+
+  test('le sondage de l’icône NE réarme PAS l’arrêt automatique', async () => {
+    // LE défaut que cette famille de tests existe pour attraper. Première
+    // version : le script sondait `/api/state`, qui remet `lastUiPollAt` à
+    // maintenant. Toutes les 1,5 s, donc — et l'arrêt automatique exige 8 s de
+    // silence. Case cochée, l'utilisateur ferme son navigateur : Cascade ne se
+    // ferme PLUS JAMAIS tout seul. Combiné au mode app (pas de terminal) et à
+    // une icône que Windows range dans le tiroir caché, il ne reste que le
+    // Gestionnaire des tâches. Une fonction d'agrément cassait une fonction
+    // livrée, en silence.
+    //
+    // On mesure l'arrêt POUR DE VRAI, sur une instance à part : le veilleur est
+    // armé et le délai de grâce ramené à 400 ms. Pas de route de débogage, pas
+    // de repère interne exposé — le seul fait observable, c'est que le
+    // processus est mort ou vivant.
+    const sonde = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '400' });
+    try {
+      await sonde.state();                    // une interface s'est connectée : le veilleur s'arme
+      // Le refus de connexion EST le résultat attendu : le serveur est parti.
+      for (let i = 0; i < 12 && sonde.vivant(); i++) {
+        try { await sonde.get('/api/ping'); } catch (e) {}
+        await sleep(100);
+      }
+      assert.equal(sonde.vivant(), false,
+        'sondé uniquement par l’icône, Cascade doit quand même se fermer tout seul');
+    } finally { await sonde.stop(); }
+
+    // Témoin — sans lui, le test passerait aussi si le serveur mourait pour
+    // n'importe quelle autre raison.
+    //
+    // Sa fenêtre d'observation (≈2 s) dépasse largement son délai de grâce
+    // (600 ms), sinon il ne prouverait rien : un serveur qui survit moins
+    // longtemps que sa propre grâce survivrait même sans être sollicité. Et la
+    // marge entre le pas de sondage (50 ms) et la grâce est de 12× — il faudrait
+    // qu'une requête locale mette plus d'une demi-seconde pour le faire rougir
+    // à tort sur un runner chargé.
+    const temoin = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '600' });
+    try {
+      for (let i = 0; i < 40; i++) { await temoin.state(); await sleep(50); }
+      assert.equal(temoin.vivant(), true,
+        'une vraie interface qui poll doit, elle, garder Cascade en vie');
+    } finally { await temoin.stop(); }
+  });
+
+  test('ping reste une carte de visite muette vu du réseau', async () => {
+    // La route est hors du portillon du code d'accès : tout ce qu'on y met est
+    // lisible sans s'authentifier. L'état du show et le réglage de l'icône ne
+    // sortent donc que pour la machine hôte, qui est la seule à en avoir besoin.
+    const r = await h.get('/api/ping', { from: '127.0.0.2' });
+    assert.equal(r.body.app, 'Cascade');
+    assert.equal(r.body.version, (await h.state()).version);
+    assert.equal('running' in r.body, false, 'l’état du show ne sort pas sur le réseau');
+    assert.equal('systray' in r.body, false, 'ni le réglage de l’icône');
+  });
+
+  test('le serveur dit sur QUELLE machine il tourne, pas le navigateur', async () => {
+    // L'interface s'ouvre depuis un iPad : `navigator.platform` répondrait pour
+    // la tablette, alors que l'icône se pose sur l'hôte. Case grisée à tort
+    // depuis une tablette Windows-less, case active à tort devant un hôte macOS
+    // — et `systray: true` écrit dans une config qui voyage sur la clé USB.
+    const st = await h.state();
+    assert.equal(typeof st.win, 'boolean', '/api/state doit trancher lui-même');
+    assert.equal(st.win, process.platform === 'win32');
   });
 
   test('un slot de preset hors bornes ne fait pas planter', async () => {

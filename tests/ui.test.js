@@ -218,6 +218,117 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     for (const s of [0, 1]) await h.post('/api/preset', { action: 'clear', slot: s });
   });
 
+  test('les presets forment une grille de 16 pavés, avec l’empreinte des barres', async () => {
+    const id = (await h.state()).layers[0].id;
+    const bars = (await h.state()).fixtures.slice(0, 2).map(f => f.id);
+    await h.post('/api/layer', { id, set: { target: 'color', colorA: '#00ff00', bars, enabled: true } });
+    await h.post('/api/preset', { action: 'save', slot: 4, name: 'Vert' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const pr = document.querySelector('#presets');
+      const pads = [...pr.querySelectorAll('button.slot')];
+      const p4 = pads[4];
+      return { n: pads.length,
+               affichage: getComputedStyle(pr).display,
+               hauteur: p4.getBoundingClientRect().height,
+               cases: p4.querySelectorAll('.emp i').length,
+               peintes: [...p4.querySelectorAll('.emp i')]
+                 .filter(c => c.style.background).length,
+               texte: p4.textContent };`);
+    assert.equal(vu.n, 16, 'les 16 slots sont là');
+    assert.equal(vu.affichage, 'grid', '#presets doit être une grille');
+    assert.ok(vu.hauteur >= 50, 'un pavé doit être cliquable au doigt, vu ' + vu.hauteur);
+    assert.equal(vu.cases, 6, 'une case par barre du plateau');
+    assert.equal(vu.peintes, 2, 'seules les deux barres pilotées sont peintes');
+    // L'empreinte ne doit ajouter AUCUN texte : le contrat « 5Vert » tient.
+    assert.equal(vu.texte, '5Vert', 'l’empreinte ne doit rien écrire dans le pavé');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 4 });
+  });
+
+  test('le pavé qui joue se voit, et celui d’où l’on vient pendant un fondu', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 6, name: 'Un' });
+    await h.post('/api/preset', { action: 'save', slot: 7, name: 'Deux' });
+    await h.post('/api/preset', { action: 'recall', slot: 6 });
+    await rafraichir();
+    const seul = await nav.evaluate(`
+      await poll();
+      return [...document.querySelectorAll('#presets button.slot')]
+        .map((b, i) => b.classList.contains('joue') ? i : -1).filter(i => i >= 0);`);
+    assert.deepEqual(seul, [6], 'un seul pavé joue, et c’est le bon');
+
+    await h.post('/api/global', { presetFade: 2500 });
+    await h.post('/api/start');
+    await h.post('/api/preset', { action: 'recall', slot: 7 });
+    await sleep(400);
+    const pendant = await nav.evaluate(`
+      await poll();
+      const pads = [...document.querySelectorAll('#presets button.slot')];
+      return { joue: pads.findIndex(b => b.classList.contains('joue')),
+               sortante: pads.findIndex(b => b.classList.contains('sortante')) };`);
+    await h.post('/api/stop');
+    await h.post('/api/global', { presetFade: 0 });
+    assert.equal(pendant.joue, 7, 'le pavé entrant');
+    assert.equal(pendant.sortante, 6, 'le pavé sortant, pendant le fondu');
+    assert.deepEqual(nav.erreurs(), []);
+    for (const s of [6, 7]) await h.post('/api/preset', { action: 'clear', slot: s });
+  });
+
+  test('un preset qui ne pilote plus aucune barre le DIT', async () => {
+    const id = (await h.state()).layers[0].id;
+    // Une couche restreinte à une barre qui n'existe pas : plus rien à piloter.
+    await h.post('/api/layer', { id, set: { bars: ['fantome'], groupId: null } });
+    await h.post('/api/preset', { action: 'save', slot: 8, name: 'Vide' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const b = document.querySelectorAll('#presets button.slot')[8];
+      return { muet: b.classList.contains('muet'), title: b.title };`);
+    assert.equal(vu.muet, true, 'le pavé doit être marqué, pas masqué');
+    assert.match(vu.title, /aucune barre/, 'et l’infobulle doit le dire');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { bars: null } });
+    await h.post('/api/preset', { action: 'clear', slot: 8 });
+  });
+
+  test('un nom de preset hostile ne peut pas injecter de HTML dans la grille', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 10, name: '"><svg onload=1>' });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      await poll();
+      const pr = document.querySelector('#presets');
+      const b = pr.querySelectorAll('button.slot')[10];
+      return { pwn: window.__pwn === undefined ? null : window.__pwn,
+               balises: pr.querySelectorAll('svg, img, script').length,
+               texte: b.textContent };`);
+    assert.equal(vu.pwn, null, 'aucun script ne doit s’exécuter');
+    assert.equal(vu.balises, 0, 'aucune balise injectée dans la grille');
+    assert.match(vu.texte, /svg onload/, 'le nom s’affiche comme du TEXTE');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 10 });
+  });
+
+  test('si les empreintes ne se chargent pas, la grille reste utilisable', async () => {
+    await h.post('/api/preset', { action: 'save', slot: 12, name: 'Sans' });
+    const vu = await nav.evaluate(`
+      const vrai = window.fetch;
+      window.fetch = (u, o) => String(u).includes('/api/presets-info')
+        ? Promise.reject(new Error('coupé')) : vrai(u, o);
+      infosPresets = null; infoRev = -1;
+      for (let i = 0; i < 6; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      window.fetch = vrai;
+      const pads = [...document.querySelectorAll('#presets button.slot')];
+      return { n: pads.length, emp: document.querySelectorAll('#presets .emp').length,
+               texte: pads[12].textContent };`);
+    assert.equal(vu.n, 16, 'les 16 pavés restent là');
+    assert.equal(vu.emp, 0, 'simplement sans empreinte');
+    assert.equal(vu.texte, '13Sans', 'et toujours lisibles');
+    // Le point qui compte : une empreinte manquante ne fait pas de bruit.
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/preset', { action: 'clear', slot: 12 });
+  });
+
   test('l’accueil disparaît dès qu’il y a des barres, et revient sans', async () => {
     await rafraichir();
     const visible = () => nav.evaluate(
@@ -792,6 +903,252 @@ describe('Interface dans un vrai navigateur', { skip: AUCUN_NAVIGATEUR &&
     assert.ok(r.avecSource > r.sansChamp,
       'la source et sa course doivent se voir : ' + r.sansChamp + ' → ' + r.avecSource);
     assert.deepEqual(nav.erreurs(), []);
+  });
+
+  // Préambule commun aux tests du micro. Il fait DEUX choses, et les deux
+  // viennent d'un vrai échec sur un runner Windows (2026-08-05) :
+  //
+  //  - il PART D'UN SUIVEUR FERMÉ. Ces tests se passaient l'état les uns aux
+  //    autres sans le dire. Quand l'un a laissé le micro ouvert, le clic du
+  //    suivant l'a ARRÊTÉ au lieu de le démarrer — et ce test-là a rapporté
+  //    « zéro getUserMedia », c'est-à-dire une panne qui n'existait pas. Un
+  //    test qui se trompe de diagnostic coûte plus cher qu'un test qui tombe.
+  //  - il donne `attendre`, pour attendre une CONDITION et non une durée. Le
+  //    faux périphérique de Chromium a mis plus de 900 ms à s'ouvrir sur un
+  //    runner chargé ; l'attente fixe n'y suffisait plus. Ce n'est pas élargir
+  //    une fenêtre pour faire passer un test : la condition mesure exactement
+  //    la même chose, et échoue toujours si le micro ne s'ouvre jamais.
+  const PRELUDE_MICRO = `
+      const attendre = async (f, ms = 6000) => {
+        const t0 = Date.now();
+        while (!f() && Date.now() - t0 < ms) await new Promise(r => setTimeout(r, 50));
+        return f();
+      };
+      if (suiveur.actif) {
+        document.querySelector('#btnAudio').click();
+        await attendre(() => !suiveur.actif, 3000);
+      }`;
+
+  test('la DSP du suiveur audio, sans le moindre micro', async () => {
+    // `enveloppeAudio` est PURE : on lui donne un spectre fabriqué à la main.
+    // C'est ce qui rend la moitié navigateur vérifiable sans entrée son.
+    const vu = await nav.evaluate(`
+      const grave = new Uint8Array(256); for (let i = 0; i < 20; i++) grave[i] = 200;
+      const rien = new Uint8Array(256);
+      const r = { bande: 'grave', gain: 1, seuil: 0.06, attaque: 12, relache: 260 };
+      let e = { niveau: 0 }, monte = [];
+      for (let i = 0; i < 25; i++) { const o = enveloppeAudio(grave, 16, r, e); e = o.etat; monte.push(o.niveau); }
+      const haut = e.niveau;
+      let descend = [];
+      for (let i = 0; i < 40; i++) { const o = enveloppeAudio(rien, 16, r, e); e = o.etat; descend.push(o.niveau); }
+      // Bande aiguë sur un spectre uniquement grave : doit rester à zéro.
+      let ea = { niveau: 0 };
+      const aigu = enveloppeAudio(grave, 16, { ...r, bande: 'aigu' }, ea).niveau;
+      // Sous le seuil : porte de bruit fermée.
+      const faible = new Uint8Array(256); for (let i = 0; i < 20; i++) faible[i] = 4;
+      const porte = enveloppeAudio(faible, 16, r, { niveau: 0 }).niveau;
+      return { haut, bas: e.niveau, croissant: monte[24] > monte[0],
+               decroissant: descend[39] < descend[0], aigu, porte,
+               borne: monte.concat(descend).every(v => v >= 0 && v <= 1) };`);
+    assert.ok(vu.croissant, 'l’enveloppe doit monter avec le son');
+    assert.ok(vu.haut > 0.5, 'et atteindre un niveau franc, vu ' + vu.haut);
+    assert.ok(vu.decroissant, 'puis redescendre au silence');
+    assert.ok(vu.bas < 0.1, 'jusqu’à presque zéro, vu ' + vu.bas);
+    assert.equal(vu.aigu, 0, 'la bande aiguë ne doit rien voir d’un son grave');
+    assert.equal(vu.porte, 0, 'sous le seuil, la porte de bruit doit fermer');
+    assert.ok(vu.borne, 'l’enveloppe ne doit jamais sortir de 0..1');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le suiveur audio démarre pour de vrai et alimente le poll', async () => {
+    // Chromium est lancé avec un faux périphérique : le chemin NOMINAL est donc
+    // exécuté, permission comprise.
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
+      const vues = [];
+      const vrai = window.fetch;
+      window.fetch = (u, o) => { if (String(u).includes('/api/state')) vues.push(String(u)); return vrai(u, o); };
+      document.querySelector('#btnAudio').click();
+      const actif = await attendre(() => suiveur.actif);
+      for (let i = 0; i < 4; i++) { await poll(); await new Promise(r => setTimeout(r, 80)); }
+      window.fetch = vrai;
+      const largeur = document.querySelector('#audioVu i').style.width;
+      const badge = document.querySelector('#audioBadge').textContent;
+      document.querySelector('#btnAudio').click();
+      const arrete = await attendre(() => !suiveur.actif, 3000);
+      return { actif, largeur, badge, arrete,
+               avecNiveau: vues.filter(u => u.includes('?a=')).length,
+               etat: document.querySelector('#audioEtat').textContent };`);
+    assert.equal(vu.actif, true, 'le micro doit s’ouvrir');
+    assert.ok(vu.avecNiveau > 0, 'le poll doit porter le niveau (?a=)');
+    assert.ok(vu.badge.length > 0, 'le repli doit signaler qu’un micro est ouvert');
+    assert.equal(vu.arrete, true, 'et un second clic doit le refermer');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('double clic pendant la demande d’autorisation : un seul micro ouvert', async () => {
+    // `getUserMedia` bloque sur la demande d'autorisation — le moment le plus
+    // long. Un régisseur qui reclique parce qu'il ne voit rien lançait deux
+    // démarrages : le second écrasait `flux` et `ctx`, laissant les premiers
+    // orphelins. Micro jamais relâché, AudioContext fuité.
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
+      const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      let appels = 0;
+      // On simule une autorisation LENTE : c'est la fenêtre de la course.
+      navigator.mediaDevices.getUserMedia = (c) => {
+        appels++;
+        return new Promise(r => setTimeout(() => r(vrai(c)), 350));
+      };
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 40));
+      document.querySelector('#btnAudio').click();   // le reclic impatient
+      await new Promise(r => setTimeout(r, 40));
+      document.querySelector('#btnAudio').click();
+      const actif = await attendre(() => suiveur.actif);
+      const pistes = suiveur.flux ? suiveur.flux.getTracks().length : 0;
+      document.querySelector('#btnAudio').click();   // on referme
+      const ferme = await attendre(() => !suiveur.actif, 3000);
+      navigator.mediaDevices.getUserMedia = vrai;
+      return { appels, actif, pistes, ferme,
+               ctxFerme: !suiveur.ctx };`);
+    assert.equal(vu.appels, 1, 'un seul getUserMedia doit partir, vu ' + vu.appels);
+    assert.equal(vu.actif, true, 'le micro doit bien avoir démarré');
+    assert.equal(vu.ferme, true, 'et se refermer proprement');
+    assert.equal(vu.ctxFerme, true, 'sans laisser d’AudioContext orphelin');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('micro refusé : Cascade le dit et continue', async () => {
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
+      const vrai = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('non', 'NotAllowedError'));
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 400));
+      navigator.mediaDevices.getUserMedia = vrai;
+      return { actif: suiveur.actif, etat: document.querySelector('#audioEtat').textContent,
+               classe: document.querySelector('#btnAudio').classList.contains('active') };`);
+    assert.equal(vu.actif, false, 'aucune écoute ne doit démarrer');
+    assert.equal(vu.classe, false, 'le bouton ne doit pas rester allumé');
+    assert.match(vu.etat, /refus|indisponible/i, 'et l’écran doit l’expliquer');
+    // Le point qui compte : un refus n'est pas une panne, donc pas une erreur.
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('le cas iPad : pas de micro hors origine sûre, dit clairement', async () => {
+    const vu = await nav.evaluate(`${PRELUDE_MICRO}
+      const vrai = navigator.mediaDevices;
+      Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true });
+      document.querySelector('#btnAudio').click();
+      await new Promise(r => setTimeout(r, 200));
+      const etat = document.querySelector('#audioEtat').textContent;
+      Object.defineProperty(navigator, 'mediaDevices', { value: vrai, configurable: true });
+      // La page doit continuer de poller SANS ?a= : un iPad n'écrase pas l'hôte.
+      const vues = [];
+      const vf = window.fetch;
+      window.fetch = (u, o) => { if (String(u).includes('/api/state')) vues.push(String(u)); return vf(u, o); };
+      await poll();
+      window.fetch = vf;
+      return { etat, actif: suiveur.actif, sansNiveau: vues.every(u => !u.includes('?a=')) };`);
+    assert.equal(vu.actif, false);
+    assert.match(vu.etat, /machine où tourne Cascade/,
+      'la limite doit être dite avec des mots utilisables');
+    assert.equal(vu.sansNiveau, true, 'sans micro, le poll ne doit rien pousser');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('un nom de périphérique hostile ne peut pas injecter de HTML', async () => {
+    const vu = await nav.evaluate(`
+      remplirEntrees([{ deviceId: 'x', label: '<img src=x onerror="window.__pwn=1">' },
+                      { deviceId: 'y', label: '"><svg onload="window.__pwn=1">' }]);
+      await new Promise(r => setTimeout(r, 120));
+      const sel = document.querySelector('#audioEntree');
+      return { pwn: window.__pwn === undefined ? null : window.__pwn,
+               balises: document.querySelectorAll('#advAudio img, #advAudio svg').length,
+               texte: sel.options[1].textContent, n: sel.options.length };`);
+    assert.equal(vu.pwn, null, 'aucun script ne doit s’exécuter');
+    assert.equal(vu.balises, 0, 'aucune balise injectée');
+    assert.match(vu.texte, /img src=x/, 'le nom s’affiche comme du TEXTE');
+    assert.equal(vu.n, 3, 'défaut + les deux entrées');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('en source micro, les réglages qui n’agissent plus disparaissent', async () => {
+    const id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { lfo: { on: true, param: 'level', src: 'lfo', min: 0, max: 1 } } });
+    await rafraichir();
+    const avant = await nav.evaluate(`
+      await poll();
+      return { forme: document.querySelector('#lfoForme').closest('label').style.display,
+               src: document.querySelector('#lfoSrc').value };`);
+    await h.post('/api/layer', { id, set: { lfo: { on: true, param: 'level', src: 'audio', min: 0, max: 1 } } });
+    await rafraichir();
+    const apres = await nav.evaluate(`
+      await poll();
+      return { forme: document.querySelector('#lfoForme').closest('label').style.display,
+               periode: document.querySelector('#rowLfoPeriode').style.display,
+               src: document.querySelector('#lfoSrc').value };`);
+    await h.post('/api/layer', { id, set: { lfo: null } });
+    assert.equal(avant.src, 'lfo');
+    assert.notEqual(avant.forme, 'none', 'en oscillateur, la forme sert');
+    assert.equal(apres.src, 'audio');
+    assert.equal(apres.forme, 'none', 'en micro, la forme d’onde n’agit plus');
+    assert.equal(apres.periode, 'none', 'ni la période');
+    assert.deepEqual(nav.erreurs(), []);
+  });
+
+  test('les replis du panneau Couches signalent ce qu’ils cachent', async () => {
+    const id = (await h.state()).layers[0].id;
+    // Tout neutre : aucune pastille, rien n’est caché qui compte.
+    await h.post('/api/layer', { id, set: { mirrorH: false, mirrorV: false,
+      blend: 'htp', prof: 0, spread: 0, deck: null } });
+    await rafraichir();
+    const neutre = await nav.evaluate(`
+      await poll();
+      return { m: document.querySelector('#miroirsBadge').textContent,
+               x: document.querySelector('#melangeBadge').textContent,
+               replis: document.querySelectorAll('#advMiroirs, #advMelange').length };`);
+    assert.equal(neutre.replis, 2, 'les deux replis doivent exister');
+    assert.equal(neutre.m, '', 'rien d’actif : pas de pastille');
+    assert.equal(neutre.x, '', 'rien d’actif : pas de pastille');
+
+    // Des réglages fins posés : la pastille doit les compter ET les nommer,
+    // sinon un miroir oublié derrière un repli fermé devient un mystère.
+    await h.post('/api/layer', { id, set: { mirrorH: true, blend: 'mul', prof: 0.5, deck: 'b' } });
+    await rafraichir();
+    const actif = await nav.evaluate(`
+      await poll();
+      return { m: document.querySelector('#miroirsBadge').textContent,
+               mt: document.querySelector('#miroirsBadge').title,
+               x: document.querySelector('#melangeBadge').textContent,
+               xt: document.querySelector('#melangeBadge').title };`);
+    assert.equal(actif.m, '1 actif');
+    assert.match(actif.mt, /miroir/);
+    assert.equal(actif.x, '3 actifs', 'fusion + profondeur + jeu');
+    assert.match(actif.xt, /fusion mul/);
+    assert.match(actif.xt, /jeu B/);
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { mirrorH: false, blend: 'htp', prof: 0, deck: null } });
+  });
+
+  test('un repli refermé à la main le reste, tant qu’on ne change pas de couche', async () => {
+    // Le piège déjà payé sur « Groove » : rouvrir à chaque rendu empêche
+    // l'utilisateur de refermer quoi que ce soit.
+    const id = (await h.state()).layers[0].id;
+    await h.post('/api/layer', { id, set: { blend: 'mul' } });
+    await rafraichir();
+    const vu = await nav.evaluate(`
+      const d = document.querySelector('#advMelange');
+      // On simule l'ARRIVÉE sur la couche : c'est le seul moment où le repli
+      // s'ouvre tout seul. Le marqueur retient la dernière couche affichée.
+      d.open = false; delete d.dataset.vu;
+      await poll();
+      const ouvertAuto = d.open;
+      d.open = false;                       // l'utilisateur referme
+      for (let i = 0; i < 5; i++) { await poll(); await new Promise(r => setTimeout(r, 60)); }
+      return { ouvertAuto, resteFerme: !d.open };`);
+    assert.equal(vu.ouvertAuto, true, 'un réglage actif doit ouvrir le repli en arrivant');
+    assert.equal(vu.resteFerme, true, 'et il doit RESTER fermé si on le referme');
+    assert.deepEqual(nav.erreurs(), []);
+    await h.post('/api/layer', { id, set: { blend: 'htp' } });
   });
 
   test('aucune erreur JavaScript sur l’ensemble de la session', () => {

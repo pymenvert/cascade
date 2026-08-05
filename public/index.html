@@ -259,31 +259,59 @@
   .chip.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .chip.off { opacity: .45; }
   .chip input { accent-color: var(--on); }
-  /* Presets */
-  #presets { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;
-    position: relative; padding-bottom: 4px; }
+  /* Presets — une GRILLE de pavés, pas une rangée de boutons. En régie, dans le
+     noir, on vise une case dont on connaît la place ; une rangée qui se replie
+     déplace les slots dès qu'on change la largeur de la fenêtre. 8 colonnes sur
+     poste (2 rangées), 4 sur tablette, pour garder une cible cliquable au doigt. */
+  #presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+    margin-bottom: 12px; position: relative; padding-bottom: 6px; }
+  @media (min-width: 1181px) { #presets { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+  /* Le libellé et le bouton Sauver traversent toute la grille */
+  #presets > span, #presets > button:not(.slot) { grid-column: 1 / -1; }
   /* Fondu en cours : un filet de progression sous la rangée de presets */
   #presets::after { content: ''; position: absolute; left: 0; bottom: 0; height: 2px;
     width: var(--fade, 0%); background: var(--accent); border-radius: 2px;
     opacity: 0; transition: opacity .2s; box-shadow: 0 0 8px var(--glow); }
   #presets.fading::after { opacity: 1; }
-  #presets button.slot { min-width: 34px; padding: 8px 0; font-weight: 700; position: relative;
-    font-variant-numeric: tabular-nums; }
+  #presets button.slot { min-width: 0; padding: 7px 7px 6px; font-weight: 700; position: relative;
+    font-variant-numeric: tabular-nums; display: flex; flex-direction: column;
+    align-items: stretch; gap: 5px; min-height: 54px; text-align: left; }
+  /* Empreinte : une case par barre pilotée par le preset, teintée comme la
+     couche qui la pilote. C'est une couverture, PAS une image du motif — un
+     chase n'allume qu'une barre à la fois, une photo serait presque vide. */
+  #presets .emp { display: flex; gap: 1px; height: 6px; margin-top: auto;
+    border-radius: 2px; overflow: hidden; }
+  #presets .emp i { flex: 1 1 0; min-width: 0; background: var(--border); }
+  /* Ce preset ne pilote plus aucune barre : à dire, surtout pas à masquer */
+  #presets button.slot.muet { border-style: dashed; }
+  /* Le pavé qui joue, et celui d'où l'on vient pendant un fondu */
+  #presets button.slot.joue { border-color: var(--accent); color: var(--accent);
+    box-shadow: 0 0 10px var(--glow); }
+  #presets button.slot.sortante { border-color: var(--accent2); opacity: .7; }
   /* Un slot occupé porte une pastille orange : on lit la banque d'un coup d'œil */
   #presets button.slot:not(.empty)::after { content: ''; position: absolute; top: 4px; right: 4px;
     width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
   /* Preset nommé : le nom prime, le numéro reste lisible pour le MIDI/OSC */
-  #presets button.slot.named { min-width: 0; padding: 6px 12px 6px 9px; display: inline-flex;
-    align-items: baseline; gap: 6px; }
+  /* ⚠ Le pavé nommé garde la colonne : le numéro au-dessus, le nom en dessous,
+     l'empreinte en bas. Repasser en `inline-flex` remettrait l'empreinte sur la
+     même ligne que le nom. L'ordre numéro puis nom est un contrat de test. */
+  #presets button.slot.named { padding: 7px 7px 6px; }
   #presets button.slot.named::after { display: none; }
-  #presets .pnum { font-size: 10px; color: var(--dim); font-weight: 700; }
+  #presets .pnum { font-size: 10px; color: var(--dim); font-weight: 700; line-height: 1; }
   #presets button.slot.named:hover .pnum { color: var(--accent); }
-  #presets .pname { font-size: 12px; font-weight: 600; letter-spacing: .3px;
-    max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #presets button.slot.joue .pnum { color: var(--accent); }
+  #presets .pname { font-size: 12px; font-weight: 600; letter-spacing: .3px; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #presets button.empty { opacity: .4; font-weight: 400; }
   #presets button.savemode { border-color: var(--off); color: var(--off);
     animation: blinkSave 1s steps(2, start) infinite; }
   @keyframes blinkSave { 50% { opacity: .55; } }
+  /* Suiveur audio : un vu-mètre, seule CSS nouvelle du panneau — le reste
+     hérite du style générique des replis `details` déjà en place. */
+  #audioVu { display: block; width: 100%; height: 8px; border-radius: 4px;
+    background: var(--panel2); overflow: hidden; }
+  #audioVu i { display: block; height: 100%; width: 0; background: var(--accent);
+    transition: width .08s linear; }
   /* Vue spatiale */
   #stage { position: relative; height: 320px;
     background: radial-gradient(ellipse at 50% 120%, #141926 0%, #0a0c10 70%);
@@ -374,6 +402,17 @@
     <tr><td>Double-clic</td><td>Sur une ligne de réglage : retour à la valeur par défaut</td></tr>
     <tr><td>Double-clic</td><td>Sur un nom de couche : renommer · sur une barre : pivoter</td></tr>
     <tr><td>Double-clic</td><td>Sur un preset : renommer</td></tr>
+    <tr><th colspan="2">Code d'accès</th></tr>
+    <tr><td>À quoi ça sert</td><td>Un code facultatif à <b>4 chiffres</b> (⚙ Réglages) protège l'accès <b>depuis le réseau</b> — iPad, téléphone, Wi-Fi de la salle.</td></tr>
+    <tr><td>Jamais enfermé dehors</td><td>Il n'est <b>jamais demandé sur la machine où tourne Cascade</b> : il y a donc toujours une voie pour le retirer.</td></tr>
+    <tr><td>Ce qu'il ne couvre pas</td><td>L'OSC et le MIDI : ils passent par un câble ou une console sur le réseau de production, c'est un autre domaine de confiance.</td></tr>
+    <tr><td>Essais limités</td><td>Cinq essais ratés bloquent l'appareil une minute — sans ça, 10 000 combinaisons se passeraient en revue en quelques secondes. Changer ou retirer le code déconnecte les appareils déjà entrés.</td></tr>
+    <tr><th colspan="2">Suiveur audio</th></tr>
+    <tr><td>Principe</td><td>Le micro est une <b>source de modulateur</b>, comme l'oscillateur : Global → repli <b>Suiveur audio</b>, puis <b>Source = Micro</b> sur le modulateur d'une couche ou sur le modulateur global.</td></tr>
+    <tr><td>Ce qu'il lit</td><td>Une <b>énergie</b>, pas un tempo : il fait respirer la lumière avec le son. Il ne détecte pas les battements et ne cale pas le chase sur la musique.</td></tr>
+    <tr><td>Limite</td><td>Le micro n'est lisible que sur la <b>machine où tourne Cascade</b> — jamais depuis une adresse réseau, les navigateurs l'interdisent. Depuis un iPad, tout le reste fonctionne.</td></tr>
+    <tr><td>Sécurité</td><td>Si le son s'arrête d'arriver (onglet fermé, micro débranché), le réglage <b>revient à ce que vous aviez posé</b> — il ne reste jamais figé sur la dernière valeur entendue.</td></tr>
+    <tr><td>Grille de presets</td><td>La bande de couleur montre les barres que le preset <b>pilote</b> — une couverture, pas une image du motif. Bord en pointillé : ce preset ne pilote plus aucune barre. Pavé orange : le dernier rappelé.</td></tr>
     <tr><td>Glisser</td><td>Une barre dans la vue spatiale : la déplacer</td></tr>
     <tr><th colspan="2">Page Scène (vue 3D)</th></tr>
     <tr><td>Glisser une barre</td><td>La déplacer · <kbd>Maj</kbd> = en hauteur · <kbd>Alt</kbd> = l'orienter</td></tr>
@@ -474,7 +513,7 @@
   sur un iPad en un scan.</p>
 </div>
 
-<div id="presets"></div>
+<div id="presets" class="grille"></div>
 <div id="preview"></div>
 
 <div class="grid">
@@ -539,12 +578,15 @@
 
     <h2 style="margin-top:14px">Pattern</h2>
     <div class="patterns" id="patterns"></div>
+    <details id="advMiroirs">
+      <summary>Symétries <span class="badge" id="miroirsBadge"></span></summary>
     <label class="row" id="rowMirrorH" title="Symétrie gauche/droite : le pattern se reflète autour de l'axe vertical (pointillés dans la vue). Le curseur déplace l'axe."><span>Miroir ↔ (G/D)</span>
       <input type="checkbox" id="mirrorH">
       <input type="range" id="axisX" min="0" max="100" step="1" title="Position de l'axe de symétrie ↔"><output></output></label>
     <label class="row" id="rowMirrorV" title="Symétrie haut/bas autour de l'axe horizontal. Les deux miroirs ensemble = symétrie centrale (4 zones)."><span>Miroir ↕ (H/B)</span>
       <input type="checkbox" id="mirrorV">
       <input type="range" id="axisY" min="0" max="100" step="1" title="Position de l'axe de symétrie ↕"><output></output></label>
+    </details>
     <label class="row" title="Pas à pas : nombre de barres qui s'allument ensemble à chaque pas (blocs synchrones). Vague : nombre de pas pour un cycle complet."><span id="lblGroup">Barres par pas</span>
       <input type="range" id="group" min="1" max="8" step="1"><output></output></label>
     <label class="row" title="Pas à pas : nombre de pas pendant lesquels une barre reste allumée (traîne de comète avec un fade out long). Vague : largeur de l'onde sur la scène."><span id="lblWidth">Tenue (traîne)</span>
@@ -623,6 +665,8 @@
       <label class="row" title="Inclinaison de l’axe. −90° = vers le sol, +90° = vers le ciel."><span>Élévation de l'axe</span>
         <input type="range" id="axEl" min="-90" max="90" step="1"><output></output></label>
     </div>
+    <details id="advMelange">
+      <summary>Mélange &amp; espace <span class="badge" id="melangeBadge"></span></summary>
     <label class="row" title="Comment cette couche se mélange à celles d'au-dessus dans la liste. HTP = le plus fort gagne (comportement historique). Pour tout sauf HTP, addition et multiplication, l'ORDRE des couches compte."><span>Fusion</span>
       <select id="blend">
         <option value="htp">HTP — le plus fort gagne</option>
@@ -643,6 +687,7 @@
         <button data-deck="">Toujours</button><button data-deck="a">A</button><button data-deck="b">B</button>
       </div>
     </label>
+    </details>
     <label class="row" title="Fait respirer un réglage tout seul, en boucle, au lieu de le tenir à la main. Un modulateur par couche. Il ne modifie JAMAIS le réglage affiché : il se superpose, donc on retrouve sa valeur en le coupant."><span>Modulateur</span>
       <select id="lfoParam">
         <option value="">— aucun —</option>
@@ -658,6 +703,12 @@
       </select>
     </label>
     <div id="blocLfo" style="display:none">
+      <label class="row" title="D'où vient le mouvement : un oscillateur qui boucle, ou le niveau entendu au micro. Le micro se règle dans le panneau Global, repli « Suiveur audio » — et il n'est lisible que sur la machine où tourne Cascade, jamais depuis une adresse réseau."><span>Source</span>
+        <select id="lfoSrc">
+          <option value="lfo">Oscillateur (boucle)</option>
+          <option value="audio">Micro (suiveur audio)</option>
+        </select>
+      </label>
       <label class="row" title="Forme de la boucle. Sinus respire, triangle monte et descend droit, rampe repart d'un coup à chaque tour, créneau alterne entre les deux bornes."><span>Forme</span>
         <select id="lfoForme">
           <option value="sine">Sinus (respiration)</option>
@@ -766,6 +817,12 @@
       </select>
     </label>
     <div id="blocMg" style="display:none">
+      <label class="row" title="D'où vient le mouvement : un oscillateur qui boucle, ou le niveau entendu au micro. Le micro se règle dans le panneau Global, repli « Suiveur audio » — et il n'est lisible que sur la machine où tourne Cascade, jamais depuis une adresse réseau."><span>Source</span>
+        <select id="mgSrc">
+          <option value="lfo">Oscillateur (boucle)</option>
+          <option value="audio">Micro (suiveur audio)</option>
+        </select>
+      </label>
       <label class="row" title="Forme de la boucle."><span>Forme</span>
         <select id="mgForme">
           <option value="sine">Sinus (respiration)</option>
@@ -792,6 +849,38 @@
         <input type="number" id="mgMin" step="0.01" style="width:5.5em">
         <input type="number" id="mgMax" step="0.01" style="width:5.5em"></label>
     </div>
+    <details id="advAudio">
+      <summary>Suiveur audio <span class="badge" id="audioBadge"></span></summary>
+      <p class="hint">Le micro devient une <b>source de modulateur</b>, à côté de l'oscillateur :
+      choisissez « Micro » comme Source sur le modulateur d'une couche, ou sur le modulateur global.
+      Il lit une <b>énergie</b> — il ne détecte pas les battements et ne cale pas le tempo.
+      <br>⚠ Le micro n'est lisible que sur la <b>machine où tourne Cascade</b>, jamais depuis une
+      adresse réseau : les navigateurs interdisent l'accès au micro hors origine sûre. Depuis un iPad,
+      tout le reste fonctionne.</p>
+      <label class="row" title="Demande l'accès au micro et démarre l'analyse. Le navigateur pose la question une fois ; refuser n'a aucune conséquence sur le reste de Cascade."><span>Micro</span>
+        <button id="btnAudio">🎤 Écouter</button></label>
+      <label class="row" title="Entrée son analysée. La liste n'est remplie qu'après avoir accordé l'accès au micro."><span>Entrée</span>
+        <select id="audioEntree"><option value="">— par défaut —</option></select></label>
+      <label class="row" title="Bande de fréquences suivie. Grave suit la grosse caisse et la basse, aigu les cymbales et les voix, tout l'énergie générale."><span>Bande</span>
+        <select id="audioBande">
+          <option value="grave">Grave (grosse caisse, basse)</option>
+          <option value="medium">Médium</option>
+          <option value="aigu">Aigu (cymbales, voix)</option>
+          <option value="tout">Tout le spectre</option>
+        </select>
+      </label>
+      <label class="row" title="Amplification du niveau lu. À monter si la lumière bouge à peine, à baisser si elle sature en permanence."><span>Gain</span>
+        <input type="range" id="audioGain" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Porte de bruit : en dessous de ce niveau, le son est considéré comme du silence. Sert à ignorer la clim, le public et le souffle de la salle."><span>Seuil</span>
+        <input type="range" id="audioSeuil" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Vitesse de montée. Court = la lumière saute sur chaque attaque ; long = elle gonfle doucement."><span>Attaque</span>
+        <input type="range" id="audioAttaque" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Vitesse de descente. C'est lui qui donne la respiration : trop court, la lumière hachure ; trop long, elle reste allumée."><span>Relâchement</span>
+        <input type="range" id="audioRelache" min="0" max="100" step="1"><output></output></label>
+      <label class="row" title="Ce que Cascade entend en ce moment, après gain, seuil et lissage. C'est exactement la valeur envoyée aux modulateurs réglés sur « Micro »."><span>Niveau</span>
+        <span id="audioVu"><i></i></span></label>
+      <p class="hint" id="audioEtat">Micro à l'arrêt.</p>
+    </details>
     <label class="row" title="Temps de fondu au rappel d'un preset. À 0, le changement est sec (comportement d'origine). Sinon, la scène sortante continue de jouer et décroît pendant que la nouvelle monte."><span>Fondu presets</span>
       <input type="range" id="presetFade" min="0" max="100" step="1"><output></output></label>
     <label class="row" title="Réponse du gradateur. Les LED DMX sont souvent trop brutales en linéaire : « carrée » affine les bas de fondu, « racine » remonte les niveaux faibles."><span>Courbe dimmer</span>
@@ -917,6 +1006,18 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <!-- ══════════ RÉGLAGES ══════════ -->
+<dialog id="dlgAcces">
+  <h2>Code d'accès</h2>
+  <p class="hint" style="margin:0 0 10px">Cette régie est protégée par un code à
+  4 chiffres. Demande-le à la personne qui tient la lumière.</p>
+  <input type="password" id="accesCode" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+    autocomplete="off" placeholder="••••" style="font-size:22px; letter-spacing:10px; text-align:center">
+  <p class="hint" id="accesErreur" style="margin:8px 0 0; min-height:1.2em"></p>
+  <div class="mini" style="justify-content:flex-end; margin-top:14px">
+    <button id="accesOk" class="active">Entrer</button>
+  </div>
+</dialog>
+
 <dialog id="dlgSettings">
   <h2>Connexion OSC MadMapper</h2>
   <label>Adresse IP (127.0.0.1 si même machine)</label>
@@ -936,6 +1037,28 @@
   <input type="text" id="setParam">
   <label>Port OSC entrant (contrôleur externe → cette app)</label>
   <input type="number" id="setOscIn">
+  <label>Code d'accès à 4 chiffres <span id="accesEtat" class="hint" style="margin:0"></span></label>
+  <input type="text" id="setAcces" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+    autocomplete="off" placeholder="vide = aucun code">
+  <label class="row" id="rowSystray" title="Affiche une icône dans la zone de notification : point vert quand le show tourne, rouge à l'arrêt, et un clic droit pour ouvrir l'interface ou piloter le show sans rouvrir la page."><span>Icône près de l'horloge</span>
+    <input type="checkbox" id="setSystray"></label>
+  <p class="hint" id="systrayNote" style="margin:4px 0 10px">⚠ <strong>Windows uniquement</strong>
+  (macOS n'a pas d'équivalent pilotable sans installer autre chose), et <strong>jamais essayée
+  en vrai</strong> : elle a été écrite depuis une machine Linux. Si elle ne fait rien, elle ne
+  casse rien non plus — dites-le et on corrige.</p>
+  <p class="hint" id="systrayOu" style="margin:4px 0 10px;display:none">💡 Windows range
+  <strong>toute nouvelle icône dans le tiroir caché</strong> : si vous ne la voyez pas près de
+  l'heure, cliquez le chevron <strong>^</strong> à gauche de l'horloge et faites-la glisser
+  dehors. Ce n'est à faire qu'une fois.</p>
+  <div class="mini" style="margin:6px 0 2px">
+    <button id="btnAccesRetirer" class="ghost" style="display:none"
+      title="Supprime le code : Cascade redevient accessible sans mot de passe depuis le réseau">🔓 Retirer le code</button>
+  </div>
+  <p class="hint" style="margin:4px 0 10px">Facultatif. Il protège l'accès <strong>depuis le
+  réseau</strong> — iPad, téléphone, Wi-Fi de la salle. Il n'est <strong>jamais demandé sur cette
+  machine</strong>, donc on ne peut pas s'enfermer dehors. L'OSC et le MIDI ne sont pas concernés :
+  ils passent par un câble ou une console, c'est un autre domaine de confiance.<br>
+  Changer ou retirer le code <strong>déconnecte les appareils déjà entrés</strong>.</p>
   <div class="mini" style="justify-content:flex-end; margin-top:16px">
     <button id="setCancel">Annuler</button>
     <button id="setSave" class="active">Enregistrer</button>
@@ -990,6 +1113,25 @@ let selId = null;      // couche sélectionnée
 // null = inactif · {type:'layer'} = pour la couche courante · {type:'group', id}
 let assignMode = null;
 let saveMode = false;  // presets : prochain clic = sauvegarde
+// Empreintes des presets. Elles ne voyagent PAS dans /api/state (poll 120 ms) :
+// on les retire seulement quand le serveur signale que la banque a changé, via
+// son compteur de révision. `infoEnCours` évite d'empiler les requêtes si le
+// réseau traîne ; un échec laisse simplement les pavés sans bande, sans bruit.
+let infoRev = -1, infosPresets = null, infoEnCours = false;
+function chargerInfosPresets() {
+  if (!S || infoEnCours || S.presetsRev === infoRev) return;
+  infoEnCours = true;
+  fetch('/api/presets-info')
+    .then(r => r.json())
+    .then(r => {
+      if (!r || !r.ok) return;
+      infosPresets = r.infos; infoRev = r.rev;
+      const pr = $('#presets');
+      if (pr) pr.dataset.sig = ''; // force un re-rendu des pavés
+    })
+    .catch(() => {}) // hors ligne : les pavés restent lisibles, sans empreinte
+    .finally(() => { infoEnCours = false; });
+}
 
 const post = (url, body = {}) => fetch(url, { method: 'POST',
   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
@@ -1139,8 +1281,13 @@ function render() {
 
   // presets
   const pr = $('#presets');
+  chargerInfosPresets();
   // La signature inclut les NOMS : sinon un renommage ne se verrait jamais.
-  const psig = S.presets.map(p => p || '·').join('') + (saveMode ? 'S' : '');
+  // `infoRev` en fait partie pour que des empreintes fraîchement chargées
+  // déclenchent le re-rendu. En revanche presetActif, fade et fadeDe en sont
+  // EXCLUS, à dessein : ils changent à chaque poll, et les inclure
+  // reconstruirait les 16 pavés huit fois par seconde, en plein spectacle.
+  const psig = S.presets.map(p => p || '·').join('') + '|' + infoRev + (saveMode ? 'S' : '');
   if (pr.dataset.sig !== psig) {
     pr.dataset.sig = psig;
     pr.innerHTML = '<span style="font-size:11px;color:var(--dim);letter-spacing:1px">PRESETS</span>';
@@ -1159,9 +1306,39 @@ function render() {
       } else {
         b.textContent = i + 1;
       }
+      // Empreinte : une case par barre pilotée, teintée comme sa couche.
+      // ⚠ Aucun texte dans ces éléments — le textContent du pavé doit rester
+      // « 1Refrain », c'est un contrat vérifié par les tests d'interface.
+      const info = infosPresets && infosPresets[i];
+      if (info && info.c) {
+        const emp = document.createElement('span');
+        emp.className = 'emp';
+        let peintes = 0;
+        for (const ch of info.c) {
+          const cell = document.createElement('i');
+          if (ch !== '.') {
+            const coul = info.pal[+ch];
+            if (coul) { cell.style.background = coul; peintes++; }
+          }
+          emp.appendChild(cell);
+        }
+        b.appendChild(emp);
+        // Un preset qui ne pilote plus aucune barre : le DIRE. C'est
+        // l'information la plus utile de la grille avant de tirer un pavé —
+        // le masquer laisserait croire à une panne au moment du rappel.
+        if (!peintes) b.classList.add('muet');
+      }
+      // L'infobulle porte ce que l'empreinte ne peut pas montrer : le nombre de
+      // couches actives et leurs moteurs (P = pas-à-pas, V = vague, C = champ).
+      const detail = info
+        ? '\n' + info.a + ' couche' + (info.a > 1 ? 's' : '') + ' active'
+          + (info.a > 1 ? 's' : '') + ' sur ' + info.t
+          + (info.e ? ' — moteurs ' + info.e.split('').join(', ') : '')
+          + (info.c && !/[^.]/.test(info.c) ? '\n⚠ ne pilote aucune barre' : '')
+        : '';
       b.title = saveMode ? 'Enregistrer ici' : (p
         ? 'Rappeler « ' + p +' » : couches + ordre des fixtures + vue spatiale'
-          + '\nDouble-clic : renommer'
+          + detail + '\nDouble-clic : renommer'
         : 'Slot vide');
       b.onclick = () => {
         if (saveMode) {
@@ -1303,12 +1480,19 @@ function render() {
     if (document.activeElement !== $('#lfoParam')) $('#lfoParam').value = m ? m.param : '';
     $('#blocLfo').style.display = m ? '' : 'none';
     if (m) {
+      if (document.activeElement !== $('#lfoSrc')) $('#lfoSrc').value = m.src || 'lfo';
       if (document.activeElement !== $('#lfoForme')) $('#lfoForme').value = m.forme;
       $('#lfoSync').checked = !!m.sync;
+      // En source micro, la forme d'onde et la période ne veulent plus rien
+      // dire : c'est le son qui donne le mouvement. Les laisser affichés ferait
+      // régler des boutons sans effet — la panne la plus agaçante qui soit.
+      const mic = m.src === 'audio';
+      $('#lfoForme').closest('label').style.display = mic ? 'none' : '';
+      $('#lfoSync').closest('label').style.display = mic ? 'none' : '';
       // Un seul des deux réglages de durée est montré : afficher une période en
       // secondes que le serveur ignore ferait chercher longtemps.
-      $('#rowLfoPeriode').style.display = m.sync ? 'none' : '';
-      $('#rowLfoCycles').style.display = m.sync ? '' : 'none';
+      $('#rowLfoPeriode').style.display = (mic || m.sync) ? 'none' : '';
+      $('#rowLfoCycles').style.display = (!mic && m.sync) ? '' : 'none';
       if (document.activeElement !== $('#lfoCycles')) $('#lfoCycles').value = String(m.cycles);
       setSlider('#lfoPeriode', periodeVersCurseur(m.periodeMs),
         v => { const ms = curseurVersPeriode(v);
@@ -1360,6 +1544,35 @@ function render() {
   // le second miroir donnerait une case sans effet — et une case sans effet
   // ressemble à une panne.
   $('#rowMirrorV').style.display = champ ? 'none' : '';
+  // Pastilles des deux nouveaux replis, sur le motif exact de « Groove ». Sans
+  // elles, un miroir ou une fusion oubliés derrière un repli fermé deviennent
+  // un mystère — c'est précisément ce que la pastille de Groove évite déjà.
+  {
+    const actifsM = [
+      L.mirrorH && 'miroir ↔',
+      L.mirrorV && !champ && 'miroir ↕',
+    ].filter(Boolean);
+    const bM = $('#miroirsBadge');
+    bM.textContent = actifsM.length ? actifsM.length + (actifsM.length > 1 ? ' actifs' : ' actif') : '';
+    bM.title = actifsM.join(', ');
+    const detM = $('#advMiroirs');
+    if (detM.dataset.vu !== selId) { detM.dataset.vu = selId; if (actifsM.length) detM.open = true; }
+
+    const actifsX = [
+      (L.blend || 'htp') !== 'htp' && 'fusion ' + (L.blend || 'htp'),
+      L.prof && 'profondeur',
+      L.spread && 'décalage réparti',
+      L.deck && 'jeu ' + String(L.deck).toUpperCase(),
+    ].filter(Boolean);
+    const bX = $('#melangeBadge');
+    bX.textContent = actifsX.length ? actifsX.length + (actifsX.length > 1 ? ' actifs' : ' actif') : '';
+    bX.title = actifsX.join(', ');
+    const detX = $('#advMelange');
+    // ⚠ Ouverture automatique SEULEMENT au changement de couche : sinon
+    // l'utilisateur ne pourrait jamais refermer le repli (piège déjà payé sur
+    // « Groove »).
+    if (detX.dataset.vu !== selId) { detX.dataset.vu = selId; if (actifsX.length) detX.open = true; }
+  }
   renderBarsTarget(L);
   renderGroups();
 
@@ -1387,10 +1600,14 @@ function render() {
     if (document.activeElement !== $('#mgParam')) $('#mgParam').value = g ? g.param : '';
     $('#blocMg').style.display = g ? '' : 'none';
     if (g) {
+      if (document.activeElement !== $('#mgSrc')) $('#mgSrc').value = g.src || 'lfo';
       if (document.activeElement !== $('#mgForme')) $('#mgForme').value = g.forme;
       $('#mgSync').checked = !!g.sync;
-      $('#rowMgPeriode').style.display = g.sync ? 'none' : '';
-      $('#rowMgCycles').style.display = g.sync ? '' : 'none';
+      const micG = g.src === 'audio';
+      $('#mgForme').closest('label').style.display = micG ? 'none' : '';
+      $('#mgSync').closest('label').style.display = micG ? 'none' : '';
+      $('#rowMgPeriode').style.display = (micG || g.sync) ? 'none' : '';
+      $('#rowMgCycles').style.display = (!micG && g.sync) ? '' : 'none';
       if (document.activeElement !== $('#mgCycles')) $('#mgCycles').value = String(g.cycles);
       setSlider('#mgPeriode', periodeVersCurseur(g.periodeMs),
         v => { const ms = curseurVersPeriode(v);
@@ -1399,6 +1616,23 @@ function render() {
       if (document.activeElement !== $('#mgMax')) $('#mgMax').value = g.max;
     }
   }
+  {
+    // Suiveur audio : les curseurs et la pastille du repli. La pastille dit s'il
+    // écoute, pour qu'un repli fermé ne cache pas un micro resté ouvert.
+    const st = S.settings || {};
+    setSlider('#audioGain', Math.round(((st.audioGain == null ? 1 : st.audioGain) - 0.1) / 4.9 * 100),
+      v => (0.1 + v / 100 * 4.9).toFixed(1) + ' ×');
+    setSlider('#audioSeuil', Math.round((st.audioSeuil == null ? 0.06 : st.audioSeuil) / 0.9 * 100),
+      v => (v / 100 * 0.9 * 100).toFixed(0) + ' %');
+    setSlider('#audioAttaque', Math.round(((st.audioAttaque || 12) - 1) / 199 * 100),
+      v => Math.round(1 + v / 100 * 199) + ' ms');
+    setSlider('#audioRelache', Math.round(((st.audioRelache || 260) - 20) / 1480 * 100),
+      v => Math.round(20 + v / 100 * 1480) + ' ms');
+    if (document.activeElement !== $('#audioBande')) $('#audioBande').value = st.audioBande || 'grave';
+    const badge = $('#audioBadge');
+    badge.textContent = suiveur.actif ? 'à l’écoute' : '';
+    badge.title = suiveur.actif ? 'Le micro est ouvert et alimente les modulateurs réglés sur « Micro ».' : '';
+  }
   setSlider('#presetFade', fadeToSlider(S.global.presetFade || 0),
     v => { const ms = fadeFromSlider(v); return ms ? (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s') : 'sec'; });
   if (document.activeElement !== $('#dimmer')) $('#dimmer').value = S.global.dimmer || 'linear';
@@ -1406,6 +1640,18 @@ function render() {
   const barrePresets = $('#presets');
   barrePresets.classList.toggle('fading', S.fade != null);
   barrePresets.style.setProperty('--fade', ((S.fade || 0) * 100).toFixed(1) + '%');
+  // Quel pavé joue, et d'où l'on vient pendant un fondu. Appliqué à CHAQUE poll
+  // mais hors de la signature de rendu : on repeint deux classes, on ne
+  // reconstruit pas les 16 pavés. Les accolades gardent ces locales hors de la
+  // portée de render(), où un `const` en double ferait tomber un garde-fou.
+  {
+    const pads = barrePresets.querySelectorAll('button.slot');
+    const sortant = S.fade != null ? S.fadeDe : null;
+    pads.forEach((b, i) => {
+      b.classList.toggle('joue', S.presetActif === i);
+      b.classList.toggle('sortante', sortant === i && S.presetActif !== i);
+    });
+  }
   $('#bpm').innerHTML = '— <b>' + Math.round(60000 / L.stepMs) + '</b> BPM (pas)';
 
   // Ableton Link : quand il pilote, le tempo manuel est neutralisé
@@ -2134,6 +2380,17 @@ $('#oneShot').onchange = e => setL({ oneShot: e.target.checked }).then(poll);
 $('#btnGo').onclick = () => post('/api/resync', { id: sel().id });
 $('#dimmer').onchange = e => post('/api/global', { dimmer: e.target.value }).then(poll);
 $('#presetFade').oninput = e => post('/api/global', { presetFade: fadeFromSlider(+e.target.value) });
+
+// Suiveur audio — la calibration vit dans la configuration du serveur, donc elle
+// voyage avec le projet sur la clé USB, au lieu de rester dans ce navigateur.
+$('#audioBande').onchange = e => post('/api/settings', { audioBande: e.target.value });
+$('#audioGain').oninput = e => post('/api/settings', { audioGain: 0.1 + (+e.target.value / 100) * 4.9 });
+$('#audioSeuil').oninput = e => post('/api/settings', { audioSeuil: (+e.target.value / 100) * 0.9 });
+$('#audioAttaque').oninput = e => post('/api/settings', { audioAttaque: 1 + (+e.target.value / 100) * 199 });
+$('#audioRelache').oninput = e => post('/api/settings', { audioRelache: 20 + (+e.target.value / 100) * 1480 });
+$('#lfoSrc').onchange = (e) =>
+  setL({ lfo: { ...lfoCourant(), src: e.target.value } }).then(poll);
+$('#mgSrc').onchange = (e) => posterMg({ src: e.target.value });
 $('#mirrorH').onchange = e => setL({ mirrorH: e.target.checked }).then(poll);
 $('#mirrorV').onchange = e => setL({ mirrorV: e.target.checked }).then(poll);
 $('#axisX').oninput = e => setL({ axisX: +e.target.value / 100 });
@@ -2454,6 +2711,173 @@ function onMidiMessage(ev) {
   const target = (S.midiMap || {})[key];
   if (target) midiApply(target, v01, isTrigger);
 }
+/* ─── Suiveur audio ───────────────────────────────────────────────────────────
+ * Le micro devient une SOURCE de modulateur, à côté de l'oscillateur.
+ *
+ * L'analyse vit ici, dans le navigateur : le zéro-dépendance interdit une
+ * entrée son côté serveur. Le niveau part ensuite au serveur en paramètre du
+ * poll qu'on fait déjà — aucune requête de plus.
+ *
+ * ⚠ Le micro n'est accessible qu'en ORIGINE SÛRE (https ou localhost). Depuis
+ * un iPad sur http://<ip>:3333, `navigator.mediaDevices` n'existe pas. C'est
+ * assumé et dit à l'écran, comme pour Web MIDI qui n'existe que sur Chrome et
+ * Edge : le reste de Cascade continue de marcher depuis la tablette.
+ */
+const suiveur = { actif: false, demarrage: false, niv: 0, ctx: null, analyseur: null,
+                  flux: null, bins: null, dernier: 0, etatDsp: { niveau: 0 } };
+
+/** Bornes des bandes, en fraction du spectre analysé. */
+const AUDIO_BANDES = { grave: [0, 0.08], medium: [0.08, 0.35], aigu: [0.35, 1], tout: [0, 1] };
+
+/**
+ * Enveloppe audio — fonction PURE, sans DOM ni AudioContext.
+ *
+ * Isolée exprès : c'est ce qui rend la DSP testable sans micro, avec un spectre
+ * fabriqué à la main. Rend le niveau 0..1 et le nouvel état du lissage.
+ *
+ * `reglages` : { bande, gain, seuil, attaque, relache }  (attaque/relache en ms)
+ */
+function enveloppeAudio(bins, dt, reglages, etat) {
+  const [d, f] = AUDIO_BANDES[reglages.bande] || AUDIO_BANDES.tout;
+  const i0 = Math.floor(d * bins.length), i1 = Math.max(i0 + 1, Math.floor(f * bins.length));
+  let somme = 0;
+  for (let i = i0; i < i1; i++) somme += bins[i];
+  let v = somme / (i1 - i0) / 255;
+  // Porte de bruit AVEC ré-étalement : sans lui, la course utile serait amputée
+  // du seuil et le suiveur deviendrait mou dès qu'on coupe un peu de souffle.
+  const seuil = reglages.seuil;
+  v = v <= seuil ? 0 : (v - seuil) / (1 - seuil);
+  v = Math.min(1, v * reglages.gain);
+  // Lissage exponentiel ASYMÉTRIQUE : on monte vite et on redescend lentement.
+  // C'est ce qui fait une respiration plutôt qu'un clignotement.
+  const cible = v;
+  const tau = cible > etat.niveau ? reglages.attaque : reglages.relache;
+  const k = 1 - Math.exp(-dt / Math.max(1, tau));
+  const niveau = etat.niveau + (cible - etat.niveau) * k;
+  return { niveau: Math.max(0, Math.min(1, niveau)), etat: { niveau } };
+}
+
+/** Réglages courants du suiveur, lus dans la configuration du serveur. */
+function reglagesAudio() {
+  const s = (S && S.settings) || {};
+  return { bande: s.audioBande || 'grave', gain: s.audioGain == null ? 1 : s.audioGain,
+           seuil: s.audioSeuil == null ? 0.06 : s.audioSeuil,
+           attaque: s.audioAttaque || 12, relache: s.audioRelache || 260 };
+}
+
+function etatAudio(txt) { $('#audioEtat').textContent = txt; }
+
+/** Liste les entrées son. ⚠ Un nom de périphérique est une donnée EXTERNE. */
+function remplirEntrees(list) {
+  const sel = $('#audioEntree');
+  const garde = sel.value;
+  sel.textContent = '';
+  const def = document.createElement('option');
+  def.value = ''; def.textContent = '— par défaut —';
+  sel.appendChild(def);
+  list.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId || '';
+    // textContent, JAMAIS innerHTML : un micro peut s'appeler `<img onerror=…>`.
+    o.textContent = d.label || ('Entrée ' + (i + 1));
+    sel.appendChild(o);
+  });
+  sel.value = garde;
+}
+
+async function demarrerAudio() {
+  if (suiveur.actif) { arreterAudio(); return; }
+  // ⚠ GARDE SYNCHRONE, avant le moindre `await`. `suiveur.actif` n'est posé
+  // qu'après `getUserMedia` ET `ctx.resume()` — or `getUserMedia` bloque sur la
+  // demande d'autorisation du navigateur, le moment le PLUS long. Un régisseur
+  // qui reclique parce qu'il ne voit rien se retrouvait avec deux démarrages en
+  // vol : le second écrasait `flux` et `ctx`, laissant les premiers orphelins.
+  // Micro jamais relâché (voyant allumé), AudioContext fuité — et les
+  // navigateurs en plafonnent une poignée — plus deux boucles d'analyse.
+  if (suiveur.demarrage) return;
+  suiveur.demarrage = true;
+  try {
+    await ouvrirAudio();
+  } finally { suiveur.demarrage = false; }
+}
+
+async function ouvrirAudio() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    etatAudio('Le micro n’est lisible que sur la machine où tourne Cascade '
+      + '(les navigateurs l’interdisent depuis une adresse réseau). Tout le reste fonctionne.');
+    return;
+  }
+  const dev = $('#audioEntree').value;
+  try {
+    // Pas de traitement de la voix : on veut le son de la salle, pas une
+    // conversation nettoyée. L'annulation d'écho écraserait la musique.
+    suiveur.flux = await navigator.mediaDevices.getUserMedia({ audio: {
+      deviceId: dev ? { exact: dev } : undefined,
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    etatAudio('Micro refusé ou indisponible. Cascade continue sans lui.');
+    return;
+  }
+  try {
+    suiveur.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (suiveur.ctx.state === 'suspended') await suiveur.ctx.resume();
+    suiveur.analyseur = suiveur.ctx.createAnalyser();
+    suiveur.analyseur.fftSize = 1024;
+    suiveur.analyseur.smoothingTimeConstant = 0.5;
+    suiveur.ctx.createMediaStreamSource(suiveur.flux).connect(suiveur.analyseur);
+    suiveur.bins = new Uint8Array(suiveur.analyseur.frequencyBinCount);
+    suiveur.etatDsp = { niveau: 0 };
+    suiveur.dernier = 0;
+    suiveur.actif = true;
+    $('#btnAudio').classList.add('active');
+    $('#btnAudio').textContent = '🎤 Écoute…';
+    etatAudio('Le micro écoute. Choisissez « Micro » comme Source sur un modulateur.');
+    boucleAudio();
+    // ⚠ AUCUN `await` après `actif = true`. Sinon `actif` et `demarrage` sont
+    // vrais en même temps le temps de cet appel, et un changement d'entrée son
+    // pile à cet instant (`arreterAudio()` puis `demarrerAudio()`) tombait sur
+    // la garde et ne redémarrait rien. La liste est un confort : elle se
+    // remplit quand elle peut.
+    navigator.mediaDevices.enumerateDevices()
+      .then(l => remplirEntrees(l.filter(d => d.kind === 'audioinput')))
+      .catch(() => {});
+  } catch (e) {
+    etatAudio('L’analyse audio n’a pas pu démarrer sur ce navigateur.');
+    arreterAudio();
+  }
+}
+
+function arreterAudio() {
+  suiveur.actif = false;
+  suiveur.niv = 0;
+  if (suiveur.flux) { try { suiveur.flux.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  if (suiveur.ctx) { try { suiveur.ctx.close(); } catch (e) {} }
+  suiveur.flux = null; suiveur.ctx = null; suiveur.analyseur = null;
+  $('#btnAudio').classList.remove('active');
+  $('#btnAudio').textContent = '🎤 Écouter';
+  $('#audioVu').firstElementChild.style.width = '0%';
+  etatAudio('Micro à l’arrêt.');
+}
+
+/**
+ * Boucle d'analyse, calée sur l'affichage. Elle ne fait QUE mesurer : le niveau
+ * part au serveur avec le poll suivant, pas dans une requête à elle.
+ */
+function boucleAudio() {
+  if (!suiveur.actif) return;
+  const now = performance.now();
+  const dt = suiveur.dernier ? Math.min(200, now - suiveur.dernier) : 16;
+  suiveur.dernier = now;
+  suiveur.analyseur.getByteFrequencyData(suiveur.bins);
+  const r = enveloppeAudio(suiveur.bins, dt, reglagesAudio(), suiveur.etatDsp);
+  suiveur.niv = r.niveau; suiveur.etatDsp = r.etat;
+  $('#audioVu').firstElementChild.style.width = (r.niveau * 100).toFixed(1) + '%';
+  requestAnimationFrame(boucleAudio);
+}
+
+$('#btnAudio').onclick = demarrerAudio;
+$('#audioEntree').onchange = () => { if (suiveur.actif) { arreterAudio(); demarrerAudio(); } };
+
 function initMidi() {
   if (!navigator.requestMIDIAccess) return;
   navigator.requestMIDIAccess({ sysex: false }).then(acc => {
@@ -2508,6 +2932,22 @@ $('#btnSettings').onclick = () => {
   $('#setFb').value = S.settings.feedbackPort;
   $('#setParam').value = S.global.param;
   $('#setOscIn').value = S.settings.oscInPort || 7000;
+  // Le code lui-même n'est JAMAIS renvoyé par le serveur : on ne peut afficher
+  // que son existence. Le champ part donc vide, et un champ vide ne change rien.
+  $('#setAcces').value = '';
+  $('#setSystray').checked = !!S.settings.systray;
+  // Ne pas proposer une case qui ne peut rien faire : hors Windows, on le dit.
+  // ⚠ On demande au SERVEUR, pas au navigateur : le réglage agit sur la machine
+  // qui fait tourner Cascade, et cette page s'ouvre aussi bien depuis un iPad.
+  const surWindows = !!S.win;
+  $('#rowSystray').style.opacity = surWindows ? '1' : '0.45';
+  $('#systrayNote').style.display = surWindows ? 'none' : '';
+  $('#systrayOu').style.display = surWindows ? '' : 'none';
+  const a = (S.acces || {});
+  $('#accesEtat').textContent = a.actif
+    ? '— actif. Laisser vide ne change rien ; taper 4 chiffres le remplace.'
+    : '— aucun code pour l’instant.';
+  $('#btnAccesRetirer').style.display = a.actif ? '' : 'none';
   $('#dlgSettings').showModal();
 };
 // « Trouver le port » : le port d'entrée OSC de MadMapper est un réglage de
@@ -2537,10 +2977,83 @@ $('#btnTrouverPort').onclick = async () => {
 };
 $('#setCancel').onclick = () => $('#dlgSettings').close();
 $('#setSave').onclick = async () => {
-  await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });
+  // Un SEUL envoi de réglages. Deux, c'étaient deux sauvegardes de config et
+  // deux évaluations de l'icône par enregistrement — de quoi tuer puis relancer
+  // le script coup sur coup.
+  await post('/api/settings', {
+    mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value,
+    feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value,
+    systray: $('#setSystray').checked,
+  });
   await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
+  // ⚠ UN CHAMP VIDE NE TOUCHE À RIEN. Une première version envoyait alors un
+  // retrait — or le champ est vidé à CHAQUE ouverture du dialogue (le serveur ne
+  // renvoie jamais le code). Ouvrir Réglages pour changer le port MadMapper et
+  // enregistrer supprimait donc le code d'accès en silence, et déconnectait
+  // toutes les tablettes. Le retrait est maintenant un geste explicite : le
+  // bouton « Retirer le code », qui demande confirmation.
+  const nouveau = $('#setAcces').value.trim();
+  if (nouveau) {
+    const r = await post('/api/acces', { nouveau });
+    if (r && r.ok === false && r.error) { toast(r.error); return; }
+    $('#setAcces').value = '';
+    toast('Code d’accès enregistré.');
+  }
   $('#dlgSettings').close(); poll();
 };
+
+/* ─── Code d'accès ────────────────────────────────────────────────────────────
+ * Quand le serveur répond 401, on demande le code. Le jeton revient dans un
+ * cookie HttpOnly : la page ne le voit jamais, donc un nom de fixture piégé ne
+ * peut pas le faire fuir. Rien à stocker ici.
+ */
+let accesDemande = false;
+function demanderAcces() {
+  if (accesDemande) return;
+  accesDemande = true;
+  $('#accesErreur').textContent = '';
+  $('#accesCode').value = '';
+  if (!$('#dlgAcces').open) $('#dlgAcces').showModal();
+  $('#accesCode').focus();
+}
+async function envoyerAcces() {
+  const code = $('#accesCode').value.trim();
+  if (!/^\d{4}$/.test(code)) { $('#accesErreur').textContent = 'Quatre chiffres.'; return; }
+  let r;
+  try {
+    r = await fetch('/api/acces', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ code }) }).then(x => x.json());
+  } catch (e) { $('#accesErreur').textContent = 'Serveur injoignable.'; return; }
+  if (r && r.ok) {
+    accesDemande = false;
+    $('#dlgAcces').close();
+    poll();
+    return;
+  }
+  $('#accesCode').value = '';
+  $('#accesCode').focus();
+  // On dit combien d'essais restent : sans ça, le blocage ressemble à une panne.
+  $('#accesErreur').textContent = r && r.attendre
+    ? 'Trop d’essais. Réessaie dans ' + r.attendre + ' s.'
+    : 'Code incorrect.' + (r && r.restants != null ? ' Encore ' + r.restants + ' essai'
+        + (r.restants > 1 ? 's' : '') + '.' : '');
+}
+$('#btnAccesRetirer').onclick = async () => {
+  // Retirer un code déconnecte toutes les tablettes déjà entrées : ça se
+  // confirme. C'est le seul chemin qui supprime le code.
+  if (!confirm('Retirer le code d’accès ?\n\nCascade redeviendra pilotable par '
+      + 'n’importe qui sur le réseau, et les appareils déjà connectés seront déconnectés.')) return;
+  const r = await post('/api/acces', { nouveau: '' });
+  if (r && r.ok === false && r.error) { toast(r.error); return; }
+  toast('Code d’accès retiré.');
+  $('#dlgSettings').close();
+  poll();
+};
+
+$('#accesOk').onclick = envoyerAcces;
+$('#accesCode').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); envoyerAcces(); } };
+// Un dialogue modal se ferme sur Échap : ici il n'y a rien derrière, on le rouvre.
+$('#dlgAcces').addEventListener('close', () => { if (accesDemande) setTimeout(demanderAcces, 50); });
 
 // ═══════════════════════════════════════════════════════════════════════
 // PAGE SCÈNE 3D
@@ -3288,7 +3801,14 @@ for (const [id, cle] of [['#scW', 'w'], ['#scD', 'd'], ['#scH', 'h']]) {
 // ── Boucle d'état ────────────────────────────────────────────────────
 async function poll() {
   try {
-    const ns = await fetch('/api/state').then(r => r.json());
+    // Le niveau du micro voyage sur le poll qu'on fait déjà : ~8 octets sur la
+    // ligne de requête, zéro dans la réponse. Sans micro, rien n'est ajouté —
+    // un iPad ne peut donc pas écraser ce qu'entend la machine hôte.
+    const rep = await fetch('/api/state' + (suiveur.actif ? '?a=' + suiveur.niv.toFixed(3) : ''));
+    // 401 = code d'accès demandé. Sans ce test, la réponse d'erreur remplacerait
+    // l'état et render() planterait sur un objet qui n'a ni couches ni fixtures.
+    if (rep.status === 401) { demanderAcces(); return; }
+    const ns = await rep.json();
     if (dragging && S) { S.levels = ns.levels; S.colors = ns.colors; S.global = ns.global; }
     else S = ns;
     $('#status').classList.add('ok');

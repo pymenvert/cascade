@@ -14,11 +14,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { exec, spawn } = require('child_process');
+const crypto = require('crypto');
 
 const APP_NAME = 'Cascade';
-const VERSION = '2.0.1';
+const VERSION = '2.0.2';
 const SIGNATURE = 'Pierre-Yves Mansour — Collectif WSK';
 const PRESET_SLOTS = 16;
+// Orange signature de la charte (`--accent` dans public/index.html). Sert aux
+// empreintes de presets, où une couche d'intensité n'a pas de couleur à montrer.
+const ACCENT = '#f2900f';
 const MAX_LAYERS = 8;
 const MAX_FIXTURES = 128;
 const MAX_MIDI_BINDINGS = 256;
@@ -36,6 +40,11 @@ const BACKUP_FILE = CONFIG_FILE + '.bak';
 const LEGACY_FILE = process.env.CASCADE_CONFIG ? null : path.join(DATA_DIR, 'chaser-config.json');
 const NO_BROWSER = process.env.CASCADE_NO_BROWSER === '1';
 const NO_AUTOQUIT = process.env.CASCADE_NO_AUTOQUIT === '1';
+// Délai de grâce de l'arrêt automatique. Réglable pour que les tests puissent
+// le MESURER en une seconde au lieu de neuf : sans ça, la seule vérification
+// possible serait indirecte, et c'est exactement comme ça qu'on ne voit pas
+// qu'un sondage d'icône réarme le compteur.
+const UI_GONE_MS = Math.max(200, +process.env.CASCADE_UI_GONE_MS || 8000);
 
 // Robustesse : une erreur imprévue ne doit jamais tuer le show.
 process.on('uncaughtException', (e) => console.error('[cascade] erreur inattendue :', e && e.message));
@@ -121,7 +130,20 @@ const state = {
               // /getControlValues). D'où ce réglage explicite : sans lui, tout
               // renvoi de disposition entasserait les barres dans le coin
               // supérieur gauche.
-              outW: 1920, outH: 1080 },
+              outW: 1920, outH: 1080,
+              // Suiveur audio — la calibration. L'analyse elle-même vit dans le
+              // navigateur (Web Audio) : le zéro-dépendance interdit une entrée
+              // son côté serveur. Ces réglages voyagent avec la configuration.
+              audioGain: 1, audioSeuil: 0.06,
+              audioAttaque: 12, audioRelache: 260, audioBande: 'grave',
+              // Icône de zone de notification (Windows seulement). ⚠ Éteinte
+              // par défaut : écrite depuis Linux, jamais exécutée.
+              systray: false,
+              // Code d'accès facultatif à 4 chiffres. On stocke un HACHAGE salé,
+              // jamais le code : `settings` n'est pas exporté avec le projet,
+              // mais il est écrit en clair dans `cascade-config.json`, à côté de
+              // l'exécutable — donc sur la clé USB qu'on prête.
+              acces: null },
   fixtures: [],
   // Dimensions du plateau, en MÈTRES. Repère main droite, origine au centre du
   // plateau au sol : X = jardin↔cour, Y = profondeur (vers le lointain),
@@ -222,7 +244,7 @@ function writeConfigNow() {
     const data = JSON.stringify({
       app: APP_NAME, version: VERSION, projectName: state.projectName,
       settings: state.settings, scene: state.scene, vues: state.vues,
-      scene: state.scene, fixtures: state.fixtures, groups: state.groups,
+      fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global, presets: state.presets, midiMap: state.midiMap,
     }, null, 2);
     const tmp = CONFIG_FILE + '.tmp';
@@ -330,6 +352,13 @@ function sanitizeLayerSet(set) {
 const LFO_PARAMS = ['level', 'floor', 'width', 'speed', 'duty', 'course',
                     'prof', 'phase', 'spread'];
 const LFO_FORMES = ['sine', 'triangle', 'square', 'rampe'];
+// D'où vient le mouvement d'un modulateur. Liste FERMÉE, comme `LFO_PARAMS` :
+// une valeur inconnue retombe sur 'lfo', donc toute config, tout preset et tout
+// export existants se comportent exactement comme avant.
+const MOD_SOURCES = ['lfo', 'audio'];
+// Bandes du suiveur audio. « grave » suit la grosse caisse et la basse, « aigu »
+// les cymbales et les voix, « tout » l'énergie générale.
+const AUDIO_BANDES = ['grave', 'medium', 'aigu', 'tout'];
 
 function sanitizeLFO(v) {
   if (!v || typeof v !== 'object') return null;
@@ -337,6 +366,7 @@ function sanitizeLFO(v) {
   return {
     on: !!v.on,
     param: v.param,
+    src: MOD_SOURCES.includes(v.src) ? v.src : 'lfo',
     forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
     // Bornes larges : de la respiration lente (2 min) au frémissement (100 ms).
     periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 4000)),
@@ -378,7 +408,12 @@ function appliquerLFO(L, now, store = engines) {
   e.lfoLast = now;
   e.lfoU = (e.lfoU + dt / periode) % 1;
 
-  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, e.lfoU);
+  // ⚠ L'horloge ci-dessus avance MÊME en source audio : basculer sur le micro
+  // puis revenir à l'oscillateur reprend la course là où elle en était, au lieu
+  // de téléporter le modulateur au milieu de son cycle.
+  const x = valeurMod(m, e.lfoU, now);
+  if (x == null) return L; // micro périmé : le réglage du régisseur reprend
+  const brut = doserMod(m, x, L[m.param]);
   return { ...L, ...sanitizeLayerSet({ [m.param]: brut }) };
 }
 
@@ -426,6 +461,7 @@ function sanitizeModGlobal(v) {
   return {
     on: !!v.on,
     param: v.param,
+    src: MOD_SOURCES.includes(v.src) ? v.src : 'lfo',
     forme: LFO_FORMES.includes(v.forme) ? v.forme : 'sine',
     periodeMs: Math.round(cnum(v.periodeMs, 100, 120000, 8000)),
     sync: !!v.sync,
@@ -448,12 +484,67 @@ function globalEff(cle) {
   return (modGlobalVal && cle in modGlobalVal) ? modGlobalVal[cle] : state.global[cle];
 }
 
+/**
+ * Niveau entendu au micro. Analysé par le NAVIGATEUR (Web Audio), poussé ici en
+ * paramètre du poll : le zéro-dépendance interdit une entrée son côté serveur.
+ *
+ * Volatil, jamais persisté, jamais exporté : c'est une mesure de l'instant, pas
+ * un réglage. Un niveau sauvegardé se retrouverait figé dans un preset.
+ *
+ * ⚠ LA PÉREMPTION REND LA MAIN, elle ne tombe pas à zéro. Sans niveau frais —
+ * onglet fermé, micro débranché, machine en veille — `niveauAudio` rend `null`
+ * et le modulateur laisse le réglage du régisseur intact. Retomber sur `min`
+ * mettrait le paramètre à sa borne basse : sur `master` avec min 0, c'est le
+ * noir en plein spectacle.
+ *
+ * ⚠⚠ ET LE FONDU DOSE LE RETOUR À LA MAIN, PAS LE NIVEAU. C'est toute la
+ * subtilité, et une première version s'y est trompée : elle faisait décroître le
+ * NIVEAU vers 0 entre la tenue et la péremption. Or `min + (max-min) × niveau`
+ * envoie un niveau nul sur `min` — donc le paramètre plongeait vers sa borne
+ * basse pendant 450 ms AVANT de rendre la main d'un coup. Exactement le noir en
+ * plein show que le paragraphe ci-dessus dit éviter, et un saut à l'arrivée.
+ * `frais` pondère donc le mélange entre la valeur modulée et le réglage réglé à
+ * la main : à 1 le micro commande, à 0 le régisseur a repris, et entre les deux
+ * ça glisse de l'un à l'autre sans jamais viser `min`.
+ */
+const audio = { v: 0, at: 0 };
+const AUDIO_TENUE_MS = 250, AUDIO_PEREMPTION_MS = 700;
+function niveauAudio(now) {
+  if (!audio.at) return null;
+  const age = now - audio.at;
+  if (age >= AUDIO_PEREMPTION_MS) return null;
+  const frais = age <= AUDIO_TENUE_MS ? 1
+    : 1 - (age - AUDIO_TENUE_MS) / (AUDIO_PEREMPTION_MS - AUDIO_TENUE_MS);
+  return { v: audio.v, frais };
+}
+
 /** Forme d'onde commune aux deux modulateurs, sur une phase 0..1. */
 function ondeLFO(forme, u) {
   if (forme === 'square') return u < 0.5 ? 1 : 0;
   if (forme === 'triangle') return 1 - 2 * Math.abs(u - 0.5);
   if (forme === 'rampe') return u;
   return 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+}
+
+/**
+ * D'où vient le mouvement : l'oscillateur, ou le micro. Rend `{ v, frais }`, ou
+ * `null` quand la source audio n'a plus rien de frais — l'appelant laisse alors
+ * le réglage tel quel. L'oscillateur est toujours frais : il ne décroche pas.
+ */
+function valeurMod(m, u, now) {
+  return m.src === 'audio' ? niveauAudio(now) : { v: ondeLFO(m.forme, u), frais: 1 };
+}
+
+/**
+ * Mélange la valeur modulée et le réglage posé à la main, selon la fraîcheur de
+ * la source. Voir `niveauAudio` : c'est ce qui empêche un micro qui décroche
+ * d'emmener le paramètre sur sa borne basse.
+ */
+function doserMod(m, x, reglage) {
+  const brut = m.min + (m.max - m.min) * x.v;
+  if (x.frais >= 1) return brut;
+  const r = fini(reglage, brut);
+  return r + x.frais * (brut - r);
 }
 
 /**
@@ -476,7 +567,10 @@ function calculerModGlobal(now) {
   const dt = Math.min(1000, Math.max(0, now - engGlobal.last));
   engGlobal.last = now;
   engGlobal.u = (engGlobal.u + dt / periode) % 1;
-  const brut = m.min + (m.max - m.min) * ondeLFO(m.forme, engGlobal.u);
+  // L'horloge avance même en source audio (voir `appliquerLFO`).
+  const x = valeurMod(m, engGlobal.u, now);
+  if (x == null) return; // micro périmé : `modGlobalVal` reste null, réglage intact
+  const brut = doserMod(m, x, state.global[m.param]);
   // Mêmes bornes qu'une saisie à la main : le modulateur ne peut rien sortir de
   // sa plage, même avec des min/max délirants.
   const propre = sanitizeGlobal({ [m.param]: brut });
@@ -495,6 +589,29 @@ function sanitizeSettings(s) {
   if ('linkQuantum' in s) o.linkQuantum = Math.round(cnum(s.linkQuantum, 1, 16, 4));
   for (const k of ['outW', 'outH']) {
     if (k in s) o[k] = Math.round(cnum(s[k], 16, 32768, o[k]));
+  }
+  // Calibration du suiveur audio. Elle vit ICI et pas dans le navigateur : la
+  // promesse du projet est que la configuration voyage avec l'exécutable, sur
+  // une clé USB. Un réglage laissé dans le `localStorage` resterait sur la
+  // machine, et le régisseur retrouverait un micro déréglé en arrivant en salle.
+  if ('audioGain' in s) o.audioGain = cnum(s.audioGain, 0.1, 10, 1);
+  if ('audioSeuil' in s) o.audioSeuil = cnum(s.audioSeuil, 0, 0.9, 0.06);
+  if ('audioAttaque' in s) o.audioAttaque = Math.round(cnum(s.audioAttaque, 1, 500, 12));
+  if ('audioRelache' in s) o.audioRelache = Math.round(cnum(s.audioRelache, 20, 3000, 260));
+  if ('audioBande' in s) o.audioBande = AUDIO_BANDES.includes(s.audioBande) ? s.audioBande : 'grave';
+  if ('systray' in s) o.systray = !!s.systray;
+  // Code d'accès : accepté seulement s'il a la FORME d'un réglage déjà haché.
+  // Il arrive par deux voies légitimes — le fichier de configuration au
+  // démarrage, et `/api/acces`, qui hache lui-même. Un client qui poserait un
+  // faux haché via `/api/settings` se contenterait de changer le code, ce qui
+  // demande déjà d'être autorisé ; mais on refuse quand même toute forme
+  // douteuse plutôt que de la recopier telle quelle.
+  if ('acces' in s) {
+    const a = s.acces;
+    o.acces = (a && typeof a === 'object'
+      && typeof a.sel === 'string' && /^[0-9a-f]{16}$/.test(a.sel)
+      && typeof a.h === 'string' && /^[0-9a-f]{64}$/.test(a.h))
+      ? { sel: a.sel, h: a.h } : null;
   }
   return o;
 }
@@ -726,7 +843,11 @@ function sanitizePresets(list) {
   if (!Array.isArray(list)) return Array(PRESET_SLOTS).fill(null);
   return list.slice(0, PRESET_SLOTS).map(p =>
     p && typeof p === 'object' && Array.isArray(p.layers) && p.layers.length
-      ? { name: String(p.name || 'P').slice(0, 12),
+      // ⚠ 16, pas 12 : `savePreset` et le renommage coupent tous deux à 16.
+      // Couper plus court ICI rabotait silencieusement tout nom de 13 à 16
+      // caractères — pas à la saisie, mais au redémarrage et à l'import, quand
+      // plus personne ne regarde. « Refrain final 2 » revenait « Refrain fin ».
+      ? { name: String(p.name || 'P').slice(0, 16),
           layers: p.layers.slice(0, MAX_LAYERS).map(sanitizeLayer),
           fixtures: Array.isArray(p.fixtures) ? sanitizeFixtures(p.fixtures) : null }
       : null
@@ -1124,9 +1245,179 @@ function setLinkActive(on, keepError) {
 }
 
 function killCarabiner() { if (linkChild) { try { linkChild.kill(); } catch (e) {} linkChild = null; } }
-process.on('exit', killCarabiner);
-process.on('SIGINT', () => { flushConfig(); killCarabiner(); process.exit(0); });
-process.on('SIGTERM', () => { flushConfig(); killCarabiner(); process.exit(0); });
+
+/* ─── Icône de zone de notification (Windows) ─────────────────────────────────
+ * Demande de Pym : voir d'un coup d'œil si ça tourne, et piloter sans rouvrir
+ * la page. Node n'a AUCUNE API de zone de notification — dessiner cette icône
+ * demande du code natif. Sous Windows, PowerShell donne accès à
+ * `System.Windows.Forms.NotifyIcon`, présent d'origine : zéro installation,
+ * zéro dépendance npm, la règle n°2 tient.
+ *
+ * ⚠ WINDOWS SEULEMENT, et c'est un choix, pas un oubli (décidé avec Pym le
+ * 2026-08-05). macOS n'a pas d'équivalent scriptable : un élément de barre de
+ * menus demande une application compilée ou un outil tiers. Linux dépend de
+ * l'environnement de bureau. Plutôt qu'une fonction bancale partout, une
+ * fonction franche là où se trouve la régie.
+ *
+ * ⚠ DÉSACTIVÉE PAR DÉFAUT, parce qu'elle n'a jamais pu être exécutée : elle a
+ * été écrite depuis Linux, où PowerShell n'existe pas. Tout est donc enveloppé :
+ * un échec est silencieux et ne touche jamais le serveur. À activer dans
+ * Réglages, et à confirmer sur une vraie machine Windows.
+ *
+ * Le script est EMBARQUÉ ici, pas dans un fichier à côté : le distribuable est
+ * un exécutable unique, et un `.ps1` externe n'existerait pas à côté de lui.
+ * Il est écrit dans le dossier temporaire au démarrage.
+ *
+ * Le dialogue passe par l'API HTTP de Cascade, pas par un tuyau maison : le
+ * script sait déjà parler à `localhost`, et ça évite tout un protocole.
+ *
+ * ⚠ EN ÉDITANT CE SCRIPT : c'est un littéral de gabarit JavaScript. Un accent
+ * grave (l'échappement de PowerShell) ou une séquence ${…} casserait
+ * `server.js` AU CHARGEMENT — Cascade ne démarrerait plus du tout, pas
+ * seulement l'icône. Les libellés sont aussi volontairement SANS ACCENTS.
+ */
+const SYSTRAY_PS1 = `param([int]$Port)
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Rond([System.Drawing.Color]$c) {
+  $bmp = New-Object System.Drawing.Bitmap 16,16
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.SmoothingMode = 'AntiAlias'
+  $g.FillEllipse((New-Object System.Drawing.SolidBrush $c), 2, 2, 12, 12)
+  $g.Dispose()
+  return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+}
+$vert  = Rond ([System.Drawing.Color]::FromArgb(61,220,132))
+$rouge = Rond ([System.Drawing.Color]::FromArgb(255,82,82))
+$base  = "http://127.0.0.1:$Port"
+
+function Appeler($chemin) {
+  try { Invoke-RestMethod -Uri "$base$chemin" -Method Post -Body '{}' -ContentType 'application/json' -TimeoutSec 3 | Out-Null } catch {}
+}
+
+$ni = New-Object System.Windows.Forms.NotifyIcon
+$ni.Icon = $rouge
+$ni.Text = 'Cascade'
+$ni.Visible = $true
+
+# Un seul chemin de sortie, et il commence par effacer l'icone. Sans ce
+# NIM_DELETE (c'est ce que fait Visible = false), Windows garde une pastille
+# morte jusqu'a ce que la souris passe dessus.
+function Partir {
+  $ni.Visible = $false
+  [System.Windows.Forms.Application]::Exit()
+  [Environment]::Exit(0)
+}
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+$mOuvrir = $menu.Items.Add("Ouvrir l'interface")
+$mOuvrir.add_Click({ Start-Process $base })
+$menu.Items.Add('-') | Out-Null
+$mGo = $menu.Items.Add('Demarrer le show')
+$mGo.add_Click({ Appeler '/api/start' })
+$mStop = $menu.Items.Add('Arreter le show')
+$mStop.add_Click({ Appeler '/api/stop' })
+$menu.Items.Add('-') | Out-Null
+$mQuit = $menu.Items.Add('Quitter Cascade')
+$mQuit.add_Click({ Appeler '/api/quit'; Partir })
+$ni.ContextMenuStrip = $menu
+$ni.add_MouseDoubleClick({ Start-Process $base })
+
+# Sondage de l'etat sur /api/ping : la route la plus legere, ET la seule qui ne
+# fasse pas passer ce script pour une interface ouverte (sinon l'arret
+# automatique de Cascade ne se declencherait plus jamais).
+#
+# Trois echecs d'affilee avant de partir, pas un seul : un pic de charge en
+# plein show fait depasser le delai de 3 s, et une icone qui disparait pour ca
+# ne revient plus jamais.
+$script:rates = 0
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 1500
+$timer.add_Tick({
+  try {
+    $e = Invoke-RestMethod -Uri "$base/api/ping" -TimeoutSec 3 -ErrorAction Stop
+    $script:rates = 0
+    # La case vient d'etre decochee : on part proprement, sans laisser de
+    # fantome. Le serveur tue ce processus de son cote 3 s plus tard, au cas ou.
+    if ($e.PSObject.Properties['systray'] -and -not $e.systray) { Partir; return }
+    if ($e.running) { $ni.Icon = $vert; $ni.Text = 'Cascade - le show tourne' }
+    else { $ni.Icon = $rouge; $ni.Text = 'Cascade - a l arret' }
+  } catch {
+    $script:rates = $script:rates + 1
+    if ($script:rates -ge 3) { Partir }
+  }
+})
+$timer.Start()
+[System.Windows.Forms.Application]::Run()
+`;
+
+let systrayChild = null;
+/**
+ * Éteindre l'icône.
+ *
+ * `doux` = on laisse d'abord le script partir de LUI-MÊME. Il voit
+ * `systray: false` sur son prochain sondage (1,5 s au pire) et efface l'icône
+ * en partant. Tuer le processus, à l'inverse, n'exécute aucun nettoyage :
+ * `TerminateProcess` ne laisse pas le temps d'envoyer `NIM_DELETE`, et Windows
+ * garde une pastille morte jusqu'à ce que la souris passe dessus. Le kill reste
+ * armé 3 s plus tard, au cas où le script serait coincé — et il vise CE
+ * processus-là, pas « celui qui tourne à ce moment-là ».
+ *
+ * On garde la référence pendant ces 3 s : si la case est recochée entretemps,
+ * `startSystray()` ne relance rien et le script, revoyant `systray: true`,
+ * reste en place. L'icône n'a même pas cligné.
+ */
+function killSystray(doux) {
+  const enfant = systrayChild;
+  if (!enfant) return;
+  if (doux) {
+    setTimeout(() => { try { enfant.kill(); } catch (e) {} }, 3000).unref();
+    return;
+  }
+  systrayChild = null;
+  try { enfant.kill(); } catch (e) {}
+}
+function startSystray() {
+  // Silencieux et sans conséquence si quoi que ce soit manque : cette fonction
+  // ne doit JAMAIS empêcher Cascade de démarrer.
+  try {
+    if (process.platform !== 'win32' || !state.settings.systray || systrayChild) return;
+    const fichier = path.join(os.tmpdir(), 'cascade-systray.ps1');
+    // Le BOM n'est pas décoratif : PowerShell 5.1 lit un .ps1 SANS BOM dans la
+    // page de codes ANSI de la machine, pas en UTF-8. Le script est ASCII pur
+    // aujourd'hui (libellés volontairement sans accents), donc ça marcherait —
+    // mais le premier accent ajouté casserait tout, très loin d'ici.
+    fs.writeFileSync(fichier, '﻿' + SYSTRAY_PS1);
+    const enfant = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+      '-ExecutionPolicy', 'Bypass', '-File', fichier, '-Port', String(actualPort)],
+      { stdio: 'ignore', windowsHide: true });
+    systrayChild = enfant;
+    // ⚠ Comparer avant d'effacer. Sans ça : on tue A, on lance B, l'événement
+    // `exit` de A arrive APRÈS et met la référence à null alors que B est
+    // vivant — Cascade perd sa poignée et un `startSystray()` ultérieur pose
+    // une deuxième icône.
+    const oublier = () => { if (systrayChild === enfant) systrayChild = null; };
+    enfant.on('error', (e) => {
+      // Le seul endroit qui dira pourquoi rien n'apparaît. Sans ce message,
+      // un premier essai raté sur une vraie machine Windows ne remonte rien.
+      console.warn('[cascade] icône de notification : ' + (e && e.message));
+      oublier();
+    });
+    enfant.on('exit', (code) => {
+      if (code) console.warn('[cascade] icône de notification : PowerShell a quitté (code ' + code + ').');
+      oublier();
+    });
+  } catch (e) {
+    console.warn('[cascade] icône de notification : ' + (e && e.message));
+    systrayChild = null;
+  }
+}
+
+process.on('exit', () => { killCarabiner(); killSystray(); });
+process.on('SIGINT', () => { flushConfig(); killCarabiner(); killSystray(); process.exit(0); });
+process.on('SIGTERM', () => { flushConfig(); killCarabiner(); killSystray(); process.exit(0); });
 
 // ---------------------------------------------------------------------------
 // Arrêt automatique (mode app, plus de terminal visible) : quand la dernière
@@ -1135,10 +1426,12 @@ process.on('SIGTERM', () => { flushConfig(); killCarabiner(); process.exit(0); }
 //  - jamais tant qu'aucune interface ne s'est encore connectée (démarrage) ;
 //  - JAMAIS pendant que les chasers tournent (on ne coupe pas un show) ;
 //  - jamais si un contrôleur OSC externe a parlé récemment.
-// 8 s de grâce : un simple rechargement de page ne déclenche rien.
+//  - et l'icône de zone de notification sonde `/api/ping`, PAS `/api/state` :
+//    sinon elle passerait pour une interface ouverte et l'arrêt automatique ne
+//    se déclencherait plus jamais.
+// 8 s de grâce par défaut : un simple rechargement de page ne déclenche rien.
 // ---------------------------------------------------------------------------
 let lastUiPollAt = 0, lastOscAt = 0;
-const UI_GONE_MS = 8000;
 setInterval(() => {
   if (NO_AUTOQUIT || !lastUiPollAt) return;
   const now = Date.now();
@@ -1148,7 +1441,7 @@ setInterval(() => {
   console.log('[cascade] plus aucune interface ouverte — arrêt automatique.');
   flushConfig(); killCarabiner();
   process.exit(0);
-}, 2000);
+}, Math.min(2000, Math.max(100, Math.floor(UI_GONE_MS / 4))));
 
 // Courbe vitesse : 0–1 → ×0.1 à ×4, centre 0.5 = ×1
 function speedCurve(v) { return v >= 0.5 ? Math.pow(4, (v - 0.5) * 2) : Math.pow(10, (v - 0.5) * 2); }
@@ -1485,8 +1778,17 @@ function savePreset(i, name) {
   return { name: n || 'P' + (i + 1), layers: deep(state.layers), fixtures: deep(state.fixtures) };
 }
 /** Fondu en cours entre deux presets (null = rappel sec). */
-let fade = null; // { start, dur, layers, fixtures, engines }
+let fade = null; // { start, dur, de, layers, fixtures, engines }
 function cancelFade() { fade = null; }
+
+// ── Repères de la banque de presets, pour l'interface ─────────────────────────
+// Les deux vivent en MÉMOIRE et n'entrent PAS dans `state` : rien à sanitiser,
+// rien à exporter, rien à migrer. `presetActif` = dernier slot rappelé ou
+// enregistré, pour que le régisseur voie quel pavé joue. `presetsRev` = compteur
+// de révision de la banque : l'interface ne recharge les empreintes que
+// lorsqu'il bouge, au lieu de les faire voyager 8 fois par seconde.
+let presetActif = null;
+let presetsRev = 1;
 
 /**
  * Rappelle un preset. Si un temps de fondu est réglé ET qu'un show tourne,
@@ -1506,7 +1808,7 @@ function recallPreset(i, fadeMs) {
     }
     // Un rappel pendant un fondu remplace le précédent : la scène en cours de
     // sortie est abandonnée, sinon il faudrait empiler les fondus à l'infini.
-    fade = { start: Date.now(), dur, layers: deep(state.layers),
+    fade = { start: Date.now(), dur, de: presetActif, layers: deep(state.layers),
              fixtures: deep(state.fixtures), engines: store };
   } else cancelFade();
   state.layers = deep(p.layers);
@@ -1521,10 +1823,70 @@ function recallPreset(i, fadeMs) {
     pruneCaches();
   }
   engines.clear();
+  // ⚠ Un rappel ne change pas la BANQUE, donc il n'incrémente pas `presetsRev`
+  // en général — recharger les empreintes à chaque rappel ferait une requête de
+  // plus au pire moment. MAIS s'il a remplacé le plateau, il change l'empreinte
+  // de tout preset qui n'a PAS de disposition à lui (les projets importés
+  // peuvent en avoir : `sanitizePresets` autorise `fixtures: null`), puisque
+  // ceux-là retombent sur `state.fixtures`. Mesuré : une empreinte passait de
+  // trois barres à une sans que la grille le sache.
+  if (Array.isArray(p.fixtures) && p.fixtures.length) presetsRev++;
+  presetActif = i;
   return true;
 }
 /** Noms des presets pour l'interface : null = slot vide. */
 function presetNames() { return state.presets.map((p, i) => p ? (p.name || 'P' + (i + 1)) : null); }
+
+/**
+ * Empreinte d'un preset, pour la vignette d'un pavé de la grille.
+ *
+ * ⚠ C'est une empreinte de COUVERTURE, pas une photo du motif : elle dit quelles
+ * barres le preset pilote et avec quelles teintes, pas ce qui est allumé à un
+ * instant donné (un chase n'allume qu'une barre à la fois — une photo serait
+ * presque vide et changerait à chaque image).
+ *
+ * Elle passe par `resolveBars`, donc elle ment EXACTEMENT comme mentirait le
+ * moteur : un groupe vidé ramène la couche sur toutes les barres, ici comme en
+ * scène. C'est voulu — une vignette qui corrige le moteur serait pire.
+ *
+ * Aucun moteur n'est instancié, aucun état runtime touché, aucun OSC émis : on
+ * peut l'appeler pendant un show sans rien déranger. Et elle n'est PAS dans
+ * `/api/state`, à dessein : cette réponse part 8 fois par seconde.
+ */
+function infoPreset(p) {
+  if (!p) return null;
+  // Un preset importé d'une vieille config peut n'avoir aucune fixture : on
+  // retombe alors sur le plateau courant, faute de mieux.
+  const fx = (Array.isArray(p.fixtures) && p.fixtures.length ? p.fixtures : state.fixtures)
+    .filter(f => f && f.enabled !== false);
+  // Plafond de 64 cases : au-delà on sous-échantillonne. Une bande de 128 cases
+  // serait illisible, et la charge utile grossirait pour rien.
+  const pas = Math.ceil(fx.length / 64) || 1;
+  const vus = fx.filter((f, i) => i % pas === 0);
+  const rang = new Map(vus.map((f, i) => [f.id, i]));
+  const cases = new Array(vus.length).fill('.');
+  const pal = [];
+  const act = p.layers.filter(L => L.enabled);
+  for (const L of act) {
+    const c = L.target === 'color' ? (L.colorA || '#ff2000') : ACCENT;
+    let k = pal.indexOf(c);
+    if (k < 0) { k = pal.length; pal.push(c); }
+    // ⚠ Résoudre sur `fx` COMPLET, pas sur l'échantillon : `resolveBars` replie
+    // sur toutes les barres quand aucune de la sélection n'est présente, et
+    // sous-échantillonner d'abord déclencherait ce repli à tort.
+    for (const f of resolveBars(L, fx)) {
+      const r = rang.get(f.id);
+      if (r != null) cases[r] = String(k);
+    }
+  }
+  return {
+    a: act.length, t: p.layers.length,
+    e: act.map(L => L.engine === 'steps' ? 'P' : L.engine === 'wave' ? 'V' : 'C').join('').slice(0, 8),
+    pal, c: cases.join(''),
+  };
+}
+/** Empreintes des 16 slots. Servie à la demande, jamais dans `/api/state`. */
+function presetsInfo() { return state.presets.map(infoPreset); }
 
 /** Resync : recale la phase (départ des pas) d'une couche, ou de toutes. */
 /**
@@ -2453,13 +2815,253 @@ function readBody(req) {
     req.on('aborted', () => finish({}));
   });
 }
+/* ─── Code d'accès facultatif ─────────────────────────────────────────────────
+ * Cascade s'ouvre depuis un iPad ou un téléphone, donc depuis le Wi-Fi de la
+ * salle. Un code à 4 chiffres empêche un curieux de prendre la main sur la
+ * lumière pendant le spectacle.
+ *
+ * ⚠ QUATRE CHIFFRES, C'EST 10 000 COMBINAISONS. Sans limitation de tentatives,
+ * ça se casse en quelques secondes et le code ne protège RIEN. La limitation
+ * ci-dessous n'est donc pas un raffinement : c'est ce qui rend la fonction
+ * honnête. Elle est verrouillée par un test et par un anti-mutant.
+ *
+ * Ce que ce code NE fait pas, volontairement :
+ *  - il ne ferme pas l'OSC ni le MIDI : ceux-là passent par un câble ou une
+ *    console posée sur le réseau de production, c'est un autre domaine de
+ *    confiance, et les fermer casserait les installations existantes ;
+ *  - il n'est jamais demandé en local. La machine hôte est celle qu'on a
+ *    physiquement sous la main, et cette exemption garantit qu'on ne peut PAS
+ *    s'enfermer dehors : il y a toujours une voie pour retirer le code.
+ *
+ * LA LIMITATION EST À DEUX ÉTAGES, et le second compte le plus. Le blocage par
+ * adresse (5 essais / minute) arrête un curieux, mais s'effondre dès qu'un
+ * attaquant fait varier son IP source — trivial en IPv6, où il tient tout un
+ * /64. D'où un PLAFOND GLOBAL, indépendant de l'IP : au-delà de N échecs par
+ * minute tous clients confondus, toute tentative depuis le réseau est refusée
+ * un moment. La machine hôte, elle, n'est jamais limitée (elle ne passe pas par
+ * le code). Un code à 4 chiffres reste faible par nature : ces deux étages le
+ * ramènent d'« instantané » à « des heures », ce qui suffit à couvrir un show,
+ * pas à en faire un secret fort.
+ *
+ * Mesuré (fenêtre ramenée à 2 s pour l'observer) : 6 échecs sur 6 adresses
+ * distinctes bloquent une adresse JAMAIS vue ; après la fenêtre, un échec rend à
+ * nouveau 401 et le bon code passe. Le blocage se LÈVE — il ne se perpétue pas.
+ * C'était le risque de cette mécanique : la durée du blocage vaut celle de la
+ * fenêtre, donc au moment où il se lève, la fenêtre est forcément expirée et le
+ * compteur repart de zéro. Raccourcir le blocage sous la fenêtre casserait ça.
+ *
+ * ⚠ LIMITE CONNUE, NON CORRIGÉE — le « DNS rebinding ». Rien ne vérifie l'en-tête
+ * `Host` : une page hébergée sur un domaine qui résout vers 127.0.0.1 devient
+ * MÊME ORIGINE aux yeux du navigateur, et tous les gardes ci-dessus tombent avec
+ * elle. Le correctif serait de refuser un `Host` qui n'est ni localhost ni une
+ * adresse de `lanUrls()` — mais il casserait l'accès par nom d'hôte
+ * (`http://mac-de-pym.local:3333`), qui marche aujourd'hui. Le QR code, lui,
+ * donne toujours une adresse IP. ⚠ ARBITRAGE DE PYM avant de trancher : on
+ * échange une attaque sophistiquée contre une façon de se connecter qui
+ * fonctionne. Ne pas « corriger » ça tout seul.
+ *
+ * ⚠ COMPROMIS ASSUMÉ du plafond global : quelqu'un qui rate volontairement
+ * 30 fois empêche les AUTRES appareils du réseau d'entrer pendant une minute.
+ * C'est un déni de service, mais le moins cher des deux : le régisseur garde sa
+ * machine (jamais bloquée), et l'alternative — laisser passer — rendrait le code
+ * cassable. Une gêne d'une minute contre la prise de contrôle du spectacle.
+ *
+ * ⚠ LIMITE ASSUMÉE : le code haché est écrit dans `cascade-config.json`, en
+ * clair sur le disque, à côté de l'exécutable. Quatre chiffres se cassent hors
+ * ligne instantanément : le code ne protège donc PAS contre quelqu'un qui tient
+ * ce fichier (ou la clé USB). C'est le même domaine de confiance que la machine
+ * hôte. En revanche un PROJET exporté ne porte pas `settings`, donc le partager
+ * ne fuit pas le code.
+ */
+const ACCES_MAX_ESSAIS = 5;        // avant blocage, PAR adresse
+const ACCES_BLOCAGE_MS = 60000;    // durée du blocage, par adresse
+const ACCES_JETON_MS = 12 * 3600 * 1000;
+const ACCES_GLOBAL_MAX = 30;       // échecs/minute TOUS clients confondus, avant blocage global
+const ACCES_GLOBAL_MS = 60000;     // fenêtre et durée du blocage global
+const ACCES_OUBLI_MS = 5 * 60000;  // au-delà, une adresse inactive est oubliée (borne la mémoire)
+const ACCES_MAX_CLES = 4096;       // plafond dur du nombre d'adresses suivies
+
+/** Jetons de session valides, en mémoire : un redémarrage redemande le code. */
+const accesJetons = new Map();     // jeton -> expiration
+/** Tentatives ratées par adresse : { n, jusqua, vu }. */
+const accesEssais = new Map();
+/** Étage global : échecs récents tous clients confondus, et fin du blocage. */
+const accesGlobal = { n: 0, debut: 0, bloqueJusqua: 0 };
+
+/**
+ * Balaie les adresses oubliées et les jetons expirés. Sans ça, un attaquant qui
+ * fait varier son IP source remplirait `accesEssais` sans fin (fuite mémoire).
+ * Appelé à chaque tentative — donc jamais si personne n'attaque.
+ */
+function nettoyerAcces(now) {
+  for (const [k, v] of accesEssais) {
+    if (now - (v.vu || 0) > ACCES_OUBLI_MS) accesEssais.delete(k);
+  }
+  // Filet dur : si la Map déborde malgré tout, on repart de zéro. Le plafond
+  // global reste, lui, en place — c'est lui qui tient sous une vraie attaque.
+  if (accesEssais.size > ACCES_MAX_CLES) accesEssais.clear();
+  for (const [j, exp] of accesJetons) {
+    if (now > exp) accesJetons.delete(j);
+  }
+}
+
+function hacherCode(code, sel) {
+  return crypto.createHash('sha256').update(sel + ':' + code).digest('hex');
+}
+/** Rend l'objet à persister, ou null pour retirer le code. */
+function poserCode(code) {
+  const c = String(code == null ? '' : code).trim();
+  if (!c) return null;
+  if (!/^\d{4}$/.test(c)) return undefined; // invalide : l'appelant refuse
+  const sel = crypto.randomBytes(8).toString('hex');
+  return { sel, h: hacherCode(c, sel) };
+}
+function codeJuste(code, reglage) {
+  if (!reglage || !reglage.h || !reglage.sel) return false;
+  const a = Buffer.from(hacherCode(String(code || ''), reglage.sel), 'hex');
+  const b = Buffer.from(String(reglage.h), 'hex');
+  // Comparaison à temps constant : sinon la durée de la réponse renseigne sur
+  // le nombre de chiffres justes.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * L'en-tête `Host` désigne-t-il bien CETTE machine ?
+ *
+ * ⚠ C'est la parade au « DNS rebinding », et sans elle tous les autres gardes
+ * tombent. L'attaque : une page sur `mechant.com`, avec une durée de vie DNS très
+ * courte, se ré-résout vers `127.0.0.1` après son chargement. Pour le navigateur
+ * l'origine n'a pas changé — la page est « chez elle » — donc le garde
+ * `Content-Type` ne sert plus à rien (elle pose l'en-tête qu'elle veut) et le
+ * cookie `SameSite` ne protège plus. Et Cascade, lui, voit une requête venant de
+ * 127.0.0.1, donc il l'exempte du code d'accès. Contrôle complet de la lumière,
+ * depuis n'importe quelle page web, sans être sur le réseau.
+ *
+ * Une requête rebindée porte `Host: mechant.com`. On n'accepte donc que ce sous
+ * quoi Cascade se sert légitimement :
+ *  - `localhost` et les adresses IP littérales (ce que donne le QR code) ;
+ *  - les noms en `.local` — réservés au mDNS (RFC 6762), donc impossibles à
+ *    posséder sur Internet : le système ne les résout que sur le réseau local.
+ *    C'est ce qui garde `mac-de-pym.local:3333` sans rouvrir la faille ;
+ *  - une requête SANS `Host` (HTTP/1.0, `curl` nu) : un navigateur en envoie
+ *    toujours un, donc son absence n'est jamais une attaque par rebinding.
+ *
+ * ⚠ Ce qui reste refusé, et c'est assumé : un nom de machine Windows sans
+ * suffixe, et les alias du fichier `hosts`. Décidé avec Pym le 2026-08-05 : il
+ * passe par le QR code ou par l'adresse IP.
+ */
+function hoteAutorise(req) {
+  const brut = req.headers && req.headers.host;
+  if (!brut) return true;
+  let h = String(brut).trim().toLowerCase();
+  if (h.startsWith('[')) {                      // IPv6 entre crochets : [::1]:3333
+    const f = h.indexOf(']');
+    return f > 0;                               // littéral IPv6 = cette machine
+  }
+  const parts = h.split(':');
+  if (parts.length > 2) return true;            // IPv6 nu, sans crochets
+  h = parts[0];
+  if (h === 'localhost' || h.endsWith('.local')) return true;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h);    // adresse IPv4 littérale
+}
+
+/**
+ * Le corps est-il annoncé en JSON ? Garde CSRF : voir le bloc POST.
+ *
+ * ⚠ ON COMPARE L'ESSENCE DU TYPE, PAS UNE SOUS-CHAÎNE. Une première version
+ * testait `.includes('application/json')` — et se contournait en une ligne :
+ * `Content-Type: multipart/form-data; boundary=application/json` contient la
+ * sous-chaîne, et la règle CORS ne regarde que l'essence (`type/sous-type`), en
+ * ignorant les paramètres. Ce type-là est donc « safelisté » : un `fetch` en
+ * `no-cors` le pose SANS pré-vol. Mesuré contre le serveur : `/api/quit` tuait
+ * le processus et `/api/acces {nouveau}` posait le code de l'installation.
+ * On coupe donc au premier `;` avant de comparer — ce qui accepte au passage
+ * `APPLICATION/JSON` (légal en HTTP) et refuse `application/jsonp`.
+ */
+function estJson(req) {
+  return String(req.headers['content-type'] || '')
+    .split(';')[0].trim().toLowerCase() === 'application/json';
+}
+
+/** Les réglages SANS le haché du code : ce qu'on a le droit d'envoyer. */
+function sansCode(reglages) {
+  const { acces, ...reste } = reglages;
+  return reste;
+}
+
+/** L'adresse est-elle la machine elle-même ? */
+function estLocal(req) {
+  const a = (req.socket && req.socket.remoteAddress) || '';
+  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+}
+function cleEssais(req) { return (req.socket && req.socket.remoteAddress) || '?'; }
+
+function jetonDeLaRequete(req) {
+  const brut = req.headers && req.headers.cookie;
+  if (!brut) return null;
+  const m = /(?:^|;\s*)cascade_acces=([A-Za-z0-9]+)/.exec(brut);
+  return m ? m[1] : null;
+}
+function jetonValide(req) {
+  const j = jetonDeLaRequete(req);
+  if (!j) return false;
+  const exp = accesJetons.get(j);
+  if (!exp) return false;
+  if (Date.now() > exp) { accesJetons.delete(j); return false; }
+  return true;
+}
+/** Vrai si la requête a le droit de passer. */
+function accesAutorise(req) {
+  if (!state.settings.acces) return true;  // aucun code posé
+  if (estLocal(req)) return true;          // la machine hôte, toujours
+  return jetonValide(req);
+}
+
 function json(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj));
 }
 
+/**
+ * Récupère le niveau du micro poussé par l'interface, en paramètre du poll
+ * qu'elle fait déjà : `GET /api/state?a=0.42`. Aucune requête de plus, ~8 octets
+ * sur la ligne de requête, zéro octet dans la réponse.
+ *
+ * Tolérant par construction : toute valeur illisible est ignorée en silence,
+ * plutôt que d'installer un niveau aberrant. Une entrée hostile ne doit jamais
+ * pouvoir clouer un modulateur en butée.
+ */
+function lireNiveauAudio(req) {
+  // ⚠ Refuser tout ce qui n'est pas une requête de script. Sans ce garde, une
+  // page piégée ouverte sur la machine hôte pouvait boucler sur
+  // `<img src="http://localhost:3333/api/state?a=1">` et clouer un modulateur de
+  // source audio en butée — sur le master avec min 0, le noir en plein show.
+  // Le `fetch` de l'interface annonce `empty` ; une image annonce `image`.
+  // Un client sans cet en-tête (curl, un test) passe : il n'est pas piégeable.
+  const dest = req.headers['sec-fetch-dest'];
+  if (dest && dest !== 'empty') return;
+  const q = req.url.indexOf('?');
+  if (q < 0) return;
+  const m = /(?:^|&)a=([0-9.]{1,8})(?:&|$)/.exec(req.url.slice(q + 1));
+  if (!m) return;
+  const v = parseFloat(m[1]);
+  if (!(v >= 0)) return; // NaN inclus : la comparaison est fausse pour lui
+  audio.v = Math.min(1, v);
+  audio.at = Date.now();
+}
+
 const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
+
+  // Parade au DNS rebinding — voir `hoteAutorise`. Placé tout en haut : même la
+  // PAGE est refusée, sinon elle se chargerait pour voir chaque appel d'API
+  // échouer, ce qui ressemblerait à une panne au lieu d'un refus.
+  if (!hoteAutorise(req)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Cascade ne répond que sur localhost, une adresse IP, ou un nom en .local.\n'
+      + 'Reçu : ' + String(req.headers.host || '(aucun)') + '\n'
+      + 'Utilisez le QR code de l\'interface, ou l\'adresse IP affichée en haut.');
+  }
 
   if (url === '/' || url === '/index.html') {
     fs.readFile(path.join(__dirname, 'public', 'index.html'), (err, buf) => {
@@ -2470,10 +3072,117 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Portillon du code d'accès ──────────────────────────────────────────────
+  // La PAGE est toujours servie (juste au-dessus) : sans elle, impossible
+  // d'afficher la demande de code. C'est l'API qui est fermée.
+  if (url.startsWith('/api/') && url !== '/api/ping' && url !== '/api/acces') {
+    if (!accesAutorise(req)) {
+      // ⚠ On note quand même qu'une interface est là. L'arrêt automatique
+      // regarde `lastUiPollAt` : sans cette ligne, le serveur pourrait se
+      // couper pendant que le régisseur tape son code. Le pire qu'un curieux
+      // puisse faire est donc de garder Cascade allumé — sans rien piloter.
+      if (url === '/api/state') lastUiPollAt = Date.now();
+      return json(res, { ok: false, acces: 'requis' }, 401);
+    }
+  }
+
+  // Demande du code, pose et retrait. Volontairement hors du portillon.
+  if (url === '/api/acces') {
+    if (req.method !== 'POST') return json(res, { ok: false }, 405);
+    // Même garde CSRF que les autres POST (voir le bloc POST plus bas) : un
+    // formulaire piégé ne doit pas pouvoir brûler le budget de tentatives.
+    if (!estJson(req)) {
+      return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
+    }
+    const body = await readBody(req);
+    const cle = cleEssais(req);
+    const e = accesEssais.get(cle);
+
+    // Poser ou retirer un code : réservé à qui est DÉJÀ autorisé, sinon un
+    // inconnu pourrait simplement remplacer le code par le sien.
+    if (body && 'nouveau' in body) {
+      if (!accesAutorise(req)) return json(res, { ok: false, acces: 'requis' }, 401);
+      const pose = poserCode(body.nouveau);
+      if (pose === undefined) {
+        return json(res, { ok: false, error: 'le code doit faire exactement 4 chiffres' });
+      }
+      state.settings.acces = pose;
+      // Changer ou retirer le code invalide toutes les sessions ouvertes :
+      // sinon l'iPad d'hier continuerait d'entrer avec l'ancien.
+      accesJetons.clear();
+      saveConfig();
+      return json(res, { ok: true, actif: !!pose });
+    }
+
+    // Entrer le code.
+    if (!state.settings.acces) return json(res, { ok: true, actif: false });
+    const now = Date.now();
+    nettoyerAcces(now);
+    // Étage global : il tient même quand l'attaquant change d'IP à chaque essai.
+    if (accesGlobal.bloqueJusqua > now) {
+      return json(res, { ok: false, error: 'trop d’essais',
+                         attendre: Math.ceil((accesGlobal.bloqueJusqua - now) / 1000) }, 429);
+    }
+    // Étage par adresse : arrête un curieux sans pénaliser tout le réseau.
+    if (e && e.jusqua > now) {
+      return json(res, { ok: false, error: 'trop d’essais',
+                         attendre: Math.ceil((e.jusqua - now) / 1000) }, 429);
+    }
+    if (codeJuste(body && body.code, state.settings.acces)) {
+      accesEssais.delete(cle);
+      const jeton = crypto.randomBytes(24).toString('hex');
+      accesJetons.set(jeton, now + ACCES_JETON_MS);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        // `HttpOnly` : le jeton n'est pas lisible en JavaScript, donc un nom de
+        // fixture piégé ne pourrait pas le faire fuir. `SameSite=Strict` : il
+        // ne part pas sur une requête déclenchée depuis un autre site.
+        'Set-Cookie': 'cascade_acces=' + jeton + '; Path=/; HttpOnly; SameSite=Strict; Max-Age='
+          + Math.floor(ACCES_JETON_MS / 1000),
+      });
+      return res.end(JSON.stringify({ ok: true, actif: true }));
+    }
+    // Raté. On compte l'échec aux DEUX étages.
+    // Global : une fenêtre glissante d'une minute. Au-delà du plafond, tout le
+    // réseau est bloqué le temps de la fenêtre — c'est le prix pour qu'un
+    // attaquant multi-IP ne puisse pas balayer les 10 000 codes.
+    if (now - accesGlobal.debut > ACCES_GLOBAL_MS) { accesGlobal.debut = now; accesGlobal.n = 0; }
+    accesGlobal.n++;
+    if (accesGlobal.n >= ACCES_GLOBAL_MAX) accesGlobal.bloqueJusqua = now + ACCES_GLOBAL_MS;
+    // Par adresse : on ne remet le compteur à zéro que si un blocage a EXISTÉ et
+    // qu'il est fini. Tester `jusqua <= maintenant` seul est vrai aussi pour
+    // `jusqua = 0` (jamais bloqué) : le compteur repartait alors de zéro à
+    // chaque essai et la limitation ne limitait RIEN — « restants : 4 » à vie.
+    const expire = e && e.jusqua > 0 && e.jusqua <= now;
+    const n = (expire ? 0 : (e ? e.n : 0)) + 1;
+    const bloque = n >= ACCES_MAX_ESSAIS;
+    accesEssais.set(cle, { n: bloque ? 0 : n, jusqua: bloque ? now + ACCES_BLOCAGE_MS : 0, vu: now });
+    return json(res, { ok: false, error: 'code incorrect',
+                       restants: bloque ? 0 : ACCES_MAX_ESSAIS - n,
+                       attendre: bloque ? ACCES_BLOCAGE_MS / 1000 : 0 }, 401);
+  }
+
   // Sert à repérer qu'une autre instance de Cascade tient déjà le port.
+  //
+  // ⚠ C'est AUSSI la route que sonde l'icône de zone de notification, et c'est
+  // délibéré : `/api/state` remet `lastUiPollAt` à jour, donc un sondage de
+  // l'icône y aurait fait passer Cascade pour « une interface est ouverte » et
+  // AURAIT DÉSACTIVÉ L'ARRÊT AUTOMATIQUE — case cochée, plus moyen de fermer
+  // Cascade autrement qu'au Gestionnaire des tâches. `/api/ping` n'y touche pas.
+  // Accessoirement, `/api/state` renvoie fixtures, couches, scène, vues et
+  // niveaux : une copie complète toutes les 1,5 s pour lire un booléen.
+  //
+  // Les deux clés ne sortent QUE pour la machine hôte : sur le réseau, ping
+  // reste la carte de visite minimale qu'il a toujours été (elle est hors du
+  // portillon du code d'accès, donc tout ce qu'on y met est public).
   if (url === '/api/ping') {
+    const rep = { app: APP_NAME, version: VERSION };
+    if (estLocal(req)) {
+      rep.running = state.global.running;
+      rep.systray = !!state.settings.systray;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ app: APP_NAME, version: VERSION }));
+    return res.end(JSON.stringify(rep));
   }
 
   if (url === '/api/export') {
@@ -2499,14 +3208,41 @@ const server = http.createServer(async (req, res) => {
     }, null, 2));
   }
 
+  // Empreintes des presets, servies À LA DEMANDE. Volontairement hors de
+  // `/api/state` : celle-ci part 8 fois par seconde, et 16 empreintes y
+  // pèseraient une demi-kilo-octet à chaque fois pour une donnée qui ne bouge
+  // qu'à l'enregistrement. L'interface ne rappelle cette route que lorsque
+  // `presetsRev` change. Aucune écriture, aucun effet de bord — contrairement à
+  // `/api/export`, qui remet `dirtySinceExport` à false.
+  if (url === '/api/presets-info') {
+    return json(res, { ok: true, rev: presetsRev, infos: presetsInfo() });
+  }
+
   if (url === '/api/state') {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
+    lireNiveauAudio(req);      // suiveur audio : le niveau voyage sur le poll
     return json(res, {
-      app: APP_NAME, version: VERSION, net: lanUrls(),
-      settings: state.settings, scene: state.scene, vues: state.vues,
+      // `win` décrit la machine où tourne CASCADE, pas le navigateur : le
+      // réglage de l'icône agit côté serveur, et l'interface est faite pour être
+      // ouverte depuis un iPad. `navigator.platform` répondrait sur la mauvaise
+      // machine — case grisée à tort depuis une tablette, case active à tort
+      // devant un hôte macOS (et `systray: true` écrit dans la config, qui
+      // voyage sur la clé USB).
+      app: APP_NAME, version: VERSION, net: lanUrls(), win: process.platform === 'win32',
+      // ⚠ Le haché du code d'accès ne sort JAMAIS d'ici. Quatre chiffres, c'est
+      // 10 000 combinaisons : un haché salé se casse hors ligne instantanément,
+      // donc l'envoyer reviendrait à envoyer le code. L'interface n'a besoin
+      // que de savoir s'il y en a un — c'est la clé `acces` plus bas.
+      settings: sansCode(state.settings), scene: state.scene, vues: state.vues,
       fixtures: state.fixtures, groups: state.groups,
       layers: state.layers, global: state.global,
-      presets: presetNames(),
+      // `presets` garde sa forme de tableau de 16 chaînes. Les deux repères qui
+      // suivent sont des entiers : ~40 octets, contre ~560 pour les empreintes,
+      // qui vivent sur `/api/presets-info`.
+      presets: presetNames(), presetsRev, presetActif,
+      // Seulement s'il y a un code, JAMAIS le code ni son haché. `local` sert à
+      // l'interface pour dire « depuis cette machine, il n'est pas demandé ».
+      acces: { actif: !!state.settings.acces, local: estLocal(req) },
       midiMap: state.midiMap,
       link: { active: link.active, connected: link.connected, bpm: link.bpm, peers: link.peers,
               error: link.error,
@@ -2518,12 +3254,26 @@ const server = http.createServer(async (req, res) => {
             host: state.settings.mmHost, port: state.settings.mmPort },
       // Progression du fondu entre presets (0-1), pour l'afficher en direct
       fade: fade ? Math.min(1, (Date.now() - fade.start) / fade.dur) : null,
+      // Slot d'où part le fondu (null = on ne sait pas d'où on vient), pour que
+      // la grille montre le pavé sortant en même temps que l'entrant.
+      fadeDe: fade && fade.de != null ? fade.de : null,
       project: { name: state.projectName, dirty: dirtySinceExport, lastExportAt },
       levels: runtime.levels, colors: runtime.colors,
     });
   }
 
   if (req.method === 'POST') {
+    // ⚠ CSRF sur la machine hôte. `estLocal` laisse passer localhost SANS cookie
+    // (pour ne jamais s'enfermer dehors). Sans ce garde, une page web piégée
+    // ouverte dans le navigateur de l'hôte pourrait poster un formulaire vers
+    // `/api/new` (efface le projet), `/api/quit` (coupe le serveur) ou
+    // `/api/blackout` — un `<form>` cross-origin part en `form-urlencoded`, sans
+    // pré-vol. Exiger `application/json` ferme cette voie : un formulaire ne peut
+    // pas poser ce type, et un `fetch` cross-origin qui le pose déclenche un
+    // pré-vol que le serveur ne satisfait pas. Toute l'UI passe déjà par du JSON.
+    if (!estJson(req)) {
+      return json(res, { ok: false, error: 'Content-Type application/json requis' }, 415);
+    }
     const body = await readBody(req);
     switch (url) {
       case '/api/layer': {
@@ -2552,13 +3302,25 @@ const server = http.createServer(async (req, res) => {
       }
       case '/api/preset': {
         const i = Math.max(0, Math.min(PRESET_SLOTS - 1, body.slot | 0));
-        if (body.action === 'save') state.presets[i] = savePreset(i, body.name);
-        else if (body.action === 'recall') recallPreset(i, body.fadeMs);
-        else if (body.action === 'clear') state.presets[i] = null;
-        else if (body.action === 'rename' && state.presets[i]) {
+        if (body.action === 'save') {
+          state.presets[i] = savePreset(i, body.name);
+          // On vient d'enregistrer la scène courante : c'est bien elle qui joue.
+          presetActif = i;
+          presetsRev++;
+        } else if (body.action === 'recall') {
+          recallPreset(i, body.fadeMs); // pose `presetActif` lui-même
+        } else if (body.action === 'clear') {
+          state.presets[i] = null;
+          if (presetActif === i) presetActif = null;
+          presetsRev++;
+        } else if (body.action === 'rename' && state.presets[i]) {
           const n = String(body.name || '').trim().slice(0, 16);
           state.presets[i].name = n || 'P' + (i + 1);
+          presetsRev++;
         }
+        // ⚠ `recall` n'incrémente PAS `presetsRev` : la banque n'a pas changé,
+        // seule la scène en cours. Recharger les empreintes à chaque rappel
+        // ferait une requête de plus au pire moment, en plein spectacle.
         saveConfig();
         return json(res, { ok: true, presets: presetNames(), layers: state.layers, fixtures: state.fixtures });
       }
@@ -2751,6 +3513,12 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
+        // ⚠ L'empreinte des presets passe par `resolveBars`, qui résout les
+        // groupes VIVANTS — les presets n'en mémorisent pas. Modifier un groupe
+        // change donc ce qu'un preset piloterait au rappel, et la grille doit le
+        // montrer. Sans cet incrément, elle resterait figée sur l'état d'avant
+        // jusqu'au prochain enregistrement : une vignette qui ment.
+        presetsRev++;
         saveConfig();
         return json(res, { ok: true, groups: state.groups, layers: state.layers });
       }
@@ -2801,6 +3569,11 @@ const server = http.createServer(async (req, res) => {
         if (typeof body.projectName === 'string' && body.projectName.trim()) {
           state.projectName = body.projectName.trim().slice(0, 40);
         }
+        // La banque entière a changé de spectacle : les empreintes en mémoire de
+        // l'interface ne valent plus rien, et « en cours » sur un slot importé
+        // désignerait une scène qui n'a jamais été jouée.
+        presetActif = null;
+        presetsRev++;
         saveConfig();
         dirtySinceExport = false; // l'état vient d'un fichier : rien à ré-exporter
         return json(res, { ok: true });
@@ -2810,6 +3583,8 @@ const server = http.createServer(async (req, res) => {
         state.layers = [defaultLayer('Chaser 1')];
         layerSeq = 2;
         state.presets = Array(PRESET_SLOTS).fill(null);
+        presetActif = null;
+        presetsRev++;
         if (!body.keepFixtures) { state.fixtures = []; state.groups = []; pruneCaches(); }
         // Les vues portent les noms des dossiers d'un AUTRE spectacle : les
         // garder ferait pointer Cascade sur des dossiers qui n'existent pas.
@@ -2834,6 +3609,10 @@ const server = http.createServer(async (req, res) => {
         if (Array.isArray(body.fixtures)) {
           state.fixtures = sanitizeFixtures(body.fixtures);
           pruneCaches();
+          // Même raison que pour les groupes : un preset sans disposition propre
+          // retombe sur le plateau courant, et l'activation d'une barre change
+          // l'empreinte de tous les presets.
+          presetsRev++;
           saveConfig();
         }
         return json(res, { ok: true, fixtures: state.fixtures });
@@ -2881,8 +3660,11 @@ const server = http.createServer(async (req, res) => {
         state.settings = sanitizeSettings({ ...state.settings, ...body, httpPort });
         if (state.settings.feedbackPort !== old) openFeedbackSocket();
         if (state.settings.oscInPort !== oldIn) openOscInSocket();
+        // L'icône se pose et se retire à chaud : cocher la case ne doit pas
+        // demander de relancer Cascade.
+        if (state.settings.systray) startSystray(); else killSystray(true);
         saveConfig();
-        return json(res, { ok: true, settings: state.settings });
+        return json(res, { ok: true, settings: sansCode(state.settings) });
       }
     }
   }
@@ -3015,6 +3797,7 @@ server.on('listening', () => {
   console.log('  └──────────────────────────────────────────────────┘');
   if (lans.length) console.log('  Tablette / téléphone (même Wi-Fi) : ' + lans.join('  ou  '));
   console.log('');
+  startSystray();   // silencieux hors Windows, et si le réglage est éteint
   openBrowser(port);
 });
 server.listen(tryPort);

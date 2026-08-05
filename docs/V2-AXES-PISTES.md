@@ -127,10 +127,22 @@ mesure de ce que MadMapper émet, pas sur un essai avec le boîtier.
    barre de 10 LED ≈ 1 600 px, soit 160 px/LED) mais un seul déplacement sur cinq
    a donné une corrélation franche. C'est le chiffre qui dit si deux barres
    rangées côte à côte se chevaucheront.
-2. **Le pivot de `output/rot`** : autour du centre de la barre, ou d'une
-   extrémité ? Le calcul de placement en dépend (T14, jamais fait).
-3. **Le DMX Filtering** de chaque fixture : c'est lui qui fabrique les
+2. **Le DMX Filtering** de chaque fixture : c'est lui qui fabrique les
    demi-teintes, et Cascade ne peut ni le lire ni le garantir.
+
+## ✅ Mesuré depuis — le pivot de `output/rot` (T14, 2026-07-29)
+
+**La rotation se fait autour du point `output/x, output/y` lui-même.** Fixture à
+x=960 y=270, écriture de rot=90, relecture : **écart 0,00 sur x et sur y**.
+Restauration à rot=0 vérifiée.
+
+Conséquence pour le placement : **l'ordre des opérations est libre.** Poser la
+position puis l'orientation, ou l'inverse, donne le même résultat — la rotation
+ne translate pas la fixture. Sans ça, il aurait fallu compenser le déplacement
+induit par chaque rotation, avec la longueur de la barre en paramètre.
+
+Reste non mesuré, mais **sans effet sur le placement** : savoir si ce point est
+le centre géométrique de la barre. Détail dans `madmapper-osc-api.md`.
 
 ---
 

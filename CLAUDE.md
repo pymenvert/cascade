@@ -2,7 +2,7 @@
 
 App web (Node.js zéro dépendance + page unique) qui pilote les fixtures DMX de
 MadMapper en OSC : multi-chasers, vagues, couleur, presets, MIDI/OSC, Ableton
-Link. **2.0.1** · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
+Link. **2.0.2** · MIT · Pierre-Yves Mansour — Collectif WSK. Travail en **français**.
 
 ## À lire EN PREMIER
 
@@ -29,6 +29,9 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
    tempo, ni la protection « on ne coupe jamais un show » de l'arrêt auto.
 5. Manuel PDF : regénérer avec `python3 docs/build-manuel.py <dossier_sortie>`
    (reportlab + DejaVu ; pas de glyphes ⏻ ⧉ ni d'exposants Unicode → carrés vides).
+   Sur une machine nue : `pip install reportlab` + `apt install fonts-dejavu-core
+   fonts-dejavu-extra` (l'italique est dans *-extra*). Sans l'italique il génère
+   quand même, en romain, et le dit. ⚠ Le dossier de sortie doit EXISTER.
 6. Édits ciblés (Edit/Grep) plutôt que réécritures ; réponses concises ;
    économiser les tokens (préférence explicite de Pym).
 7. Ne pas toucher : `scenoled.madproject`, `Chaser 4.2.2 Setup.exe`, `serverA.js`.
@@ -36,7 +39,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 248 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 328 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -44,8 +47,13 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
   `CASCADE_OSCIN`, `CASCADE_FEEDBACK`, `CASCADE_MMPORT`, `CASCADE_MMHOST`).
 - Faux Carabiner = serveur TCP local port 17000 qui pousse
   `status { :peers 1 :bpm 128.0 ... }\n`.
-- UI : Playwright dispo ; utiliser `waitUntil: 'domcontentloaded'`
-  (`networkidle` ne vient jamais, l'UI poll toutes les 120 ms).
+- UI : les 45 tests d'interface pilotent un vrai navigateur en CDP maison
+  (`tests/browser.js`, zéro dépendance) — **pas** Playwright. Sans navigateur ils
+  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (328), pas
+  la couleur. `CASCADE_NAVIGATEUR=<binaire>` impose un navigateur ;
+  `PLAYWRIGHT_BROWSERS_PATH` est balayé tout seul. Si tu passes par Playwright
+  à la main, `waitUntil: 'domcontentloaded'` (`networkidle` ne vient jamais,
+  l'UI poll toutes les 120 ms).
 - Exécutables : `node build.js` → `build/` (voir `docs/ETAT-DU-PROJET.md` pour
   les pièges pkg : `--no-bytecode` obligatoire, cibles `node22-*` seulement).
 - Manuel : `python docs/build-manuel.py <dossier>` (reportlab ; les polices sont
@@ -60,7 +68,11 @@ raison d'être.
 **Intégration continue et release, depuis la 2.0** (le dépôt n'avait rien avant) :
 
 - `.github/workflows/tests.yml` — `npm test` sur chaque push vers `main` et sur
-  chaque PR. Vérifie aussi qu'**aucune dépendance npm** n'a été introduite.
+  chaque PR, **sur Ubuntu ET sur Windows**. Vérifie aussi qu'**aucune dépendance
+  npm** n'a été introduite, qu'un navigateur et une adresse réseau sont bien là
+  (sans quoi 46 tests d'interface et le portillon s'annonceraient « ignorés »
+  sans faire rougir la suite), et que `SYSTRAY_PS1` s'analyse — avec un témoin
+  qui vérifie que l'analyseur sait dire non.
 - `.github/workflows/release.yml` — pousser un tag `vX.Y.Z` construit les quatre
   exécutables et publie la release avec eux en pièces jointes. La description
   vient du CHANGELOG via `tools/notes-version.js`, jamais d'un texte recopié.
@@ -69,13 +81,24 @@ raison d'être.
 ⚠ **Attendre la CI verte avant de taguer.** Elle attrape ce qui est invisible en
 local : courses de timing sur runner lent, chemins spécifiques à Windows.
 
+⚠ **La prochaine version est une MINEURE — 2.1.0, pas 2.0.3.** La section
+`[Non publié]` du CHANGELOG contient des **fonctions nouvelles** (suiveur audio,
+grille de presets, code d'accès, replis), pas seulement des correctifs : le
+versionnage sémantique impose donc une mineure. Penser aussi à passer
+`VERSION = "2.1"` dans `docs/build-manuel.py` (il porte majeure.mineure, comme le
+pied de page de l'interface) et à régénérer le PDF à la racine **et** dans `dist/`.
+
 Livré et testé : page Scène 3D et manipulation souris · moteur Champ 3D
 (5 formes, netteté, course, bruit dirigé) · vues par axe avec bascule de
 dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette à
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**248 tests, 21 mutations sur 21 détectées.** Manuel PDF, README, CHANGELOG et
+**328 tests, 36 mutations sur 36 détectées** — campagne complète passée d'un bloc
+le 2026-08-05 : zéro aveugle, zéro motif absent, `server.js` restauré à
+l'identique (le chiffre était additionné à la main avant).
+⚠ La lancer dans une COPIE du dépôt : elle modifie `server.js` en place pendant
+une heure, et un commit parti à ce moment-là emporterait un mutant. Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 
@@ -87,31 +110,85 @@ Trois garde-fous à connaître avant de toucher au code :
   palette spatiale morte en silence ;
 - `build-manuel.py` refuse de générer si un caractère manque à la police.
 
-Ce qui reste, par ordre de valeur : suiveur audio (à faire côté navigateur,
-en Web Audio, pour tenir le zéro-dépendance), grille visuelle des 16 presets, les trois mesures MadMapper non faites (empreinte d'une
-barre en pixels, pivot de `output/rot`, DMX Filtering), et « dessiner les
-fixtures » — qui attend d'abord un `Export Fixture Definitions…` depuis
-MadMapper. Détail dans `docs/V2-INSPIRATIONS.md` et `docs/V2-AXES-PISTES.md`.
+✅ **Suiveur audio et grille de presets sont LIVRÉS** (2026-08-04) — ne pas les
+reprendre. Le micro est une *source de modulateur* (`src: 'lfo' | 'audio'`),
+analysé en Web Audio côté page et poussé en query sur le poll. ⚠ Il lit une
+**énergie, pas un tempo**, et n'est lisible que sur la machine hôte (origine
+sûre) : les deux limites sont assumées, écrites, et **décidées avec Pym** — ne
+pas rouvrir sans lui. La détection de battement attend un essai en salle.
+
+Ce qui reste, par ordre de valeur : les **deux** mesures MadMapper non faites
+(empreinte d'une barre en pixels, DMX Filtering), et « dessiner les fixtures » —
+qui attend d'abord un `Export Fixture Definitions…` depuis MadMapper. Détail
+dans `docs/V2-INSPIRATIONS.md` et `docs/V2-AXES-PISTES.md`.
+
+✅ **Le pivot de `output/rot` est mesuré** (2026-07-29) : la rotation ne
+translate pas la fixture (écart 0,00 en x et y), donc l'ordre position/rotation
+est libre. C'était la troisième mesure ; elle est faite.
 
 ## Prochaines demandes de Pym (exprimées, PAS encore réalisées)
 
-1. **Icône de zone de notification (systray)** : point vert = serveur en route,
-   rouge = arrêté ; clic droit → ouvrir l'interface / démarrer / arrêter le
-   serveur. Idée : pouvoir fermer la fenêtre en laissant tourner le serveur
-   tout en le voyant. ⚠ Contrainte zéro-dépendance : pas de systray natif en
-   Node pur — pistes à discuter avec Pym (petit utilitaire par plateforme,
-   PowerShell/AppleScript, ou accepter une dépendance ici).
+1. ✅ **Icône de zone de notification : FAITE** (2026-08-05), en PowerShell +
+   `NotifyIcon`, donc zéro dépendance. ⚠ **Windows uniquement — décidé avec
+   Pym**, macOS n'a pas d'équivalent scriptable : ne pas « réparer » cette
+   absence. ⚠ **Éteinte par défaut et JAMAIS EXÉCUTÉE** : écrite depuis Linux.
+   Le premier essai sur une vraie machine Windows reste à faire — c'est la
+   première chose à confirmer avec lui. Le script vit dans `SYSTRAY_PS1`
+   (embarqué, car le distribuable est un exécutable unique).
+
+   ⚠ **Avant l'essai, savoir ceci** : Windows range **toute nouvelle icône dans
+   le tiroir caché** (chevron `^`). L'issue la plus probable d'un premier essai
+   est « le script tourne, l'icône existe, Pym ne la voit pas ». La note est
+   dans les Réglages et dans le manuel — la lui montrer.
+
+   ⚠ Le script sonde **`/api/ping`, jamais `/api/state`** : `/api/state` remet
+   `lastUiPollAt` à jour et **désactivait l'arrêt automatique** (défaut réel,
+   trouvé en relecture, corrigé, mesuré, et rejoué par un mutant). Détail et
+   sept autres correctifs dans `docs/ETAT-DU-PROJET.md`.
+
+   ⚠ **Ce que la CI dit, et ce qu'elle ne dira jamais.** Depuis le 2026-08-05 il
+   y a un passage `windows-latest` : il **analyse** `SYSTRAY_PS1` avec
+   `[Parser]::ParseInput` (aucune session graphique requise) et lance la suite
+   entière — 328 tests, 0 ignoré, le premier passage est vert. Une parenthèse
+   manquante ne partira donc plus en régie. Mais **aucun runner ne posera jamais
+   l'icône** : `NotifyIcon` demande un bureau. L'essai en vrai reste à faire.
+   `tests/systray.test.js` lit le source en plus — c'est mieux que rien.
 2. **Capture ou GIF dans le README** — nécessite une vraie session MadMapper.
-3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt)
-   (code d'accès 4 chiffres, repli « avancé » du panneau Couches, tests d'UI).
-4. **`../Cascade-RELECTURES.md` (hors dépôt) — à lire avant de reprendre la v2.**
-   État des deux campagnes de relecture par agents : ce qui a été mesuré et
-   exploité, ce qui reste à mesurer sur MadMapper, et **32 trouvailles sur le
-   moteur de champ 3D dont trois bloquantes** — la relecture s'est arrêtée avant
-   la phase de vérification, donc rien n'y est confirmé contradictoirement.
-   Deux de ces défauts sont **déjà en v1** (couche couleur qui allume les barres
-   qu'elle ne pilote pas ; phase non préservée au changement de tempo pour le
-   moteur vague).
+3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt).
+   ✅ Repli « avancé » du panneau Couches : FAIT (replis `advMiroirs` et
+   `advMelange`, 2026-08-04). ✅ Tests d'UI : faits depuis la 2.0 (CDP maison).
+   ✅ Code d'accès à 4 chiffres : FAIT (2026-08-04). ⚠ La machine hôte en est
+   EXEMPTÉE exprès (on ne peut pas s'enfermer dehors) et l'OSC/MIDI ne sont pas
+   couverts (autre domaine de confiance) — ne pas « corriger » ça sans Pym.
+   Reste : signature/notarisation macOS (compte Apple Developer, 99 $/an →
+   décision + dépense).
+4. **`../Cascade-RELECTURES.md` (hors dépôt)** — état des deux campagnes de
+   relecture par agents. ⚠ Ce fichier vit **hors du dépôt** : il est absent des
+   clones frais (sessions distantes, CI), donc ne jamais faire dépendre une
+   décision de son contenu sans l'avoir sous les yeux.
+
+   ⚠ **Les deux « défauts déjà en v1 » que ce fichier signalait sont CORRIGÉS**
+   — vérifié dans le code le 2026-08-04, ne pas repartir les chasser :
+   - *couche couleur qui allume les barres qu'elle ne pilote pas* → `mixLevel()`
+     décide barre par barre (`server.js`) ; la forme fautive globale
+     (`mix.anyCol`) a disparu. Corrigé par `648327c`, listé `CHANGELOG.md:213`,
+     couvert par `tests/regressions.test.js`.
+   - *phase non préservée au changement de tempo (moteur vague)* → `phaseContinue()`
+     intègre `dt / period` au lieu de `now / period` ; le chaser, lui, rebase
+     `startTime`. Corrigé par `619bee8`, listé `CHANGELOG.md:215`, couvert par
+     `tests/regressions.test.js` (`stepMs` 10000 → 9999, écart < 0,05).
+
+   La relecture s'était arrêtée avant sa phase de vérification : ses trouvailles
+   n'étaient **pas** confirmées contradictoirement, et celles-là étaient périmées.
+   Traiter le reste de la liste avec la même prudence — vérifier dans le code
+   avant d'y croire.
+
+   **Piste restée ouverte, elle, et non couverte** : `resolveBars()` replie sur
+   *toutes* les barres actives quand le groupe d'une couche est vide. Vider un
+   groupe (au lieu de le supprimer, qui remet `L.groupId = null`) fait donc
+   basculer une couche couleur sur tout le plateau. Comportement délibéré et
+   documenté, mais c'est la seule voie vivante qui reproduit le symptôme
+   d'origine, et aucun test ne la couvre.
 
 Le chantier v1.3 « spectacle » (features de chase, UI premium, tests, audit,
 exécutables, manuel, CHANGELOG) est **livré** — voir `CHANGELOG.md`.

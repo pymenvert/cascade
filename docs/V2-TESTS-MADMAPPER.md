@@ -6,13 +6,25 @@
 > Coche au fur et à mesure et note le résultat directement ici : ce fichier est
 > la mémoire du projet. Les réponses de T1–T4 partent ensuite dans
 > [`madmapper-osc-api.md`](madmapper-osc-api.md).
+>
+> **État au 2026-08-04 — mesuré : T11, T12, T13, T14, T15, T16, T18, T21.**
+> Les cases ci-dessous renvoient désormais aux sections de résultat, plus bas
+> dans ce même fichier. ⚠ Elles sont restées vides longtemps après la mesure :
+> le haut du fichier contredisait le bas, et on a failli refaire T14.
+>
+> **Restent à mesurer, tous bloqués sur une session MadMapper** : **T17** (DMX
+> Filtering — c'est lui qui fabrique les demi-teintes), **T19** (format
+> `Import Fixtures…`, préalable à « dessiner les fixtures »), **T20**
+> (résolution du canvas DMX), **T22** (Spout depuis Resolume). Plus, hors
+> numérotation, **l'empreinte d'une barre en pixels** — le chiffre qui décide si
+> deux barres rangées côte à côte se chevauchent.
 
 ## Les trois qui décident de tout
 
 Si tu ne fais que trois choses, fais celles-là. Elles arbitrent des semaines
 de travail.
 
-- [ ] **T11 — `luminosity` par-dessus une texture.**
+- [x] **T11 — `luminosity` par-dessus une texture.**
   Un Material **coloré et contrasté** (dégradé arc-en-ciel, surtout pas du
   blanc) en plein cadre, une fixture Line dessus. Envoyer `luminosity` à 1, 0.5,
   puis 0.
@@ -21,15 +33,19 @@ de travail.
     mais par-dessus du contenu vivant.
   - *Exclusif* → aucun effet, ou saut binaire. Il faudra choisir barre par
     barre entre « pilotée par Cascade » et « texturée ».
-  - Résultat : ⟨à remplir⟩
+  - Résultat : **MULTIPLICATIF — le jackpot.** La texture survit à
+    l'atténuation, et `luminosity` multiplie linéairement, canal par canal, en
+    préservant la forme du dégradé. Voir « T11 — la texture survit-elle à
+    l'atténuation ? » et « `luminosity` multiplie canal par canal ».
 
-- [ ] **T12 — `color/*` par-dessus une texture.**
+- [x] **T12 — `color/*` par-dessus une texture.**
   Même Material. Envoyer `color/red`=1, `green`=0, `blue`=0.
   - *Teinte multiplicative* → le dégradé apparaît filtré en rouge.
   - *Écrasement* → toute la barre devient rouge uni, le dégradé disparaît.
-  - Résultat : ⟨à remplir⟩
+  - Résultat : **TEINTE MULTIPLICATIVE.** `color/*` est un filtre par canal, il
+    ne remplace pas. Voir « La couleur FILTRE, elle ne remplace pas ».
 
-- [ ] **T13 — Peut-on écrire la position en OSC ?**
+- [x] **T13 — Peut-on écrire la position en OSC ?**
   D'abord `POST /api/layout` depuis Cascade pour relever `output/x` (ça donne
   l'unité et l'ordre de grandeur). Puis renvoyer cette valeur **+200**.
   - *La fixture bouge* → le dépliage peut s'ajuster à chaud.
@@ -37,29 +53,41 @@ de travail.
     fichier SVG, et l'ajustement live sort du plan.
   - ⚠ Aucune documentation n'atteste ce sens d'écriture. Cascade n'a
     **jamais** envoyé vers `output/*` à ce jour.
-  - Résultat : ⟨à remplir⟩
+  - Résultat : **OUI, la fixture bouge** — avec deux pièges. Voir
+    « T13 / T14 / T15 — la géométrie est-elle pilotable ? ». ⚠ `output/handles/*`
+    reste **INTERDIT** : lecture morte, écriture irréversible (une surface
+    détruite le 27/07, `Ctrl+Z` ne la rattrape pas).
 
 ## La démonstration à filmer
 
-- [ ] **T16 — Le dégradé qui voyage.**
+- [x] **T16 — Le dégradé qui voyage.**
   Un Material à dégradé animé horizontal, une barre **horizontale** :
   les LED doivent s'allumer successivement d'un bout à l'autre.
   Puis pivoter la barre à 90° : **toutes les LED doivent changer ensemble.**
   C'est tout le principe en une manip — et l'image du README.
-  - Résultat : ⟨à remplir⟩
+  - Résultat : **CONFIRMÉ à la mesure** — tourner la barre de 90° change
+    **17 canaux DMX sur 30**. Voir « T16 — tourner la barre change ce qu'elle
+    joue ». ⚠ Reste à FILMER : c'est le GIF du README, et il manque toujours.
 
 ## Géométrie et dépliage
 
-- [ ] **T14 — Rotation.** `output/rot` à 90. Autour de quel point pivote-t-elle,
+- [x] **T14 — Rotation.** `output/rot` à 90. Autour de quel point pivote-t-elle,
   son centre ou une extrémité ? Le calcul de dépliage en dépend.
-  Résultat : ⟨à remplir⟩
-- [ ] **T15 — Échelle.** `output/width` de 1 à 2. Les points d'échantillonnage
+  Résultat : **autour du point `output/x, output/y` lui-même** (2026-07-29).
+  Fixture à x=960 y=270, rot 0→90 : écart **0,00** sur x et sur y. Donc l'ordre
+  position/orientation est libre. Détail dans `madmapper-osc-api.md`.
+- [x] **T15 — Échelle.** `output/width` de 1 à 2. Les points d'échantillonnage
   s'écartent-ils (le dégradé lu s'étale) ou rien ne bouge ?
-  Résultat : ⟨à remplir⟩
-- [ ] **T18 — Recouvrement.** Superposer deux fixtures volontairement.
+  Résultat : **RIEN NE BOUGE.** `output/width|height` d'une *fixture* n'ont
+  aucun effet (testé de 0,25 à 4), et rien n'expose son empreinte. Voir
+  « T13 / T14 / T15 ».
+- [x] **T18 — Recouvrement.** Superposer deux fixtures volontairement.
   Attendu : celle du dessus écrase, sans mélange — donc le placement
   automatique devra interdire les chevauchements.
-  Résultat : ⟨à remplir⟩
+  Résultat : **AUCUNE fixture n'en écrase une autre** — chacune échantillonne
+  pour son compte. ⚠ En revanche, deux *copies à la même adresse DMX* : c'est la
+  **dernière de la liste qui gagne**, pas un mélange ni du HTP. Voir
+  « Recouvrement : aucune fixture n'en écrase une autre ».
 - [ ] **T19 — Format SVG de TA version.** Exporter un patch de fixtures, ouvrir
   le fichier dans un éditeur de texte, relever le format exact des attributs.
   ⚠ Il a changé en MadMapper 6.1. **Ranger le fichier d'exemple dans `docs/`.**
@@ -80,7 +108,7 @@ de travail.
 
 ## Le point de sécurité — à ne pas oublier
 
-- [ ] **T21 — Le noir doit faire noir.**
+- [x] **T21 — Le noir doit faire noir.**
   Une barre en régime texture (elle joue un Material). Faire **STOP** dans
   Cascade, puis **BLACKOUT**.
   ⚠ Règle n°4 du projet : STOP relâche le contrôle, seul BLACKOUT envoie des
@@ -89,7 +117,10 @@ de travail.
   Il faudra alors une seconde voie : couper la source côté MadMapper, ou
   masquer les fixtures avec `visible`.
   Pour un régisseur, un noir qui ne fait pas noir est le pire des défauts.
-  Résultat : ⟨à remplir⟩
+  Résultat : **le blackout coupe vraiment, même en régime texture.** Et la
+  seconde voie existe : `master_dmx_level`, livré en 2.0.0 sous le nom
+  **Coupure de secours**. Voir « T21 — le blackout coupe-t-il vraiment » et
+  « Le noir de secours existe — et c'est `master_dmx_level` ».
 
 - [ ] **T22 — Spout de Resolume échantillonné par une fixture.**
   Sortie Spout dans Resolume, flux récupéré dans MadMapper, posé sur une

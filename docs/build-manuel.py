@@ -44,8 +44,16 @@ def _families():
     for d in dejavu_dirs:
         f = [d + n for n in ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf",
                              "DejaVuSans-Oblique.ttf", "DejaVuSansMono.ttf")]
-        if all(os.path.exists(x) for x in f):
-            yield f
+        # Le REGULIER suffit à s'en sortir : l'oblique vit dans un paquet séparé
+        # (fonts-dejavu-extra) souvent absent des machines nues, et le mono peut
+        # manquer aussi. Refuser de générer pour ça condamnait le manuel entier
+        # là où une note en romain plutôt qu'en italique suffit largement.
+        if os.path.exists(f[0]):
+            manquants = [os.path.basename(x) for x in f[1:] if not os.path.exists(x)]
+            if manquants:
+                print("Police de remplacement pour :", ", ".join(manquants),
+                      "(installer fonts-dejavu-extra pour l'italique)")
+            yield [x if os.path.exists(x) else f[0] for x in f]
     win = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     for quatuor in (("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "consola.ttf"),
                     ("arial.ttf", "arialbd.ttf", "ariali.ttf", "cour.ttf")):
@@ -55,8 +63,8 @@ def _families():
     import reportlab
     rl = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
     f = [os.path.join(rl, n) for n in ("Vera.ttf", "VeraBd.ttf", "VeraIt.ttf", "VeraMono.ttf")]
-    if all(os.path.exists(x) for x in f):
-        yield f
+    if os.path.exists(f[0]):
+        yield [x if os.path.exists(x) else f[0] for x in f]
 
 
 for _f in _families():
@@ -70,7 +78,11 @@ for _f in _families():
     except Exception as e:
         continue
 else:
-    raise SystemExit("Aucune police utilisable trouvée (DejaVu, polices Windows, ou reportlab).")
+    raise SystemExit(
+        "Aucune police utilisable trouvée.\n"
+        "  Linux  : sudo apt install fonts-dejavu-core fonts-dejavu-extra\n"
+        "  macOS  : brew install --cask font-dejavu\n"
+        "  Sinon, reportlab embarque Vera : vérifier que reportlab est bien installé.")
 
 S = {
     "h1": ParagraphStyle("h1", fontName="DV-B", fontSize=17, textColor=DARK,
@@ -240,8 +252,47 @@ E += [h1("1. Présentation"),
         "l'appareil photo de l'iPad ou du téléphone, connecté au MÊME Wi-Fi que l'ordinateur — "
         "l'interface s'ouvre dans son navigateur. Si l'ordinateur a plusieurs cartes réseau, "
         "de petits boutons permettent de choisir l'adresse."),
-      note("Il n'y a pas de mot de passe : toute personne sur le même réseau peut piloter le "
-           "show. En festival ou en salle partagée, utilisez un point d'accès Wi-Fi dédié."),
+      h2("3.3 — Le code d'accès (facultatif)"),
+      p("Sans code, toute personne sur le même réseau peut piloter le show. En festival ou en "
+        "salle partagée, posez-en un : bouton Réglages, champ « Code d'accès à 4 chiffres ». "
+        "Laissez le champ vide et enregistrez pour le retirer."),
+      li("Il protège l'accès DEPUIS LE RÉSEAU : iPad, téléphone, Wi-Fi de la salle. "
+         "Un appareil qui arrive sans le code voit l'interface, mais elle lui demande les "
+         "4 chiffres avant de lui donner la main."),
+      li("Il n'est JAMAIS demandé sur la machine où tourne Cascade. C'est voulu : il y a "
+         "toujours une voie pour le retirer, on ne peut pas s'enfermer dehors."),
+      li("Cinq essais ratés bloquent l'appareil une minute — et un plafond général arrête "
+         "aussi quelqu'un qui essaierait depuis plusieurs appareils à la fois. Quatre chiffres, "
+         "c'est dix mille combinaisons : sans ces deux limites, elles se passeraient en revue "
+         "en quelques secondes."),
+      li("Changer ou retirer le code déconnecte les appareils déjà entrés : c'est la façon de "
+         "reprendre la main si une tablette a été prêtée."),
+      note("L'OSC et le MIDI ne sont PAS concernés : ils passent par un câble ou une console "
+           "posée sur le réseau de production, c'est un autre domaine de confiance, et les "
+           "fermer casserait les installations existantes. Le code protège la page web, pas "
+           "les entrées de régie."),
+      note("Le code est enregistré haché, jamais en clair, et ne quitte jamais l'ordinateur. "
+           "Mais il ne protège pas contre quelqu'un qui a le fichier de configuration lui-même "
+           "(ou la clé USB) : c'est le même niveau de confiance que la machine. Un projet "
+           "exporté, lui, ne contient pas le code — le partager ne le divulgue pas."),
+
+      h2("3.4 — L'icône près de l'horloge (Windows)"),
+      p("Réglages, case « Icône près de l'horloge » : Cascade pose alors une pastille dans "
+        "la zone de notification, à côté de l'heure. Verte quand le show tourne, rouge à "
+        "l'arrêt. Clic droit dessus : ouvrir l'interface, démarrer, arrêter, quitter. "
+        "Double-clic : l'interface s'ouvre."),
+      li("À quoi ça sert : fermer la fenêtre du navigateur sans perdre Cascade de vue, et le "
+         "piloter sans la rouvrir. Rappel utile : fermer la fenêtre PENDANT un show ne coupe "
+         "déjà rien, c'est garanti — l'icône sert à le VOIR."),
+      note("⚠ Windows uniquement. macOS n'offre aucun moyen de poser une icône de barre de "
+           "menus sans installer un logiciel supplémentaire, ce que Cascade s'interdit. Sur "
+           "Mac, la case est grisée et l'explique."),
+      note("⚠ Quand Cascade s'arrête, l'icône DISPARAÎT au lieu de passer au rouge : une fois "
+           "le programme parti, il ne reste rien pour la dessiner. Icône présente = Cascade "
+           "tourne."),
+      note("Vous ne la voyez pas ? Windows range TOUTE nouvelle icône dans le tiroir caché : "
+           "cliquez le chevron ^ à gauche de l'horloge et faites-la glisser dehors. "
+           "C'est à faire une seule fois, et Windows s'en souvient."),
 
 # ── 4. Les couches ───────────────────────────────────────────────────────────
       h1("4. Les couches (multi-chasers)"),
@@ -305,7 +356,21 @@ E += [h1("1. Présentation"),
       li("Un groupe vidé, ou supprimé, ramène les couches qui le suivaient sur toutes les "
          "barres : mieux vaut éclairer trop que rester dans le noir sans comprendre pourquoi."),
 
-      h2("4.7 — Groove et découpe"),
+      h2("4.7 — Les replis : ce qui ne sert qu\'au montage"),
+      p("Le panneau d\'une couche porte une trentaine de réglages, dont beaucoup ne se touchent "
+        "qu\'une fois, au montage. Trois REPLIS les rangent pour que la première lecture reste "
+        "lisible : « Symétries » (les deux miroirs et leurs axes), « Mélange et espace » "
+        "(fusion, profondeur, décalage réparti, jeu du crossfader) et « Groove et découpe » "
+        "(section suivante)."),
+      li("Chaque repli porte une PASTILLE orange qui compte et nomme ce qui n\'est pas à sa "
+         "valeur neutre. Un miroir ou une fusion oubliés derrière un repli fermé deviendraient "
+         "sinon un mystère : la pastille garantit qu\'un réglage caché ne l\'est jamais "
+         "silencieusement."),
+      li("Un repli s\'ouvre tout seul quand vous ARRIVEZ sur une couche qui a des réglages "
+         "actifs — et seulement à ce moment-là. Si vous le refermez, il reste fermé : sans "
+         "cette règle, il se rouvrirait à chaque rafraîchissement et on ne pourrait jamais le "
+         "ranger."),
+      h2("4.8 — Groove et découpe"),
       p("Ces réglages viennent des consoles lumière : ils transforment un chase correct en "
         "chase qui a du caractère. Tous sont neutres par défaut — vous ne les subissez pas. "
         "Ils sont regroupés sous un repli « Groove et découpe » pour ne pas encombrer la "
@@ -532,7 +597,33 @@ E += [h1("1. Présentation"),
       note("Attention sur le Master : mettre 0 comme borne basse fait passer le show par "
            "le noir à chaque tour. C'est un effet légitime, donc ce n'est pas interdit — "
            "mais ça se choisit."),
-      h2("8.8 — Une recette qui marche"),
+      h2("8.8 — Le suiveur audio : faire respirer la lumière avec le son"),
+      p("Le micro devient une SOURCE de modulateur, à côté de l\'oscillateur. On l\'active dans "
+        "le panneau Global, repli « Suiveur audio », puis on choisit « Micro » comme Source sur "
+        "le modulateur d\'une couche ou sur le modulateur global. Tout ce qu\'un modulateur "
+        "pilotait, le son le pilote alors : niveau, largeur, netteté, profondeur, crossfader, "
+        "master."),
+      note("⚠ Il lit une ÉNERGIE, pas un tempo. Il fait respirer la lumière avec la musique ; "
+           "il ne détecte pas les battements et ne cale pas le chase sur le rythme. Pour caler "
+           "le tempo, c\'est le tap tempo ou Ableton Link."),
+      note("⚠ Le micro n\'est lisible que sur la MACHINE OÙ TOURNE CASCADE. Les navigateurs "
+           "interdisent l\'accès au micro depuis une adresse réseau : depuis un iPad, tout le "
+           "reste fonctionne, mais pas l\'écoute. C\'est la même limite que le MIDI, qui "
+           "n\'existe que sur Chrome et Edge."),
+      li("Bande : grave suit la grosse caisse et la basse, aigu les cymbales et les voix, "
+         "« tout le spectre » l\'énergie générale. Le grave est le plus musical pour de la "
+         "lumière — c\'est lui qui porte la pulsation."),
+      li("Seuil : une porte de bruit. En dessous, le son est considéré comme du silence. "
+         "C\'est ce qui ignore la clim, le public et le souffle de la salle."),
+      li("Gain : à monter si la lumière bouge à peine, à baisser si elle sature en permanence. "
+         "Le vu-mètre montre exactement ce que Cascade entend, après tous les réglages."),
+      li("Attaque et relâchement : l\'attaque décide de la vivacité sur un coup, le "
+         "relâchement de la respiration. Relâchement court = ça hachure ; long = ça reste "
+         "allumé. C\'est le réglage qui donne le caractère."),
+      note("Sécurité : si le son cesse d\'arriver — onglet fermé, micro débranché, machine en "
+           "veille — le réglage que VOUS aviez posé reprend la main en douceur. Il ne reste "
+           "jamais figé sur la dernière valeur entendue, et ne tombe jamais au noir."),
+      h2("8.9 — Une recette qui marche"),
       li("Une couche « champ / plan » sur l'axe de la profondeur, netteté 20 %, en fond."),
       li("Profondeur à 60 % : le lointain s'efface."),
       li("Palette Distance branchée sur la profondeur : le fond devient froid."),
@@ -584,8 +675,21 @@ E += [h1("1. Présentation"),
 
 # ── 7. Presets et projets ────────────────────────────────────────────────────
       h1("10. Presets, projets et sauvegarde"),
-      li("Presets (1-16), barre du haut : photographient toutes les couches. Sauver puis clic "
-         "sur un slot = mémorise ; clic simple = rappel instantané en live."),
+      li("Presets (1-16), GRILLE en haut : photographient toutes les couches. Sauver puis clic "
+         "sur un pavé = mémorise ; clic simple = rappel instantané en live. La grille tient sur "
+         "deux rangées de huit sur un ordinateur, quatre sur quatre sur une tablette — les "
+         "pavés ne bougent donc pas de place quand on redimensionne la fenêtre, ce qui compte "
+         "quand on vise une case dans le noir."),
+      li("Chaque pavé porte une BANDE DE COULEUR : une case par barre que le preset pilote, "
+         "teintée comme la couche qui la pilote. ⚠ C\'est une COUVERTURE, pas une image du "
+         "motif — un chase n\'allume qu\'une barre à la fois, une photo serait presque vide. "
+         "Elle répond à « qu\'est-ce que ce preset va allumer ? », pas à « à quoi il ressemble »."),
+      li("Le pavé orange est le dernier preset rappelé — celui qui joue. Pendant un fondu, on "
+         "voit en même temps celui d\'où l\'on vient."),
+      li("Un pavé au bord en POINTILLÉ ne pilote plus aucune barre : son groupe a été vidé, ou "
+         "les barres qu\'il visait ont disparu. Le rappeler ne donnerait rien. C\'est "
+         "l\'information la plus utile de la grille, et c\'est pour ça qu\'elle est montrée "
+         "au lieu d\'être masquée."),
       li("Fondu entre presets (panneau Vitesse, réglage « Fondu presets ») : à 0 le rappel "
          "est sec. Au-delà, la scène sortante CONTINUE DE JOUER et décroît pendant que la "
          "nouvelle monte — les deux chases tournent en parallèle, ce n'est pas un passage par "
