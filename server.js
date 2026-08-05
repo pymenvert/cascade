@@ -2657,6 +2657,12 @@ function readBody(req) {
  * ramènent d'« instantané » à « des heures », ce qui suffit à couvrir un show,
  * pas à en faire un secret fort.
  *
+ * ⚠ COMPROMIS ASSUMÉ du plafond global : quelqu'un qui rate volontairement
+ * 30 fois empêche les AUTRES appareils du réseau d'entrer pendant une minute.
+ * C'est un déni de service, mais le moins cher des deux : le régisseur garde sa
+ * machine (jamais bloquée), et l'alternative — laisser passer — rendrait le code
+ * cassable. Une gêne d'une minute contre la prise de contrôle du spectacle.
+ *
  * ⚠ LIMITE ASSUMÉE : le code haché est écrit dans `cascade-config.json`, en
  * clair sur le disque, à côté de l'exécutable. Quatre chiffres se cassent hors
  * ligne instantanément : le code ne protège donc PAS contre quelqu'un qui tient
