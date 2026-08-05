@@ -494,12 +494,32 @@ Interactions : **double-clic ou double-tap** (helper `onDblTap`, anti-rebond 500
 ### Icône de zone de notification — Windows uniquement
 
 Réglage `settings.systray`, **`false` par défaut**. `startSystray()` écrit le
-gabarit `SYSTRAY_PS1` dans un fichier temporaire et lance
+gabarit `SYSTRAY_PS1` dans un fichier temporaire (**avec un BOM** — 5.1 lirait
+sinon en page de codes ANSI) et lance
 `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File …` ;
 le script pose un `System.Windows.Forms.NotifyIcon` et interroge `/api/ping`
 pour peindre la pastille (verte = show en cours, rouge = à l'arrêt). Menu :
 ouvrir l'interface, démarrer, arrêter, quitter. `killSystray()` est appelé sur
 `exit`, `SIGINT` et `SIGTERM`.
+
+⚠ **`/api/ping`, jamais `/api/state` — c'est la contrainte principale.**
+`/api/state` remet `lastUiPollAt` à jour : sondé toutes les 1,5 s, l'arrêt
+automatique n'a plus jamais ses 8 s de silence et **Cascade ne se ferme plus
+tout seul**. Le défaut a existé ; `tests/api.test.js` le mesure maintenant en
+vrai (instance à part, `CASCADE_UI_GONE_MS=400`, on regarde si le processus
+meurt), et un mutant le rejoue. `/api/ping` ne révèle `running` et `systray`
+qu'à la machine hôte : la route est hors du portillon, donc publique.
+
+⚠ **Un seul chemin de sortie côté script (`Partir`), et il commence par
+`$ni.Visible = $false`.** `child.kill()` est un `TerminateProcess` : aucun
+finaliseur ne tourne, `NIM_DELETE` n'est jamais envoyé, et Windows garde une
+pastille morte jusqu'au passage de la souris. D'où `killSystray(true)` sur le
+décochage : le script voit `systray: false` sur son sondage et part proprement,
+le kill n'arrive que 3 s plus tard, en filet.
+
+⚠ **Trois échecs de sondage avant de partir.** Un pic de charge dépasse les 3 s
+d'attente ; partir au premier échec ferait disparaître l'icône *définitivement*
+(rien ne la rallume sans relancer Cascade).
 
 ⚠ Trois choses à savoir avant d'y toucher :
 
@@ -510,9 +530,26 @@ ouvrir l'interface, démarrer, arrêter, quitter. `killSystray()` est appelé su
   Swift, `xbar`…), ce que le zéro-dépendance interdit. La case est grisée sur
   Mac et le dit. **Ne pas « réparer » cette absence.**
 - **JAMAIS EXÉCUTÉE.** Le script a été écrit depuis Linux, sans PowerShell pour
-  le lancer. Le premier essai sur une vraie machine Windows reste à faire —
-  c'est la première chose à confirmer avec Pym. À l'arrêt, l'icône *disparaît*
-  au lieu de rougir : le processus qui la dessine est parti avec Cascade.
+  le lancer, et **la CI ne tourne que sur Ubuntu** : aucune ligne de ce dossier
+  ne sera jamais couverte par une exécution réelle. `tests/systray.test.js` lit
+  le source — c'est mieux que rien, à condition de savoir que c'est tout ce que
+  c'est. Le premier essai sur une vraie machine Windows reste à faire, et c'est
+  la première chose à confirmer avec Pym. À l'arrêt, l'icône *disparaît* au lieu
+  de rougir : le processus qui la dessine est parti avec Cascade.
+- **Windows range toute nouvelle icône dans le tiroir caché** (le chevron `^`).
+  Sans la note posée dans les Réglages, le premier essai n'aurait rien prouvé :
+  le script tourne, l'icône existe, personne ne la voit, et on conclut que c'est
+  mort. C'est de loin l'issue la plus probable d'un premier essai.
+- ⚠ **`SYSTRAY_PS1` est un littéral de gabarit JavaScript.** Un accent grave
+  (l'échappement de PowerShell) ou une séquence `${…}` casserait `server.js` **au
+  chargement** — Cascade ne démarrerait plus du tout, pas seulement l'icône. Un
+  test le vérifie.
+- Non corrigés, et assumés : sur un poste géré par stratégie de groupe,
+  `-ExecutionPolicy Bypass` ne prime pas sur `MachinePolicy`/`UserPolicy`, et le
+  motif `powershell -ExecutionPolicy Bypass -File %TEMP%\*.ps1` est signalé par
+  les EDR. Sur une machine de régie non gérée, ça passe. **Ne pas basculer sur
+  `-EncodedCommand` en croyant améliorer les choses : c'est un marqueur encore
+  plus signalé.**
 
 ## Pièges connus (importants)
 

@@ -2,7 +2,7 @@
 /** API HTTP : validation des entrées, presets, projet, import/export. */
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert');
-const { start, fixtures } = require('./helpers.js');
+const { start, sleep, fixtures } = require('./helpers.js');
 
 describe('API HTTP', () => {
   let h;
@@ -367,6 +367,89 @@ describe('API HTTP', () => {
     assert.equal((await h.state()).global.running, false);
     const off = await h.post('/api/settings', { systray: false });
     assert.equal(off.body.settings.systray, false);
+  });
+
+  // ── Ce que le script PowerShell lit, et ce qu'il ne doit surtout pas toucher ──
+  //
+  // Aucun de ces tests ne lance PowerShell : ils vérifient le CONTRAT côté
+  // serveur, qui est la seule moitié observable depuis Linux. Sans eux, la
+  // moitié Windows repose sur zéro mesure au lieu d'une.
+
+  test('l’icône sonde /api/ping, qui lui donne de quoi se peindre', async () => {
+    const avant = await h.get('/api/ping');
+    assert.equal(avant.body.app, 'Cascade', 'la carte de visite ne change pas');
+    assert.equal(avant.body.running, false, 'le script a besoin de l’état du show');
+    assert.equal(typeof avant.body.systray, 'boolean',
+      'et de savoir si la case est encore cochée, pour partir proprement');
+
+    await h.post('/api/start');
+    assert.equal((await h.get('/api/ping')).body.running, true,
+      'point vert : ping doit suivre le show, sinon l’icône ment');
+    await h.post('/api/stop');
+    assert.equal((await h.get('/api/ping')).body.running, false);
+
+    await h.post('/api/settings', { systray: true });
+    assert.equal((await h.get('/api/ping')).body.systray, true);
+    await h.post('/api/settings', { systray: false });
+    assert.equal((await h.get('/api/ping')).body.systray, false,
+      'décocher doit se voir sur ping : c’est le signal de sortie propre du script');
+  });
+
+  test('le sondage de l’icône NE réarme PAS l’arrêt automatique', async () => {
+    // LE défaut que cette famille de tests existe pour attraper. Première
+    // version : le script sondait `/api/state`, qui remet `lastUiPollAt` à
+    // maintenant. Toutes les 1,5 s, donc — et l'arrêt automatique exige 8 s de
+    // silence. Case cochée, l'utilisateur ferme son navigateur : Cascade ne se
+    // ferme PLUS JAMAIS tout seul. Combiné au mode app (pas de terminal) et à
+    // une icône que Windows range dans le tiroir caché, il ne reste que le
+    // Gestionnaire des tâches. Une fonction d'agrément cassait une fonction
+    // livrée, en silence.
+    //
+    // On mesure l'arrêt POUR DE VRAI, sur une instance à part : le veilleur est
+    // armé et le délai de grâce ramené à 400 ms. Pas de route de débogage, pas
+    // de repère interne exposé — le seul fait observable, c'est que le
+    // processus est mort ou vivant.
+    const sonde = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '400' });
+    try {
+      await sonde.state();                    // une interface s'est connectée : le veilleur s'arme
+      // Le refus de connexion EST le résultat attendu : le serveur est parti.
+      for (let i = 0; i < 12 && sonde.vivant(); i++) {
+        try { await sonde.get('/api/ping'); } catch (e) {}
+        await sleep(100);
+      }
+      assert.equal(sonde.vivant(), false,
+        'sondé uniquement par l’icône, Cascade doit quand même se fermer tout seul');
+    } finally { await sonde.stop(); }
+
+    // Témoin — sans lui, le test passerait aussi si le serveur mourait pour
+    // n'importe quelle autre raison.
+    const temoin = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '400' });
+    try {
+      for (let i = 0; i < 12; i++) { await temoin.state(); await sleep(100); }
+      assert.equal(temoin.vivant(), true,
+        'une vraie interface qui poll doit, elle, garder Cascade en vie');
+    } finally { await temoin.stop(); }
+  });
+
+  test('ping reste une carte de visite muette vu du réseau', async () => {
+    // La route est hors du portillon du code d'accès : tout ce qu'on y met est
+    // lisible sans s'authentifier. L'état du show et le réglage de l'icône ne
+    // sortent donc que pour la machine hôte, qui est la seule à en avoir besoin.
+    const r = await h.get('/api/ping', { from: '127.0.0.2' });
+    assert.equal(r.body.app, 'Cascade');
+    assert.equal(r.body.version, (await h.state()).version);
+    assert.equal('running' in r.body, false, 'l’état du show ne sort pas sur le réseau');
+    assert.equal('systray' in r.body, false, 'ni le réglage de l’icône');
+  });
+
+  test('le serveur dit sur QUELLE machine il tourne, pas le navigateur', async () => {
+    // L'interface s'ouvre depuis un iPad : `navigator.platform` répondrait pour
+    // la tablette, alors que l'icône se pose sur l'hôte. Case grisée à tort
+    // depuis une tablette Windows-less, case active à tort devant un hôte macOS
+    // — et `systray: true` écrit dans une config qui voyage sur la clé USB.
+    const st = await h.state();
+    assert.equal(typeof st.win, 'boolean', '/api/state doit trancher lui-même');
+    assert.equal(st.win, process.platform === 'win32');
   });
 
   test('un slot de preset hors bornes ne fait pas planter', async () => {

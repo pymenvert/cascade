@@ -234,7 +234,8 @@ describe('Vues — un axe de projection à la fois', () => {
     assert.equal(fx[1].inverse, true, 'l’inversion doit être mémorisée');
     assert.equal(fx[0].inverse, false, 'et ne pas contaminer les voisines');
     // Elle ne doit pas perturber la position
-    assert.ok(Array.isArray(fx[1].p3) && fx[1].p3.every(Number.isFinite));
+    assert.ok(Array.isArray(fx[1].p3) && fx[1].p3.length === 3
+      && fx[1].p3.every(Number.isFinite), 'p3 : ' + JSON.stringify(fx[1].p3));
 
     const exp = await h.get('/api/export');
     await h.post('/api/new', { keepFixtures: false });

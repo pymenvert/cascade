@@ -40,6 +40,11 @@ const BACKUP_FILE = CONFIG_FILE + '.bak';
 const LEGACY_FILE = process.env.CASCADE_CONFIG ? null : path.join(DATA_DIR, 'chaser-config.json');
 const NO_BROWSER = process.env.CASCADE_NO_BROWSER === '1';
 const NO_AUTOQUIT = process.env.CASCADE_NO_AUTOQUIT === '1';
+// Délai de grâce de l'arrêt automatique. Réglable pour que les tests puissent
+// le MESURER en une seconde au lieu de neuf : sans ça, la seule vérification
+// possible serait indirecte, et c'est exactement comme ça qu'on ne voit pas
+// qu'un sondage d'icône réarme le compteur.
+const UI_GONE_MS = Math.max(200, +process.env.CASCADE_UI_GONE_MS || 8000);
 
 // Robustesse : une erreur imprévue ne doit jamais tuer le show.
 process.on('uncaughtException', (e) => console.error('[cascade] erreur inattendue :', e && e.message));
@@ -1265,6 +1270,11 @@ function killCarabiner() { if (linkChild) { try { linkChild.kill(); } catch (e) 
  *
  * Le dialogue passe par l'API HTTP de Cascade, pas par un tuyau maison : le
  * script sait déjà parler à `localhost`, et ça évite tout un protocole.
+ *
+ * ⚠ EN ÉDITANT CE SCRIPT : c'est un littéral de gabarit JavaScript. Un accent
+ * grave (l'échappement de PowerShell) ou une séquence ${…} casserait
+ * `server.js` AU CHARGEMENT — Cascade ne démarrerait plus du tout, pas
+ * seulement l'icône. Les libellés sont aussi volontairement SANS ACCENTS.
  */
 const SYSTRAY_PS1 = `param([int]$Port)
 $ErrorActionPreference = 'SilentlyContinue'
@@ -1292,6 +1302,15 @@ $ni.Icon = $rouge
 $ni.Text = 'Cascade'
 $ni.Visible = $true
 
+# Un seul chemin de sortie, et il commence par effacer l'icone. Sans ce
+# NIM_DELETE (c'est ce que fait Visible = false), Windows garde une pastille
+# morte jusqu'a ce que la souris passe dessus.
+function Partir {
+  $ni.Visible = $false
+  [System.Windows.Forms.Application]::Exit()
+  [Environment]::Exit(0)
+}
+
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $mOuvrir = $menu.Items.Add("Ouvrir l'interface")
 $mOuvrir.add_Click({ Start-Process $base })
@@ -1302,23 +1321,32 @@ $mStop = $menu.Items.Add('Arreter le show')
 $mStop.add_Click({ Appeler '/api/stop' })
 $menu.Items.Add('-') | Out-Null
 $mQuit = $menu.Items.Add('Quitter Cascade')
-$mQuit.add_Click({ Appeler '/api/quit'; $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() })
+$mQuit.add_Click({ Appeler '/api/quit'; Partir })
 $ni.ContextMenuStrip = $menu
 $ni.add_MouseDoubleClick({ Start-Process $base })
 
-# Sondage de l'etat. Si le serveur ne repond plus, Cascade est parti : l'icone
-# disparait avec lui. C'est la limite honnete de ce montage — quand le serveur
-# est mort, il ne reste rien pour dessiner un point rouge.
+# Sondage de l'etat sur /api/ping : la route la plus legere, ET la seule qui ne
+# fasse pas passer ce script pour une interface ouverte (sinon l'arret
+# automatique de Cascade ne se declencherait plus jamais).
+#
+# Trois echecs d'affilee avant de partir, pas un seul : un pic de charge en
+# plein show fait depasser le delai de 3 s, et une icone qui disparait pour ca
+# ne revient plus jamais.
+$script:rates = 0
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 1500
 $timer.add_Tick({
   try {
-    $e = Invoke-RestMethod -Uri "$base/api/state" -TimeoutSec 3
-    if ($e.global.running) { $ni.Icon = $vert; $ni.Text = 'Cascade - le show tourne' }
+    $e = Invoke-RestMethod -Uri "$base/api/ping" -TimeoutSec 3 -ErrorAction Stop
+    $script:rates = 0
+    # La case vient d'etre decochee : on part proprement, sans laisser de
+    # fantome. Le serveur tue ce processus de son cote 3 s plus tard, au cas ou.
+    if ($e.PSObject.Properties['systray'] -and -not $e.systray) { Partir; return }
+    if ($e.running) { $ni.Icon = $vert; $ni.Text = 'Cascade - le show tourne' }
     else { $ni.Icon = $rouge; $ni.Text = 'Cascade - a l arret' }
   } catch {
-    $ni.Visible = $false
-    [System.Windows.Forms.Application]::Exit()
+    $script:rates = $script:rates + 1
+    if ($script:rates -ge 3) { Partir }
   }
 })
 $timer.Start()
@@ -1326,8 +1354,30 @@ $timer.Start()
 `;
 
 let systrayChild = null;
-function killSystray() {
-  if (systrayChild) { try { systrayChild.kill(); } catch (e) {} systrayChild = null; }
+/**
+ * Éteindre l'icône.
+ *
+ * `doux` = on laisse d'abord le script partir de LUI-MÊME. Il voit
+ * `systray: false` sur son prochain sondage (1,5 s au pire) et efface l'icône
+ * en partant. Tuer le processus, à l'inverse, n'exécute aucun nettoyage :
+ * `TerminateProcess` ne laisse pas le temps d'envoyer `NIM_DELETE`, et Windows
+ * garde une pastille morte jusqu'à ce que la souris passe dessus. Le kill reste
+ * armé 3 s plus tard, au cas où le script serait coincé — et il vise CE
+ * processus-là, pas « celui qui tourne à ce moment-là ».
+ *
+ * On garde la référence pendant ces 3 s : si la case est recochée entretemps,
+ * `startSystray()` ne relance rien et le script, revoyant `systray: true`,
+ * reste en place. L'icône n'a même pas cligné.
+ */
+function killSystray(doux) {
+  const enfant = systrayChild;
+  if (!enfant) return;
+  if (doux) {
+    setTimeout(() => { try { enfant.kill(); } catch (e) {} }, 3000).unref();
+    return;
+  }
+  systrayChild = null;
+  try { enfant.kill(); } catch (e) {}
 }
 function startSystray() {
   // Silencieux et sans conséquence si quoi que ce soit manque : cette fonction
@@ -1335,13 +1385,34 @@ function startSystray() {
   try {
     if (process.platform !== 'win32' || !state.settings.systray || systrayChild) return;
     const fichier = path.join(os.tmpdir(), 'cascade-systray.ps1');
-    fs.writeFileSync(fichier, SYSTRAY_PS1);
-    systrayChild = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+    // Le BOM n'est pas décoratif : PowerShell 5.1 lit un .ps1 SANS BOM dans la
+    // page de codes ANSI de la machine, pas en UTF-8. Le script est ASCII pur
+    // aujourd'hui (libellés volontairement sans accents), donc ça marcherait —
+    // mais le premier accent ajouté casserait tout, très loin d'ici.
+    fs.writeFileSync(fichier, '﻿' + SYSTRAY_PS1);
+    const enfant = spawn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
       '-ExecutionPolicy', 'Bypass', '-File', fichier, '-Port', String(actualPort)],
       { stdio: 'ignore', windowsHide: true });
-    systrayChild.on('error', () => { systrayChild = null; });
-    systrayChild.on('exit', () => { systrayChild = null; });
-  } catch (e) { systrayChild = null; }
+    systrayChild = enfant;
+    // ⚠ Comparer avant d'effacer. Sans ça : on tue A, on lance B, l'événement
+    // `exit` de A arrive APRÈS et met la référence à null alors que B est
+    // vivant — Cascade perd sa poignée et un `startSystray()` ultérieur pose
+    // une deuxième icône.
+    const oublier = () => { if (systrayChild === enfant) systrayChild = null; };
+    enfant.on('error', (e) => {
+      // Le seul endroit qui dira pourquoi rien n'apparaît. Sans ce message,
+      // un premier essai raté sur une vraie machine Windows ne remonte rien.
+      console.warn('[cascade] icône de notification : ' + (e && e.message));
+      oublier();
+    });
+    enfant.on('exit', (code) => {
+      if (code) console.warn('[cascade] icône de notification : PowerShell a quitté (code ' + code + ').');
+      oublier();
+    });
+  } catch (e) {
+    console.warn('[cascade] icône de notification : ' + (e && e.message));
+    systrayChild = null;
+  }
 }
 
 process.on('exit', () => { killCarabiner(); killSystray(); });
@@ -1355,10 +1426,12 @@ process.on('SIGTERM', () => { flushConfig(); killCarabiner(); killSystray(); pro
 //  - jamais tant qu'aucune interface ne s'est encore connectée (démarrage) ;
 //  - JAMAIS pendant que les chasers tournent (on ne coupe pas un show) ;
 //  - jamais si un contrôleur OSC externe a parlé récemment.
-// 8 s de grâce : un simple rechargement de page ne déclenche rien.
+//  - et l'icône de zone de notification sonde `/api/ping`, PAS `/api/state` :
+//    sinon elle passerait pour une interface ouverte et l'arrêt automatique ne
+//    se déclencherait plus jamais.
+// 8 s de grâce par défaut : un simple rechargement de page ne déclenche rien.
 // ---------------------------------------------------------------------------
 let lastUiPollAt = 0, lastOscAt = 0;
-const UI_GONE_MS = 8000;
 setInterval(() => {
   if (NO_AUTOQUIT || !lastUiPollAt) return;
   const now = Date.now();
@@ -1368,7 +1441,7 @@ setInterval(() => {
   console.log('[cascade] plus aucune interface ouverte — arrêt automatique.');
   flushConfig(); killCarabiner();
   process.exit(0);
-}, 2000);
+}, Math.min(2000, Math.max(100, Math.floor(UI_GONE_MS / 4))));
 
 // Courbe vitesse : 0–1 → ×0.1 à ×4, centre 0.5 = ×1
 function speedCurve(v) { return v >= 0.5 ? Math.pow(4, (v - 0.5) * 2) : Math.pow(10, (v - 0.5) * 2); }
@@ -3090,9 +3163,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Sert à repérer qu'une autre instance de Cascade tient déjà le port.
+  //
+  // ⚠ C'est AUSSI la route que sonde l'icône de zone de notification, et c'est
+  // délibéré : `/api/state` remet `lastUiPollAt` à jour, donc un sondage de
+  // l'icône y aurait fait passer Cascade pour « une interface est ouverte » et
+  // AURAIT DÉSACTIVÉ L'ARRÊT AUTOMATIQUE — case cochée, plus moyen de fermer
+  // Cascade autrement qu'au Gestionnaire des tâches. `/api/ping` n'y touche pas.
+  // Accessoirement, `/api/state` renvoie fixtures, couches, scène, vues et
+  // niveaux : une copie complète toutes les 1,5 s pour lire un booléen.
+  //
+  // Les deux clés ne sortent QUE pour la machine hôte : sur le réseau, ping
+  // reste la carte de visite minimale qu'il a toujours été (elle est hors du
+  // portillon du code d'accès, donc tout ce qu'on y met est public).
   if (url === '/api/ping') {
+    const rep = { app: APP_NAME, version: VERSION };
+    if (estLocal(req)) {
+      rep.running = state.global.running;
+      rep.systray = !!state.settings.systray;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ app: APP_NAME, version: VERSION }));
+    return res.end(JSON.stringify(rep));
   }
 
   if (url === '/api/export') {
@@ -3132,7 +3222,13 @@ const server = http.createServer(async (req, res) => {
     lastUiPollAt = Date.now(); // une interface est ouverte (voir arrêt automatique)
     lireNiveauAudio(req);      // suiveur audio : le niveau voyage sur le poll
     return json(res, {
-      app: APP_NAME, version: VERSION, net: lanUrls(),
+      // `win` décrit la machine où tourne CASCADE, pas le navigateur : le
+      // réglage de l'icône agit côté serveur, et l'interface est faite pour être
+      // ouverte depuis un iPad. `navigator.platform` répondrait sur la mauvaise
+      // machine — case grisée à tort depuis une tablette, case active à tort
+      // devant un hôte macOS (et `systray: true` écrit dans la config, qui
+      // voyage sur la clé USB).
+      app: APP_NAME, version: VERSION, net: lanUrls(), win: process.platform === 'win32',
       // ⚠ Le haché du code d'accès ne sort JAMAIS d'ici. Quatre chiffres, c'est
       // 10 000 combinaisons : un haché salé se casse hors ligne instantanément,
       // donc l'envoyer reviendrait à envoyer le code. L'interface n'a besoin
@@ -3566,7 +3662,7 @@ const server = http.createServer(async (req, res) => {
         if (state.settings.oscInPort !== oldIn) openOscInSocket();
         // L'icône se pose et se retire à chaud : cocher la case ne doit pas
         // demander de relancer Cascade.
-        if (state.settings.systray) startSystray(); else killSystray();
+        if (state.settings.systray) startSystray(); else killSystray(true);
         saveConfig();
         return json(res, { ok: true, settings: sansCode(state.settings) });
       }

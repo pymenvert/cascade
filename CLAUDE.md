@@ -39,7 +39,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
 ## Lancer / tester
 
 - `node server.js` → http://localhost:3333 (config générée : `cascade-config.json`).
-- **`npm test`** (= `node --test`) : 315 tests, zéro dépendance. **À lancer avant
+- **`npm test`** (= `node --test`) : 328 tests, zéro dépendance. **À lancer avant
   de conclure toute modif du serveur.** ⚠ `node --test tests/` échoue sur Node 24
   (chemin pris pour un module) — utiliser `node --test` tout court.
 - Instance isolée pour tester à la main : `CASCADE_PORT=3461 CASCADE_NO_BROWSER=1
@@ -49,7 +49,7 @@ qui ont déjà coûté cher. `docs/madmapper-osc-api.md` = référence OSC MadMa
   `status { :peers 1 :bpm 128.0 ... }\n`.
 - UI : les 45 tests d'interface pilotent un vrai navigateur en CDP maison
   (`tests/browser.js`, zéro dépendance) — **pas** Playwright. Sans navigateur ils
-  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (315), pas
+  s'annoncent ignorés SANS faire rougir la suite : vérifier le compte (328), pas
   la couleur. `CASCADE_NAVIGATEUR=<binaire>` impose un navigateur ;
   `PLAYWRIGHT_BROWSERS_PATH` est balayé tout seul. Si tu passes par Playwright
   à la main, `waitUntil: 'domcontentloaded'` (`networkidle` ne vient jamais,
@@ -90,7 +90,8 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**315 tests, 34 mutations sur 34 détectées** — campagne complète passée d'un
+**328 tests, 36 mutations** — 34 vérifiées d'un bloc le 2026-08-05, les 2
+suivantes (icône de notification) vérifiées à part le même jour. Campagne passée d'un
 bloc le 2026-08-05, zéro aveugle (le chiffre était additionné à la main avant).
 ⚠ La lancer dans une COPIE du dépôt : elle modifie `server.js` en place pendant
 une heure, et un commit parti à ce moment-là emporterait un mutant. Manuel PDF, README, CHANGELOG et
@@ -130,6 +131,20 @@ est libre. C'était la troisième mesure ; elle est faite.
    Le premier essai sur une vraie machine Windows reste à faire — c'est la
    première chose à confirmer avec lui. Le script vit dans `SYSTRAY_PS1`
    (embarqué, car le distribuable est un exécutable unique).
+
+   ⚠ **Avant l'essai, savoir ceci** : Windows range **toute nouvelle icône dans
+   le tiroir caché** (chevron `^`). L'issue la plus probable d'un premier essai
+   est « le script tourne, l'icône existe, Pym ne la voit pas ». La note est
+   dans les Réglages et dans le manuel — la lui montrer.
+
+   ⚠ Le script sonde **`/api/ping`, jamais `/api/state`** : `/api/state` remet
+   `lastUiPollAt` à jour et **désactivait l'arrêt automatique** (défaut réel,
+   trouvé en relecture, corrigé, mesuré, et rejoué par un mutant). Détail et
+   sept autres correctifs dans `docs/ETAT-DU-PROJET.md`.
+
+   ⚠ **La CI ne dira jamais rien de cette fonction** : elle ne tourne que sur
+   Ubuntu. `tests/systray.test.js` lit le source du PowerShell — c'est mieux que
+   rien, mais ce n'est *que* ça.
 2. **Capture ou GIF dans le README** — nécessite une vraie session MadMapper.
 3. Suite de l'audit : voir la section « À faire » de `../Cascade-AUDIT.md` (hors dépôt).
    ✅ Repli « avancé » du panneau Couches : FAIT (replis `advMiroirs` et

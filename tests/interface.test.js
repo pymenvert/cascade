@@ -152,7 +152,11 @@ describe('Interface — garde-fous du source', () => {
       'la forme saine a disparu de server.js — un mutant est peut-être resté :\n'
       + restes.map(m => '  - ' + m.nom + '\n      attendu : ' + m.de.trim()).join('\n'));
     // Et le garde-fou doit lui-même être vivant : une liste vide passerait tout.
-    assert.ok(MUTATIONS.length >= 27,
+    // ⚠ Ce plancher doit suivre les campagnes, sinon il ne mesure plus rien :
+    // il était resté à 27 alors que 34 mutants avaient été vérifiés, donc on
+    // pouvait en supprimer sept sans que rien ne le dise. Le monter à chaque
+    // campagne complète.
+    assert.ok(MUTATIONS.length >= 34,
       'la liste des mutations a maigri : ' + MUTATIONS.length);
   });
 

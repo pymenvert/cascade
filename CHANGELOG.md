@@ -31,6 +31,58 @@ Réglages et à confirmer sur une vraie machine Windows.
 Limite honnête du montage : quand le serveur s'arrête, l'icône disparaît au lieu
 de passer au rouge. Une fois Cascade parti, il ne reste rien pour la dessiner.
 
+### Corrigé — l'icône désactivait l'arrêt automatique
+
+Relecture adversariale de ce code jamais exécuté. La trouvaille principale n'est
+pas dans le PowerShell : elle est dans ce qu'il **sondait**.
+
+Le script interrogeait `/api/state` toutes les 1,5 s. Or `/api/state` remet
+`lastUiPollAt` à jour — c'est comme ça que Cascade sait qu'une interface est
+ouverte. L'arrêt automatique exige 8 s de silence : cette condition n'était donc
+**plus jamais vraie**. Case cochée, l'utilisateur ferme son navigateur et Cascade
+ne se ferme plus tout seul. Le blocage était même mutuel : le script ne sort que
+lorsque le serveur meurt, le serveur ne mourait plus parce que le script sondait.
+Ajoutez le mode app (pas de terminal) et une icône que Windows range d'office
+dans le tiroir caché : il ne restait que le Gestionnaire des tâches. **Une
+fonction d'agrément cassait une fonction livrée, en silence.**
+
+Le sondage passe donc par `/api/ping`, qui n'y touche pas — et qui, au passage,
+ne renvoie pas fixtures, couches, scène, vues et niveaux pour lire un booléen.
+`running` et `systray` n'y sortent que **pour la machine hôte** : la route est
+hors du portillon du code d'accès, donc tout ce qu'on y met est public.
+
+Un test le mesure pour de vrai : une instance à part, veilleur armé, délai de
+grâce ramené à 400 ms, sondée **uniquement** par ping — et on vérifie que le
+processus est bien mort. Avec un témoin qui poll normalement et doit survivre.
+
+Sept autres corrections issues de la même relecture :
+
+- **trois échecs de sondage avant de partir, pas un seul** : un pic de charge en
+  plein show dépasse les 3 s d'attente, et l'icône ne serait jamais revenue ;
+- **`-ErrorAction Stop` sur le sondage** : avec `$ErrorActionPreference =
+  'SilentlyContinue'` posé en tête, rien ne garantissait que le `catch` parte —
+  et c'est lui qui empêche un `powershell.exe` de survivre à Cascade ;
+- **un seul chemin de sortie, qui commence par effacer l'icône** : `kill()` est
+  un `TerminateProcess`, il n'exécute aucun nettoyage, et Windows garde alors
+  une pastille morte jusqu'au passage de la souris. Décocher la case laisse
+  maintenant le script partir de lui-même (il le voit sur son sondage) et le kill
+  ne sert plus que de filet, 3 s plus tard ;
+- **un échec de lancement se voit** : `stdio: 'ignore'` + `catch (e) {}` +
+  `SilentlyContinue`, trois bâillons superposés, ne laissaient aucun moyen de
+  savoir pourquoi rien n'apparaît. Le code de sortie de PowerShell est journalisé ;
+- **course sur la référence au processus** : l'événement `exit` de l'ancien
+  script effaçait la poignée du nouveau, d'où une deuxième icône possible ;
+- **BOM sur le fichier `.ps1`** : PowerShell 5.1 lit un script sans BOM dans la
+  page de codes ANSI. Tout est ASCII aujourd'hui, donc ça marchait — mais le
+  premier accent ajouté aurait cassé, très loin d'ici ;
+- **la case dit enfin la vérité** : elle se grisait d'après `navigator.platform`,
+  c'est-à-dire d'après la machine qui REGARDE. Or l'interface s'ouvre depuis un
+  iPad et l'icône se pose sur l'hôte. Le serveur tranche maintenant lui-même.
+
+Et une note dans les réglages : **Windows range toute nouvelle icône dans le
+tiroir caché**. Sans ça, le premier essai n'aurait rien prouvé — le script aurait
+tourné, l'icône aurait existé, et personne ne l'aurait vue.
+
 ### Ajouté — Cascade ne répond plus qu'à son propre nom (« DNS rebinding »)
 
 Sans ce garde, **tous les autres tombaient**. L'attaque : une page sur

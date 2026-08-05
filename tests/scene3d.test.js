@@ -106,6 +106,7 @@ describe('Espace 3D', () => {
       p3: [Infinity, NaN, 'loin'], dir3: [1, 0, 0], len3: -5,
     }] });
     const f = (await h.state()).fixtures[0];
+    assert.equal(f.p3.length, 3, 'p3 doit rester un triplet — [] passerait le every() suivant');
     assert.ok(f.p3.every(Number.isFinite), 'p3 doit rester fini : ' + JSON.stringify(f.p3));
     assert.ok(f.len3 > 0 && f.len3 <= 50, 'len3 hors bornes : ' + f.len3);
     assert.ok(Number.isFinite(f.x) && Number.isFinite(f.y), 'la 2D dérivée doit rester finie');

@@ -252,6 +252,23 @@ const MUTATIONS = [
     de: '  if (!hoteAutorise(req)) {',
     vers: '  if (false) {',
   },
+  {
+    // L'icone de notification sonde toutes les 1,5 s. Si ce sondage compte
+    // comme « une interface est ouverte », l'arret automatique n'a plus jamais
+    // ses 8 s de silence : case cochee, Cascade ne se ferme plus tout seul.
+    nom: 'le sondage de l icone rearme l arret automatique (Cascade ne se ferme plus)',
+    cible: 'tests/api.test.js',
+    de: "    const rep = { app: APP_NAME, version: VERSION };",
+    vers: "    const rep = { app: APP_NAME, version: VERSION }; lastUiPollAt = Date.now();",
+  },
+  {
+    // Le script part au premier echec au lieu du troisieme : un pic de charge
+    // en plein show fait disparaitre l icone, et elle ne revient jamais.
+    nom: 'l icone part au premier echec de sondage, pas au troisieme',
+    cible: 'tests/systray.test.js',
+    de: 'if ($script:rates -ge 3) { Partir }',
+    vers: 'if ($script:rates -ge 1) { Partir }',
+  },
 ];
 
 module.exports = MUTATIONS;

@@ -1046,6 +1046,10 @@
   (macOS n'a pas d'équivalent pilotable sans installer autre chose), et <strong>jamais essayée
   en vrai</strong> : elle a été écrite depuis une machine Linux. Si elle ne fait rien, elle ne
   casse rien non plus — dites-le et on corrige.</p>
+  <p class="hint" id="systrayOu" style="margin:4px 0 10px;display:none">💡 Windows range
+  <strong>toute nouvelle icône dans le tiroir caché</strong> : si vous ne la voyez pas près de
+  l'heure, cliquez le chevron <strong>^</strong> à gauche de l'horloge et faites-la glisser
+  dehors. Ce n'est à faire qu'une fois.</p>
   <div class="mini" style="margin:6px 0 2px">
     <button id="btnAccesRetirer" class="ghost" style="display:none"
       title="Supprime le code : Cascade redevient accessible sans mot de passe depuis le réseau">🔓 Retirer le code</button>
@@ -2933,9 +2937,12 @@ $('#btnSettings').onclick = () => {
   $('#setAcces').value = '';
   $('#setSystray').checked = !!S.settings.systray;
   // Ne pas proposer une case qui ne peut rien faire : hors Windows, on le dit.
-  const surWindows = /Win/i.test(navigator.platform || navigator.userAgent || '');
+  // ⚠ On demande au SERVEUR, pas au navigateur : le réglage agit sur la machine
+  // qui fait tourner Cascade, et cette page s'ouvre aussi bien depuis un iPad.
+  const surWindows = !!S.win;
   $('#rowSystray').style.opacity = surWindows ? '1' : '0.45';
   $('#systrayNote').style.display = surWindows ? 'none' : '';
+  $('#systrayOu').style.display = surWindows ? '' : 'none';
   const a = (S.acces || {});
   $('#accesEtat').textContent = a.actif
     ? '— actif. Laisser vide ne change rien ; taper 4 chiffres le remplace.'
@@ -2970,7 +2977,14 @@ $('#btnTrouverPort').onclick = async () => {
 };
 $('#setCancel').onclick = () => $('#dlgSettings').close();
 $('#setSave').onclick = async () => {
-  await post('/api/settings', { mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value, feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value });
+  // Un SEUL envoi de réglages. Deux, c'étaient deux sauvegardes de config et
+  // deux évaluations de l'icône par enregistrement — de quoi tuer puis relancer
+  // le script coup sur coup.
+  await post('/api/settings', {
+    mmHost: $('#setHost').value.trim(), mmPort: +$('#setPort').value,
+    feedbackPort: +$('#setFb').value, oscInPort: +$('#setOscIn').value,
+    systray: $('#setSystray').checked,
+  });
   await post('/api/global', { param: $('#setParam').value.trim() || 'luminosity' });
   // ⚠ UN CHAMP VIDE NE TOUCHE À RIEN. Une première version envoyait alors un
   // retrait — or le champ est vidé à CHAQUE ouverture du dialogue (le serveur ne
@@ -2978,7 +2992,6 @@ $('#setSave').onclick = async () => {
   // enregistrer supprimait donc le code d'accès en silence, et déconnectait
   // toutes les tablettes. Le retrait est maintenant un geste explicite : le
   // bouton « Retirer le code », qui demande confirmation.
-  await post('/api/settings', { systray: $('#setSystray').checked });
   const nouveau = $('#setAcces').value.trim();
   if (nouveau) {
     const r = await post('/api/acces', { nouveau });

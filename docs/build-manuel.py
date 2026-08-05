@@ -290,6 +290,9 @@ E += [h1("1. Présentation"),
       note("⚠ Quand Cascade s'arrête, l'icône DISPARAÎT au lieu de passer au rouge : une fois "
            "le programme parti, il ne reste rien pour la dessiner. Icône présente = Cascade "
            "tourne."),
+      note("Vous ne la voyez pas ? Windows range TOUTE nouvelle icône dans le tiroir caché : "
+           "cliquez le chevron ^ à gauche de l'horloge et faites-la glisser dehors. "
+           "C'est à faire une seule fois, et Windows s'en souvient."),
 
 # ── 4. Les couches ───────────────────────────────────────────────────────────
       h1("4. Les couches (multi-chasers)"),
