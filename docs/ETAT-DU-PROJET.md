@@ -1,7 +1,9 @@
 # Cascade — état du projet (reprise de travail)
 
 > Fichier de reprise. **À lire en premier** avant toute modification.
-> Dernière mise à jour : 2026-08-04 — version **2.0.2** (+ la grille de presets, non publiée).
+> Dernière mise à jour : 2026-08-05 — version **2.0.2**, plus quatre fonctions
+> **non publiées** : grille de presets, suiveur audio, replis du panneau Couches,
+> code d'accès. ⚠ La prochaine version est donc une **MINEURE (2.1.0)**.
 > Voir aussi `CLAUDE.md` (règles) et `CHANGELOG.md` (versions).
 > L'audit technique vit **hors du dépôt** : `../Cascade-AUDIT.md`. ⚠ Il est donc
 > **absent des clones frais** (sessions distantes, CI) : ne jamais faire dépendre
@@ -407,6 +409,17 @@ Cascade/
 - `state.presets[16]` : `{ name, layers[], fixtures[] }` — mémorise aussi la disposition.
   ⚠ `/api/state` n'en expose que les **noms** (`presetNames()`), pas le contenu
 - `state.midiMap` : `{ 'cc:ch:num' | 'note:ch:num' → cible }`
+- `state.settings.acces` : `{ sel, h }` ou `null` — **haché salé** du code d'accès.
+  ⚠ Il ne sort JAMAIS du serveur (`sansCode()` le retire de `/api/state` et de
+  `/api/settings`) : 4 chiffres se cassent hors ligne instantanément, donc l'envoyer
+  reviendrait à envoyer le code. Il est en revanche dans `cascade-config.json`, en
+  clair sur le disque — limite assumée, même domaine de confiance que la machine.
+- `state.settings.audio*` : `audioGain, audioSeuil, audioAttaque, audioRelache,
+  audioBande` — calibration du suiveur audio. Ici et **pas** dans le `localStorage` :
+  la régie doit tenir sur une clé USB.
+- `L.lfo.src` / `global.modGlobal.src` : `'lfo' | 'audio'` — d'où vient le mouvement
+  du modulateur. Liste fermée ; une valeur inconnue retombe sur `'lfo'`, donc toute
+  config existante se comporte comme avant.
 - `link` (hors state, runtime) : `{ active, connected, bpm, peers, error }` + `linkSock/linkChild/linkRetry`
 
 ### Sémantique importante
@@ -428,6 +441,25 @@ Cascade/
 `POST` : `/api/layer {id,set}` · `/api/layers {action:add|remove,id}` · `/api/global {speed,master,param}` · `/api/preset {action:save|recall|clear|rename, slot, name?, fadeMs?}` · `/api/resync {id?}` · `/api/link {enabled}` · `/api/quit` · `/api/project {name}` · `/api/start` · `/api/stop` · `/api/blackout` · `/api/tap {id}` · `/api/fixtures {fixtures}` · `/api/discover` · `/api/layout` · `/api/inspect {index}` · `/api/test {index}` · `/api/midimap {map}` · `/api/settings` · `/api/import` · `/api/new {keepFixtures}`
 
 Ajoutées en **v2** : `/api/scene` (cotes du plateau) · `/api/fixture3d {id,p3,dir3}` · `/api/geometrie` (renvoi de la disposition vers MadMapper) · `/api/groups` · `/api/vues` · `/api/vue` · `/api/vuecheck` (relecture des dossiers) · `/api/coupure` (coupure de secours) · `/api/demo` · `/api/trouverport`
+
+Ajoutées après la 2.0.2 :
+
+- `GET /api/presets-info` → `{ rev, infos[16] }` — **empreintes** des presets, servies
+  À LA DEMANDE. Volontairement hors de `/api/state` : cette réponse part 8 fois par
+  seconde. L'interface ne rappelle cette route que quand `presetsRev` change.
+- `POST /api/acces` — **hors du portillon**, forcément. `{ code }` = entrer ;
+  `{ nouveau }` = poser ou retirer (exige d'être déjà autorisé). Le jeton revient
+  en cookie `HttpOnly` + `SameSite=Strict`.
+
+⚠ **Deux gardes sur toutes les routes `/api/`** depuis le code d'accès :
+
+1. **Le portillon** — 401 si un code est posé et que la requête vient du réseau sans
+   jeton. Exceptions : `/api/ping` (détection d'instance) et `/api/acces`. La PAGE,
+   elle, reste servie : sans elle, impossible d'afficher la demande de code.
+2. **`Content-Type: application/json` obligatoire sur les POST** (415 sinon). C'est
+   une protection CSRF : `localhost` est exempté de code, donc sans ce garde une
+   page piégée ouverte sur la machine hôte pourrait poster un formulaire vers
+   `/api/new` ou `/api/quit`. Un formulaire ne peut pas poser ce type de contenu.
 
 Toutes les entrées sont validées/bornées (`sanitizeLayerSet`, `sanitizeLayer`, `sanitizeFixtures`, `cnum`, `ENUMS`).
 
