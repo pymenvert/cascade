@@ -423,9 +423,16 @@ describe('API HTTP', () => {
 
     // Témoin — sans lui, le test passerait aussi si le serveur mourait pour
     // n'importe quelle autre raison.
-    const temoin = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '400' });
+    //
+    // Sa fenêtre d'observation (≈2 s) dépasse largement son délai de grâce
+    // (600 ms), sinon il ne prouverait rien : un serveur qui survit moins
+    // longtemps que sa propre grâce survivrait même sans être sollicité. Et la
+    // marge entre le pas de sondage (50 ms) et la grâce est de 12× — il faudrait
+    // qu'une requête locale mette plus d'une demi-seconde pour le faire rougir
+    // à tort sur un runner chargé.
+    const temoin = await start(null, { CASCADE_NO_AUTOQUIT: '0', CASCADE_UI_GONE_MS: '600' });
     try {
-      for (let i = 0; i < 12; i++) { await temoin.state(); await sleep(100); }
+      for (let i = 0; i < 40; i++) { await temoin.state(); await sleep(50); }
       assert.equal(temoin.vivant(), true,
         'une vraie interface qui poll doit, elle, garder Cascade en vie');
     } finally { await temoin.stop(); }
