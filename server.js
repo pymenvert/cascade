@@ -2669,6 +2669,16 @@ function readBody(req) {
  * fenêtre, donc au moment où il se lève, la fenêtre est forcément expirée et le
  * compteur repart de zéro. Raccourcir le blocage sous la fenêtre casserait ça.
  *
+ * ⚠ LIMITE CONNUE, NON CORRIGÉE — le « DNS rebinding ». Rien ne vérifie l'en-tête
+ * `Host` : une page hébergée sur un domaine qui résout vers 127.0.0.1 devient
+ * MÊME ORIGINE aux yeux du navigateur, et tous les gardes ci-dessus tombent avec
+ * elle. Le correctif serait de refuser un `Host` qui n'est ni localhost ni une
+ * adresse de `lanUrls()` — mais il casserait l'accès par nom d'hôte
+ * (`http://mac-de-pym.local:3333`), qui marche aujourd'hui. Le QR code, lui,
+ * donne toujours une adresse IP. ⚠ ARBITRAGE DE PYM avant de trancher : on
+ * échange une attaque sophistiquée contre une façon de se connecter qui
+ * fonctionne. Ne pas « corriger » ça tout seul.
+ *
  * ⚠ COMPROMIS ASSUMÉ du plafond global : quelqu'un qui rate volontairement
  * 30 fois empêche les AUTRES appareils du réseau d'entrer pendant une minute.
  * C'est un déni de service, mais le moins cher des deux : le régisseur garde sa

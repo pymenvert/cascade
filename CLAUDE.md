@@ -90,7 +90,10 @@ dossiers et fondu · 7 modes de fusion · perspective atmosphérique · palette 
 N arrêts, branchable sur la profondeur ou la hauteur · décalage réparti ·
 crossfader A/B · modulateurs (LFO) par couche et global · coupure de secours · renvoi de disposition · démos · repère 3D.
 
-**313 tests, 33 mutations sur 33 détectées.** Manuel PDF, README, CHANGELOG et
+**313 tests, 33 mutations sur 33 détectées** — campagne complète passée d'un
+bloc le 2026-08-05, zéro aveugle (le chiffre était additionné à la main avant).
+⚠ La lancer dans une COPIE du dépôt : elle modifie `server.js` en place pendant
+une heure, et un commit parti à ce moment-là emporterait un mutant. Manuel PDF, README, CHANGELOG et
 exécutables des 4 plateformes sont à jour ; l'exécutable Windows a été lancé et
 interrogé pour de vrai.
 
